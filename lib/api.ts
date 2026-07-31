@@ -113,3 +113,17 @@ export async function getReferenceData(): Promise<{
     return { provinces, trainingTypes, source: "demo" };
   }
 }
+
+export async function getLiveTrainerCatalog(): Promise<{
+  trainers: Trainer[];
+  provinces: Province[];
+  trainingTypes: TrainingType[];
+}> {
+  const request: RequestInit = { cache: "no-store" };
+  const [liveTrainers, liveProvinces, liveTrainingTypes] = await Promise.all([
+    apiRequest<Trainer[]>("/v1/trainers", request),
+    apiRequest<Province[]>("/v1/provinces", request),
+    apiRequest<TrainingType[]>("/v1/training-types", request),
+  ]);
+  return { trainers: liveTrainers, provinces: liveProvinces, trainingTypes: liveTrainingTypes };
+}

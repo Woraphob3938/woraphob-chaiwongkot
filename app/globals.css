@@ -1610,6 +1610,40 @@ h3 {
   color: var(--color-muted);
 }
 
+.booking-loading,
+.booking-retry,
+.catalog-unavailable {
+  display: grid;
+  max-width: 44rem;
+  justify-items: start;
+  gap: var(--space-md);
+  padding: var(--space-xl);
+  background: var(--color-paper-2);
+  border-top: 1px solid var(--color-rule);
+  border-bottom: 1px solid var(--color-rule);
+}
+
+.booking-loading {
+  grid-template-columns: auto minmax(0, 1fr);
+  align-items: center;
+  color: var(--color-muted);
+}
+
+.booking-retry p,
+.catalog-unavailable p {
+  max-width: var(--measure);
+  color: var(--color-muted);
+}
+
+.catalog-unavailable {
+  margin-block: var(--space-2xl);
+}
+
+.booking-fields .field-error {
+  display: block;
+  margin-top: var(--space-xs);
+}
+
 .spin {
   animation: spin 0.8s linear infinite;
 }
