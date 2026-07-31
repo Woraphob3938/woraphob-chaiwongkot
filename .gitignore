@@ -4,6 +4,7 @@ out/
 output/playwright/
 .playwright-cli/
 .codex/
+.worktrees/
 *.tsbuildinfo
 *.log
 .env
