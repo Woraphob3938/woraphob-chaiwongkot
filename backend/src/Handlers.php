@@ -63,11 +63,152 @@ final class Handlers
 
     public function trainer(string $slug): never
     {
-        $row = $this->trainerRow('tp.slug = ?', [$slug]);
+        $row = $this->trainerRow('tp.slug = ? AND u.status = "active"', [$slug]);
         if (!$row || $row['approval_status'] !== 'approved') {
             throw new HttpException(404, 'ไม่พบโปรไฟล์เทรนเนอร์', 'TRAINER_NOT_FOUND');
         }
         Http::json($this->trainerPayload($row));
+    }
+
+    public function trainerMe(): never
+    {
+        $user = $this->auth->requireUser(['trainer']);
+        $profile = $this->database->fetchOne(
+            'SELECT id, slug, approval_status, approval_note FROM trainer_profiles WHERE user_id = ?',
+            [$user['id']]
+        );
+        if (!$profile) {
+            Http::json(['profile' => null, 'certificates' => [], 'slots' => []]);
+        }
+
+        $profileId = (int) $profile['id'];
+        $certificates = $this->database->fetchAll(
+            'SELECT id, name, issuer, issued_year, status
+             FROM trainer_certificates WHERE trainer_profile_id = ? ORDER BY id DESC',
+            [$profileId]
+        );
+        $slots = $this->database->fetchAll(
+            'SELECT id, starts_at, ends_at, state
+             FROM availability_slots
+             WHERE trainer_profile_id = ? AND starts_at >= UTC_TIMESTAMP()
+             ORDER BY starts_at LIMIT 100',
+            [$profileId]
+        );
+
+        Http::json([
+            'profile' => [
+                'id' => $profileId,
+                'slug' => $profile['slug'],
+                'displayName' => $user['displayName'],
+                'approvalStatus' => $profile['approval_status'],
+                'approvalNote' => $profile['approval_note'],
+            ],
+            'certificates' => array_map(fn(array $item): array => [
+                'id' => (int) $item['id'],
+                'name' => $item['name'],
+                'issuer' => $item['issuer'],
+                'issuedYear' => $item['issued_year'] === null ? null : (int) $item['issued_year'],
+                'status' => $item['status'],
+            ], $certificates),
+            'slots' => array_map(fn(array $slot): array => [
+                'id' => (int) $slot['id'],
+                'startsAt' => $this->iso($slot['starts_at']),
+                'endsAt' => $this->iso($slot['ends_at']),
+                'state' => $slot['state'],
+            ], $slots),
+        ]);
+    }
+
+    public function createAvailabilitySlot(): never
+    {
+        $user = $this->auth->requireUser(['trainer']);
+        $input = Http::body();
+        Http::requireFields($input, ['startsAt', 'endsAt']);
+        $startsAt = WorkflowRules::parseUtc((string) $input['startsAt'], 'startsAt');
+        $endsAt = WorkflowRules::parseUtc((string) $input['endsAt'], 'endsAt');
+        WorkflowRules::assertAvailabilityWindow(
+            new DateTimeImmutable('now', new DateTimeZone('UTC')),
+            $startsAt,
+            $endsAt
+        );
+
+        $slot = $this->database->transaction(function (PDO $pdo) use ($user, $startsAt, $endsAt): array {
+            $profileStatement = $pdo->prepare(
+                'SELECT id, approval_status FROM trainer_profiles WHERE user_id = ? FOR UPDATE'
+            );
+            $profileStatement->execute([$user['id']]);
+            $profile = $profileStatement->fetch();
+            if (!$profile || $profile['approval_status'] !== 'approved') {
+                throw new HttpException(
+                    403,
+                    'เทรนเนอร์ต้องได้รับการอนุมัติก่อนสร้างตาราง',
+                    'TRAINER_NOT_APPROVED'
+                );
+            }
+
+            $overlap = $pdo->prepare(
+                'SELECT id FROM availability_slots
+                 WHERE trainer_profile_id = ? AND starts_at < ? AND ends_at > ?
+                 LIMIT 1'
+            );
+            $overlap->execute([
+                (int) $profile['id'],
+                $endsAt->format('Y-m-d H:i:s'),
+                $startsAt->format('Y-m-d H:i:s'),
+            ]);
+            if ($overlap->fetch()) {
+                throw new HttpException(409, 'ช่วงเวลานี้ทับกับตารางที่มีอยู่', 'SLOT_OVERLAP');
+            }
+
+            $insert = $pdo->prepare(
+                'INSERT INTO availability_slots (trainer_profile_id, starts_at, ends_at, state)
+                 VALUES (?, ?, ?, "available")'
+            );
+            $insert->execute([
+                (int) $profile['id'],
+                $startsAt->format('Y-m-d H:i:s'),
+                $endsAt->format('Y-m-d H:i:s'),
+            ]);
+            return [
+                'id' => (int) $pdo->lastInsertId(),
+                'startsAt' => $startsAt->format('Y-m-d\TH:i:s.000\Z'),
+                'endsAt' => $endsAt->format('Y-m-d\TH:i:s.000\Z'),
+                'state' => 'available',
+            ];
+        });
+
+        Http::json($slot, 201);
+    }
+
+    public function deleteAvailabilitySlot(string $slotId): never
+    {
+        $user = $this->auth->requireUser(['trainer']);
+        $this->database->transaction(function (PDO $pdo) use ($slotId, $user): void {
+            $statement = $pdo->prepare(
+                'SELECT s.id, s.starts_at, s.state, tp.approval_status
+                 FROM availability_slots s
+                 JOIN trainer_profiles tp ON tp.id = s.trainer_profile_id
+                 WHERE s.id = ? AND tp.user_id = ? FOR UPDATE'
+            );
+            $statement->execute([(int) $slotId, $user['id']]);
+            $slot = $statement->fetch();
+            if (!$slot) {
+                throw new HttpException(404, 'ไม่พบช่วงเวลาว่าง', 'SLOT_NOT_FOUND');
+            }
+            if ($slot['approval_status'] !== 'approved') {
+                throw new HttpException(403, 'เทรนเนอร์ยังไม่ได้รับการอนุมัติ', 'TRAINER_NOT_APPROVED');
+            }
+            if ($slot['state'] !== 'available' || strtotime($slot['starts_at'] . ' UTC') <= time()) {
+                throw new HttpException(
+                    409,
+                    'ลบได้เฉพาะช่วงเวลาในอนาคตที่ยังว่าง',
+                    'SLOT_NOT_DELETABLE'
+                );
+            }
+            $pdo->prepare('DELETE FROM availability_slots WHERE id = ?')->execute([(int) $slot['id']]);
+        });
+
+        Http::json(['id' => (int) $slotId, 'deleted' => true]);
     }
 
     public function register(): never
@@ -483,7 +624,9 @@ final class Handlers
         );
         $slots = $this->database->fetchAll(
             'SELECT id, starts_at, ends_at, state FROM availability_slots
-             WHERE trainer_profile_id = ? AND starts_at >= UTC_TIMESTAMP() AND starts_at < DATE_ADD(UTC_TIMESTAMP(), INTERVAL 2 MONTH)
+             WHERE trainer_profile_id = ? AND starts_at >= UTC_TIMESTAMP()
+               AND starts_at < DATE_ADD(UTC_TIMESTAMP(), INTERVAL 2 MONTH)
+               AND state = "available"
              ORDER BY starts_at LIMIT 60',
             [$profileId]
         );
@@ -510,7 +653,7 @@ final class Handlers
             ], $certificates),
             'slots' => array_map(fn(array $slot): array => [
                 'id' => (int) $slot['id'], 'startsAt' => $this->iso($slot['starts_at']), 'endsAt' => $this->iso($slot['ends_at']),
-                'available' => $slot['state'] === 'available',
+                'available' => true,
             ], $slots),
             'image' => $row['image_path'],
             'demo' => (bool) $row['is_demo'],

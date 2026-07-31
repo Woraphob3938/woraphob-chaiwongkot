@@ -34,6 +34,8 @@ try {
     if ($method === 'POST' && $path === '/v1/auth/login') $handlers->login();
     if ($method === 'GET' && $path === '/v1/me') $handlers->me();
     if ($method === 'POST' && $path === '/v1/trainer-applications') $handlers->trainerApplication();
+    if ($method === 'GET' && $path === '/v1/trainer/me') $handlers->trainerMe();
+    if ($method === 'POST' && $path === '/v1/availability-slots') $handlers->createAvailabilitySlot();
     if ($method === 'GET' && $path === '/v1/bookings') $handlers->listBookings();
     if ($method === 'POST' && $path === '/v1/bookings') $handlers->createBooking();
     if ($method === 'POST' && $path === '/v1/payments') $handlers->payment();
@@ -41,6 +43,7 @@ try {
     if ($method === 'GET' && $path === '/v1/admin/review-queue') $handlers->adminReviewQueue();
 
     if ($method === 'GET' && preg_match('#^/v1/trainers/([^/]+)$#', $path, $matches) === 1) $handlers->trainer(urldecode($matches[1]));
+    if ($method === 'DELETE' && preg_match('#^/v1/availability-slots/(\d+)$#', $path, $matches) === 1) $handlers->deleteAvailabilitySlot($matches[1]);
     if ($method === 'PATCH' && preg_match('#^/v1/bookings/([^/]+)/status$#', $path, $matches) === 1) $handlers->updateBookingStatus(urldecode($matches[1]));
     if ($method === 'GET' && preg_match('#^/v1/chat-rooms/(\d+)/messages$#', $path, $matches) === 1) $handlers->messages($matches[1]);
     if ($method === 'POST' && preg_match('#^/v1/chat-rooms/(\d+)/messages$#', $path, $matches) === 1) $handlers->sendMessage($matches[1]);
