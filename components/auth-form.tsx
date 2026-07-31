@@ -4,6 +4,7 @@ import Link from "next/link";
 import { FormEvent, useState } from "react";
 import { ArrowRight, CircleAlert, LoaderCircle, LockKeyhole, Mail, UserRound } from "lucide-react";
 import { apiRequest } from "@/lib/api";
+import type { AuthenticatedUser } from "@/lib/types";
 
 export function AuthForm({ mode }: { mode: "login" | "register" }) {
   const [pending, setPending] = useState(false);
@@ -16,11 +17,13 @@ export function AuthForm({ mode }: { mode: "login" | "register" }) {
     const data = new FormData(event.currentTarget);
     const payload = Object.fromEntries(data.entries());
     try {
-      const result = await apiRequest<{ token: string; user: { role: string } }>(`/v1/auth/${mode}`, {
+      const result = await apiRequest<{ token: string; user: AuthenticatedUser }>(`/v1/auth/${mode}`, {
         method: "POST",
         body: JSON.stringify(payload),
       });
       localStorage.setItem("fitconnect_token", result.token);
+      localStorage.setItem("fitconnect_user", JSON.stringify(result.user));
+      window.dispatchEvent(new CustomEvent("fitconnect:auth", { detail: result.user }));
       setMessage({ tone: "success", text: "เชื่อมต่อบัญชีสำเร็จ กำลังพาไปยังพื้นที่ใช้งานของคุณ" });
       window.location.href = result.user.role === "trainer" ? "/trainer" : result.user.role === "admin" ? "/admin" : "/member";
     } catch (error) {

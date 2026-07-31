@@ -2,7 +2,9 @@
 
 import Link from "next/link";
 import { FormEvent, useEffect, useRef, useState } from "react";
-import { Dumbbell, Menu, Search, X } from "lucide-react";
+import { ChevronDown, Dumbbell, LayoutDashboard, LogOut, Menu, Search, X } from "lucide-react";
+import { ApiError, apiRequest } from "@/lib/api";
+import type { AuthenticatedUser, UserRole } from "@/lib/types";
 
 const navItems = [
   { href: "/trainers", label: "ค้นหาเทรนเนอร์" },
@@ -10,20 +12,126 @@ const navItems = [
   { href: "/member", label: "การจองของฉัน" },
 ];
 
+const dashboardByRole: Record<UserRole, string> = {
+  member: "/member",
+  trainer: "/trainer",
+  admin: "/admin",
+};
+
+function userInitials(displayName: string) {
+  const parts = displayName.trim().split(/\s+/).filter(Boolean);
+  if (parts.length === 0) return "FC";
+  return parts.slice(0, 2).map((part) => Array.from(part)[0]).join("").toLocaleUpperCase("th-TH");
+}
+
+function readStoredUser() {
+  const stored = localStorage.getItem("fitconnect_user");
+  if (!stored) return null;
+  try {
+    const user = JSON.parse(stored) as Partial<AuthenticatedUser>;
+    if (
+      typeof user.id !== "number"
+      || typeof user.email !== "string"
+      || typeof user.displayName !== "string"
+      || !user.role
+      || !(user.role in dashboardByRole)
+    ) {
+      throw new Error("Invalid stored user");
+    }
+    return user as AuthenticatedUser;
+  } catch {
+    localStorage.removeItem("fitconnect_user");
+    return null;
+  }
+}
+
 export function SiteHeader() {
   const dialogRef = useRef<HTMLDialogElement>(null);
+  const profileRef = useRef<HTMLDivElement>(null);
   const [mobileOpen, setMobileOpen] = useState(false);
+  const [profileOpen, setProfileOpen] = useState(false);
+  const [sessionReady, setSessionReady] = useState(false);
+  const [user, setUser] = useState<AuthenticatedUser | null>(null);
 
   useEffect(() => {
+    let active = true;
+
+    async function syncSession(event?: Event) {
+      const eventUser = event instanceof CustomEvent ? event.detail as AuthenticatedUser | null : null;
+      const token = localStorage.getItem("fitconnect_token");
+      const storedUser = eventUser ?? readStoredUser();
+
+      if (!token) {
+        if (active) {
+          setUser(null);
+          setSessionReady(true);
+        }
+        return;
+      }
+
+      if (storedUser && active) {
+        setUser(storedUser);
+        setSessionReady(true);
+      }
+
+      try {
+        const currentUser = await apiRequest<AuthenticatedUser>("/v1/me", {
+          headers: { Authorization: `Bearer ${token}` },
+        });
+        if (!active) return;
+        localStorage.setItem("fitconnect_user", JSON.stringify(currentUser));
+        setUser(currentUser);
+      } catch (error) {
+        if (!active) return;
+        if (error instanceof ApiError && (error.status === 401 || error.status === 403)) {
+          localStorage.removeItem("fitconnect_token");
+          localStorage.removeItem("fitconnect_user");
+          setUser(null);
+        } else {
+          setUser(storedUser);
+        }
+      } finally {
+        if (active) setSessionReady(true);
+      }
+    }
+
     function onKeyDown(event: KeyboardEvent) {
       if ((event.metaKey || event.ctrlKey) && event.key.toLowerCase() === "k") {
         event.preventDefault();
         dialogRef.current?.showModal();
       }
+      if (event.key === "Escape") setProfileOpen(false);
     }
+
+    function onPointerDown(event: PointerEvent) {
+      if (profileRef.current && !profileRef.current.contains(event.target as Node)) {
+        setProfileOpen(false);
+      }
+    }
+
+    void syncSession();
     window.addEventListener("keydown", onKeyDown);
-    return () => window.removeEventListener("keydown", onKeyDown);
+    window.addEventListener("pointerdown", onPointerDown);
+    window.addEventListener("storage", syncSession);
+    window.addEventListener("fitconnect:auth", syncSession);
+    return () => {
+      active = false;
+      window.removeEventListener("keydown", onKeyDown);
+      window.removeEventListener("pointerdown", onPointerDown);
+      window.removeEventListener("storage", syncSession);
+      window.removeEventListener("fitconnect:auth", syncSession);
+    };
   }, []);
+
+  function signOut() {
+    localStorage.removeItem("fitconnect_token");
+    localStorage.removeItem("fitconnect_user");
+    setUser(null);
+    setProfileOpen(false);
+    setMobileOpen(false);
+    window.dispatchEvent(new CustomEvent("fitconnect:auth", { detail: null }));
+    window.location.href = "/";
+  }
 
   function submitSearch(event: FormEvent<HTMLFormElement>) {
     const data = new FormData(event.currentTarget);
@@ -50,8 +158,43 @@ export function SiteHeader() {
         </nav>
 
         <div className="header-actions">
-          <Link className="text-link desktop-only" href="/login">เข้าสู่ระบบ</Link>
-          <Link className="button button--dark desktop-only" href="/register">เริ่มใช้งาน</Link>
+          {!sessionReady ? (
+            <span className="session-placeholder" aria-hidden="true" />
+          ) : user ? (
+            <div className="profile-session" ref={profileRef}>
+              <button
+                className="profile-trigger"
+                type="button"
+                aria-label={`เปิดเมนูบัญชีของ ${user.displayName || "บัญชีของฉัน"}`}
+                aria-expanded={profileOpen}
+                aria-controls="profile-account-menu"
+                onClick={() => setProfileOpen((open) => !open)}
+              >
+                <span className="profile-avatar" aria-hidden="true">{userInitials(user.displayName)}</span>
+                <span className="profile-trigger__name">{user.displayName || "บัญชีของฉัน"}</span>
+                <ChevronDown className={profileOpen ? "is-open" : ""} aria-hidden="true" size={16} />
+              </button>
+              {profileOpen && (
+                <div className="profile-menu" id="profile-account-menu">
+                  <div className="profile-menu__identity">
+                    <span className="profile-avatar" aria-hidden="true">{userInitials(user.displayName)}</span>
+                    <span><strong>{user.displayName || "บัญชีของฉัน"}</strong><small>{user.email}</small></span>
+                  </div>
+                  <Link href={dashboardByRole[user.role]} onClick={() => setProfileOpen(false)}>
+                    <LayoutDashboard aria-hidden="true" size={17} /> พื้นที่ใช้งานของฉัน
+                  </Link>
+                  <button type="button" onClick={signOut}>
+                    <LogOut aria-hidden="true" size={17} /> ออกจากระบบ
+                  </button>
+                </div>
+              )}
+            </div>
+          ) : (
+            <>
+              <Link className="text-link desktop-only" href="/login">เข้าสู่ระบบ</Link>
+              <Link className="button button--dark desktop-only" href="/register">เริ่มใช้งาน</Link>
+            </>
+          )}
           <button
             className="icon-button mobile-menu-button"
             type="button"
@@ -72,8 +215,17 @@ export function SiteHeader() {
           {navItems.map((item) => (
             <Link href={item.href} key={item.href} onClick={() => setMobileOpen(false)}>{item.label}</Link>
           ))}
-          <Link href="/login" onClick={() => setMobileOpen(false)}>เข้าสู่ระบบ</Link>
-          <Link href="/register" onClick={() => setMobileOpen(false)}>สมัครสมาชิก</Link>
+          {user ? (
+            <>
+              <Link href={dashboardByRole[user.role]} onClick={() => setMobileOpen(false)}>พื้นที่ใช้งานของฉัน</Link>
+              <button type="button" className="mobile-signout" onClick={signOut}><LogOut aria-hidden="true" size={18} /> ออกจากระบบ</button>
+            </>
+          ) : (
+            <>
+              <Link href="/login" onClick={() => setMobileOpen(false)}>เข้าสู่ระบบ</Link>
+              <Link href="/register" onClick={() => setMobileOpen(false)}>สมัครสมาชิก</Link>
+            </>
+          )}
         </nav>
       )}
 
