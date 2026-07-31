@@ -1,0 +1,8 @@
+{
+  "promptFile": ".impeccable/mocks/fitconnect-accreditation-rail.prompt.txt",
+  "direction": "Athlete Credential",
+  "composition": "Accreditation Rail",
+  "approved": false,
+  "approvedAsSupportingReference": true,
+  "carryForwardOnly": "Persistent bottom booking strip"
+}

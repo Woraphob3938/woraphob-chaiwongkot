@@ -1,0 +1,61 @@
+{
+  "title": "เลือกโลกภาพของ FitConnect",
+  "question": "เลือกภาษาภาพที่จะใช้กับระบบจริง หรือขอสุ่มทิศทางใหม่ได้",
+  "options": [
+    {
+      "id": "assigned-athlete-credential",
+      "label": "Athlete Credential",
+      "kicker": "ทิศทางที่ระบบกำหนด",
+      "lineage": "บัตรรับรองนักกีฬาและ accreditation pass",
+      "thesis": "ทุกโปรไฟล์และการจองอ่านได้เหมือนหลักฐานที่ตรวจสอบและใช้งานได้จริง",
+      "palette": ["#082A24", "#CFFB4A", "#F4F7EF", "#173E35"],
+      "materials": ["กระดาษ credential", "สายคล้องทอ", "ตราประทับยืนยัน", "ตัวเลขการแข่งขัน"],
+      "viewport": "หน้าค้นหาเปิดด้วยบัตรเทรนเนอร์ที่ยืนยันแล้ว เชื่อมตารางว่างและปุ่มจองเป็นชิ้นเดียว",
+      "risk": "ถ้าใช้ตราและหมายเลขมากเกินไปอาจดูเหมือนหน้าอีเวนต์ จึงต้องรักษาภาษาการค้นหาและนัดหมายให้ชัด",
+      "sketch": ".impeccable/sketches/fitconnect-athlete-credential.png"
+    },
+    {
+      "id": "challenger-gate-board",
+      "label": "Live Schedule Board",
+      "kicker": "ทางเลือก",
+      "lineage": "boarding pass และป้ายตารางเวลาเดินทาง",
+      "thesis": "เทรนเนอร์และเวลาว่างถูกจัดอันดับเหมือนตารางเดินทางที่เห็นการเปลี่ยนแปลงได้ทันที",
+      "case": "ชัดเรื่องจังหวัด เวลา และสถานะมากที่สุด แต่อัตลักษณ์นักกีฬาอ่อนกว่าทิศทางหลัก",
+      "palette": ["#0A2F27", "#F8FAF3", "#CFFB4A", "#D94841"],
+      "materials": ["แผงตัวเลข", "ตั๋วแบ่งช่อง", "แถวสถานะสด", "รหัสที่สแกนได้"],
+      "viewport": "ตารางเทรนเนอร์เรียงตามเวลาที่จองได้ พร้อมแถบค้นหาจังหวัดและบัตรนัดหมายที่กำลังก่อตัว",
+      "risk": "อาจสื่อถึงการเดินทางมากเกินไปถ้าลำดับเวลาไม่ถูกผูกกับโปรไฟล์เทรนเนอร์อย่างใกล้ชิด",
+      "sketch": ".impeccable/sketches/fitconnect-gate-board.png",
+      "hero": "https://impeccable.style/worlds/cards/vernacular-ephemera-boarding-pass-and-gate-board-hero.webp",
+      "board": "https://impeccable.style/worlds/cards/vernacular-ephemera-boarding-pass-and-gate-board.webp"
+    },
+    {
+      "id": "challenger-hardware-bench",
+      "label": "Training Console",
+      "kicker": "ทางเลือก",
+      "lineage": "แผงควบคุมอุปกรณ์และปุ่มฮาร์ดแวร์",
+      "thesis": "การเลือกวัน เวลา และยืนยันการจองให้ความรู้สึกแม่นยำเหมือนใช้อุปกรณ์ฝึกจริง",
+      "case": "ระบุตัวตนนักกีฬาได้ดีและสร้าง interaction เด่น แต่ต้องควบคุมความหนาแน่นเพื่อไม่ให้ใช้งานบนมือถือยาก",
+      "palette": ["#0C211D", "#DCE1D2", "#BEEB42", "#E8A43B"],
+      "materials": ["แผงโลหะเขียวเข้ม", "ปุ่ม keycap", "จอสถานะ", "ปุ่มยืนยันสีเด่น"],
+      "viewport": "ตัวกรองหลักทำงานเป็นแถวปุ่มขนาดใหญ่ และตารางเวลาเป็นชุดปุ่มที่กดแล้วเห็นสถานะทันที",
+      "risk": "ถ้าจำลองฮาร์ดแวร์ตามตัวอักษรมากไปจะกลบข้อมูลโปรไฟล์และกลายเป็นของเล่น",
+      "sketch": ".impeccable/sketches/fitconnect-training-console.png",
+      "hero": "https://impeccable.style/worlds/cards/design-canon-creator-hardware-bench-hero.webp",
+      "board": "https://impeccable.style/worlds/cards/design-canon-creator-hardware-bench.webp"
+    }
+  ],
+  "reroll": true,
+  "canon": true,
+  "canonCard": {
+    "label": "มาตรฐานของเว็บฟิตเนส",
+    "lineage": "หน้า marketplace แบบคุ้นเคย",
+    "thesis": "หน้าแนะนำบริการ แถบค้นหา และการ์ดเทรนเนอร์ที่จัดวางตามรูปแบบมาตรฐาน",
+    "palette": ["#0B2E27", "#CFFB4A", "#FFFFFF", "#E8EFEA"],
+    "materials": ["navigation bar", "search panel", "trainer cards"],
+    "viewport": "หัวเรื่องสั้น ปุ่มค้นหา และรายชื่อเทรนเนอร์ในกริดที่ผู้ใช้คุ้นเคย",
+    "risk": "ใช้งานง่ายแต่จดจำ FitConnect ได้ยากกว่าและแสดงกลไกการตรวจสอบได้ไม่เด่น",
+    "sketch": ".impeccable/sketches/fitconnect-canon.png"
+  },
+  "steer": true
+}

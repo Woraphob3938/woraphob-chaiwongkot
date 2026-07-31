@@ -1,0 +1,19 @@
+{
+  "scannedAt": "2026-07-31",
+  "projectState": "empty-greenfield",
+  "framework": null,
+  "packageManager": null,
+  "designSystem": null,
+  "tokens": null,
+  "motionLibrary": null,
+  "signals": [],
+  "preserve": [],
+  "introduce": [
+    "full token system",
+    "macrostructure",
+    "microinteraction discipline",
+    "responsive and accessibility gates",
+    "slop-test gates"
+  ],
+  "note": "No pre-flight signals — proceeding with full Hallmark stack."
+}

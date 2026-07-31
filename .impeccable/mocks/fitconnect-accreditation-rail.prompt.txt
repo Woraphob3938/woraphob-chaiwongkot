@@ -1,0 +1,20 @@
+Use case: ui-mockup
+Asset type: high-fidelity north-star composition for a responsive Thai desktop web app
+Product: FitConnect, a Thai platform for finding and booking verified personal trainers. Sakon Nakhon is the launch scope, while the location model expands nationwide.
+Committed visual world: Athlete Credential — verified trainer profiles, certificates, schedule availability, and booking status read as one functional accreditation system.
+Surface: member trainer-discovery and booking workbench, desktop landscape 16:10. Show enough below the opening region to prove the visual system continues.
+Color strategy: restrained light interface. Green-tinted near-white ground, deep forest green ink and structural surfaces, controlled lime accent under 5 percent of the viewport for verified/active/commit states. No gradients.
+Typography character: angular Thai technical display similar to Chakra Petch, highly legible Thai body similar to Bai Jamjuree, monospaced tabular numerals for ID and times.
+Real copy allowed: "FitConnect", "หาเทรนเนอร์ที่ใช่ จองเวลาที่พร้อม", "ค้นหาเทรนเนอร์", "ยืนยันแล้ว", "ตารางว่าง", "จองเวลา", "ข้อมูลสาธิต". All trainer names, prices, ratings, dates and metrics must be greeked or shown as dashes. Do not invent factual claims.
+Materials: accreditation card stock, woven-lanyard rhythm, punched verification mark, competition numerals, precise rules, clipped corners used sparingly.
+Shared constraints: designed web surface, not a poster; no browser chrome, no phone frame, no glassmorphism, no neon, no dark gym photo, no muscular hero photo, no cream/beige wellness styling, no gradient text, no huge rounded containers, no cards nested inside cards, no side-stripe accents, no testimonial or logo wall.
+Accessibility: clear reading order, visible controls, labels above inputs, 44px targets, status uses icon plus text.
+Output: same high-fidelity 16:10 flat straight-on interface comp for fair comparison, no perspective, no watermark.
+Composition B — Accreditation Rail.
+Structure in order and scale relationships:
+1) Compact top navigation with a wide visible search field.
+2) A narrow filter ledger at left, 24% width, with province, expertise, and availability.
+3) A horizontal rail of tall accreditation passes occupies the remaining 76%; one selected pass pulls forward while others remain readable in sequence.
+4) A persistent booking strip runs along the bottom of the work area, joining selected trainer, date/time, and the single lime "จองเวลา" action.
+5) Below, show verification detail and certificate history as a tabular specification area.
+Focal moment: choosing a person from a physical-feeling credential rail updates the booking strip without opening a separate page.

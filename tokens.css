@@ -1,0 +1,83 @@
+/* Hallmark · macrostructure: Workbench · direction: Athlete Credential · F3 columns=3, rules=every-row, numbers=tabular · N13 centred/grouped/shown · C4 viewport-bottom · footer: Ft2
+ * Hallmark · pre-emit critique: P5 H5 E5 S5 R5 V5 · contrast: pass (40–41) · slop: pass (42–45) · honest: pass (46) · chrome: pass (47) · tokens: pass (48) · responsive/mobile: pass (34, 49, 50–57) · icons: pass (30)
+ * theme: custom · vibe: "athletic accreditation, precise, earned, practical" · paper: oklch(97.5% 0.012 145) · accent: oklch(88% 0.20 125)
+ * display: Chakra Petch · body: Bai Jamjuree · axes: light / geometric-sans / chromatic-green ~125deg
+ * studied: no · context: user-provided · generated imagery: built-in imagegen, labelled demonstration · v1.1.0
+ */
+:root {
+  --color-paper: oklch(97.5% 0.012 145);
+  --color-paper-2: oklch(94.5% 0.018 145);
+  --color-paper-3: oklch(91% 0.025 145);
+  --color-ink: oklch(25% 0.05 155);
+  --color-ink-2: oklch(34% 0.04 155);
+  --color-rule: oklch(80% 0.025 145);
+  --color-rule-2: oklch(87% 0.02 145);
+  --color-muted: oklch(40% 0.03 155);
+  --color-neutral: oklch(48% 0.03 150);
+  --color-accent: oklch(88% 0.20 125);
+  --color-accent-soft: oklch(94% 0.09 125);
+  --color-accent-ink: oklch(20% 0.045 155);
+  --color-focus: oklch(30% 0.11 155);
+  --color-focus-on-dark: oklch(91% 0.17 125);
+  --color-success: oklch(40% 0.11 150);
+  --color-success-soft: oklch(94% 0.045 150);
+  --color-warning: oklch(43% 0.13 75);
+  --color-warning-soft: oklch(95% 0.045 75);
+  --color-error: oklch(44% 0.17 25);
+  --color-error-soft: oklch(95% 0.04 25);
+  --color-overlay: oklch(18% 0.035 155 / 0.68);
+  --color-shadow: oklch(18% 0.035 155 / 0.12);
+
+  --font-display: var(--font-chakra), "Chakra Petch", sans-serif;
+  --font-body: var(--font-bai), "Bai Jamjuree", sans-serif;
+  --font-mono: var(--font-jetbrains), "JetBrains Mono", monospace;
+
+  --text-xs: 0.75rem;
+  --text-sm: 0.875rem;
+  --text-base: 1rem;
+  --text-md: 1.125rem;
+  --text-lg: 1.375rem;
+  --text-xl: 1.75rem;
+  --text-2xl: 2.25rem;
+  --text-3xl: 3rem;
+  --text-display: clamp(2.4rem, 4vw + 0.75rem, 4.8rem);
+
+  --space-3xs: 0.125rem;
+  --space-2xs: 0.25rem;
+  --space-xs: 0.5rem;
+  --space-sm: 0.75rem;
+  --space-md: 1rem;
+  --space-lg: 1.5rem;
+  --space-xl: 2.5rem;
+  --space-2xl: 4rem;
+  --space-3xl: 6rem;
+  --space-4xl: 9rem;
+
+  --radius-xs: 0.25rem;
+  --radius-sm: 0.5rem;
+  --radius-md: 0.75rem;
+  --radius-lg: 1rem;
+  --radius-pill: 999px;
+
+  --size-control: 2.75rem;
+  --size-control-lg: 3rem;
+  --banner-height: 4.5rem;
+  --container: 90rem;
+  --measure: 68ch;
+
+  --dur-micro: 120ms;
+  --dur-short: 220ms;
+  --dur-long: 420ms;
+  --ease-out: cubic-bezier(0.16, 1, 0.3, 1);
+  --ease-in: cubic-bezier(0.7, 0, 0.84, 0);
+  --ease-in-out: cubic-bezier(0.65, 0, 0.35, 1);
+
+  --z-base: 1;
+  --z-raised: 10;
+  --z-dropdown: 100;
+  --z-sticky: 200;
+  --z-sticky-nav: 300;
+  --z-modal: 400;
+  --z-toast: 500;
+  --z-tooltip: 600;
+}

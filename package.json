@@ -1,0 +1,36 @@
+{
+  "name": "fitconnect",
+  "version": "0.1.0",
+  "private": true,
+  "scripts": {
+    "dev": "next dev",
+    "build": "next build",
+    "start": "next start",
+    "lint": "eslint .",
+    "typecheck": "tsc --noEmit",
+    "check": "npm run lint && npm run typecheck && npm run build",
+    "xampp:connect": "powershell -NoProfile -ExecutionPolicy Bypass -File scripts/connect-xampp.ps1"
+  },
+  "dependencies": {
+    "lucide-react": "^1.28.0",
+    "next": "^16.2.12",
+    "react": "^19.2.8",
+    "react-dom": "^19.2.8"
+  },
+  "devDependencies": {
+    "@tailwindcss/postcss": "^4.3.3",
+    "@types/node": "^24.0.0",
+    "@types/react": "^19.0.0",
+    "@types/react-dom": "^19.0.0",
+    "eslint": "^9.39.5",
+    "eslint-config-next": "^16.2.12",
+    "tailwindcss": "^4.3.3",
+    "typescript": "^6.0.3"
+  },
+  "overrides": {
+    "brace-expansion": "^5.0.9",
+    "minimatch": "^10.2.6",
+    "postcss": "^8.5.25",
+    "sharp": "^0.35.3"
+  }
+}

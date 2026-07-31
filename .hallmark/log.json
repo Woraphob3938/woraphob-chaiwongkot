@@ -1,0 +1,18 @@
+[
+  {
+    "date": "2026-07-31",
+    "macrostructure": "Workbench",
+    "theme": "custom",
+    "theme_axes": "light / geometric-sans / chromatic-green ~125deg",
+    "vibe": "athletic accreditation, precise, earned, practical",
+    "enrichment": "generated demonstration trainer portraits",
+    "nav": "N13 inline search pill",
+    "footer": "Ft2 inline single line",
+    "brief": "FitConnect · trainer discovery and booking",
+    "pre_emit": "P5 H5 E5 S5 R5 V5",
+    "slop_test": "pass 58/58",
+    "contrast": "pass; measured minimum 6.98:1",
+    "mobile": "pass at 320/375/414/768; no horizontal overflow",
+    "production_console": "0 errors, 0 warnings"
+  }
+]
