@@ -12,22 +12,13 @@ import {
   Upload,
   UsersRound,
 } from "lucide-react";
+import { AdminReviewQueue } from "@/components/admin-review-queue";
 import { DemoNotice } from "@/components/demo-notice";
 import { StatusBadge } from "@/components/status-badge";
-import { API_URL, apiRequest } from "@/lib/api";
+import { apiRequest } from "@/lib/api";
 import { demoBookings } from "@/lib/demo-data";
 import { formatDateTime } from "@/lib/format";
 import type { Booking, UserRole } from "@/lib/types";
-
-type AdminQueue = {
-  trainers: Array<{ id: number; displayName: string; province: string; certificateCount: number; demo?: boolean }>;
-  payments: Array<{ id: number; bookingId: string; memberName: string; fileUrl: string; demo?: boolean }>;
-};
-
-const demoAdminQueue: AdminQueue = {
-  trainers: [{ id: 3, displayName: "เทรนเนอร์สาธิต ค.", province: "นครพนม", certificateCount: 1, demo: true }],
-  payments: [{ id: 1, bookingId: "BK-DEMO-001", memberName: "สมาชิกสาธิต", fileUrl: "/v1/admin/files/payment/1", demo: true }],
-};
 
 const roleCopy = {
   member: { index: "สมาชิก", title: "การฝึกของฉัน", lead: "ติดตามคำขอ นัดหมาย การชำระ และการสนทนาได้จากสถานะเดียวกัน" },
@@ -70,90 +61,15 @@ function PaymentUpload({ booking }: { booking: Booking }) {
   );
 }
 
-function PaymentAction({ payment }: { payment: AdminQueue["payments"][number] }) {
-  const [status, setStatus] = useState("");
-
-  async function viewFile() {
-    setStatus("");
-    const token = localStorage.getItem("fitconnect_token");
-    try {
-      const response = await fetch(`${API_URL}${payment.fileUrl}`, { headers: token ? { Authorization: `Bearer ${token}` } : {} });
-      if (!response.ok) throw new Error("เปิดไฟล์ไม่สำเร็จ");
-      const objectUrl = URL.createObjectURL(await response.blob());
-      window.open(objectUrl, "_blank", "noopener,noreferrer");
-      window.setTimeout(() => URL.revokeObjectURL(objectUrl), 60_000);
-    } catch (error) {
-      setStatus(error instanceof Error ? error.message : "เปิดไฟล์ไม่สำเร็จ");
-    }
-  }
-
-  async function decide(decision: "approve" | "reject") {
-    setStatus("");
-    const token = localStorage.getItem("fitconnect_token");
-    try {
-      await apiRequest(`/v1/admin/payments/${payment.id}/${decision}`, {
-        method: "POST",
-        headers: token ? { Authorization: `Bearer ${token}` } : {},
-        body: JSON.stringify({ note: decision === "approve" ? "ยอดและคำขอตรงกัน" : "หลักฐานไม่ตรงกับคำขอ" }),
-      });
-      setStatus(decision === "approve" ? "อนุมัติสลิปแล้ว" : "ส่งกลับให้อัปโหลดใหม่แล้ว");
-    } catch (error) {
-      setStatus(error instanceof Error ? error.message : "บันทึกผลไม่สำเร็จ");
-    }
-  }
-
-  return (
-    <div className="queue-actions">
-      <button type="button" onClick={viewFile}>เปิดสลิป</button>
-      <button type="button" onClick={() => decide("approve")}>อนุมัติ</button>
-      <button type="button" onClick={() => decide("reject")}>ไม่ผ่าน</button>
-      {status && <span role="status">{status}</span>}
-    </div>
-  );
-}
-
-function AdminAction({ trainerId }: { trainerId: number }) {
-  const [status, setStatus] = useState("");
-
-  async function decide(decision: "approve" | "reject") {
-    setStatus("");
-    const token = localStorage.getItem("fitconnect_token");
-    try {
-      await apiRequest(`/v1/admin/trainers/${trainerId}/${decision}`, {
-        method: "POST",
-        headers: token ? { Authorization: `Bearer ${token}` } : {},
-        body: JSON.stringify({ note: decision === "approve" ? "ผ่านการตรวจ" : "เอกสารไม่ครบ" }),
-      });
-      setStatus(decision === "approve" ? "อนุมัติแล้ว" : "ส่งกลับให้แก้ไขแล้ว");
-    } catch (error) {
-      setStatus(error instanceof Error ? error.message : "บันทึกผลไม่สำเร็จ");
-    }
-  }
-
-  return (
-    <div className="queue-actions">
-      <button type="button" onClick={() => decide("approve")}>อนุมัติ</button>
-      <button type="button" onClick={() => decide("reject")}>ขอเอกสารเพิ่ม</button>
-      {status && <span role="status">{status}</span>}
-    </div>
-  );
-}
-
 export function RoleDashboard({ role }: { role: UserRole }) {
   const copy = roleCopy[role];
   const [bookings, setBookings] = useState<Booking[]>(demoBookings);
-  const [adminQueue, setAdminQueue] = useState<AdminQueue>(demoAdminQueue);
   const [isDemoData, setIsDemoData] = useState(true);
 
   useEffect(() => {
     const token = localStorage.getItem("fitconnect_token");
     if (!token) return;
-    if (role === "admin") {
-      apiRequest<AdminQueue>("/v1/admin/review-queue", { headers: { Authorization: `Bearer ${token}` } })
-        .then((queue) => { setAdminQueue(queue); setIsDemoData([...queue.trainers, ...queue.payments].some((item) => item.demo)); })
-        .catch(() => setIsDemoData(true));
-      return;
-    }
+    if (role === "admin") return;
     apiRequest<Booking[]>("/v1/bookings", { headers: { Authorization: `Bearer ${token}` } })
       .then((items) => { setBookings(items); setIsDemoData(items.some((item) => item.demo)); })
       .catch(() => setIsDemoData(true));
@@ -168,7 +84,7 @@ export function RoleDashboard({ role }: { role: UserRole }) {
         <div><h1>{copy.title}</h1></div>
         <p>{copy.lead}</p>
       </section>
-      {isDemoData && <DemoNotice />}
+      {role !== "admin" && isDemoData && <DemoNotice />}
 
       {role === "member" && (
         booking ? <>
@@ -199,21 +115,7 @@ export function RoleDashboard({ role }: { role: UserRole }) {
         </div>
       )}
 
-      {role === "admin" && (
-        <div className="admin-board">
-          <section className="admin-summary">
-            <div><span>ใบสมัครรอตรวจ</span><strong>{String(adminQueue.trainers.length).padStart(2, "0")}</strong></div>
-            <div><span>สลิปรอตรวจ</span><strong>{String(adminQueue.payments.length).padStart(2, "0")}</strong></div>
-            <div><span>รายงานที่ต้องติดตาม</span><strong>00</strong></div>
-          </section>
-          <section className="verification-queue">
-            <div className="section-line-heading"><div><p className="label">ลำดับการตรวจ</p><h2>รายการที่ต้องตัดสินใจ</h2></div><span>{isDemoData ? "ข้อมูลสาธิต" : "ข้อมูลจากระบบ"}</span></div>
-            {adminQueue.trainers.map((trainer) => <div className="verification-row" key={`trainer-${trainer.id}`}><div><span>TR-{String(trainer.id).padStart(6, "0")}</span><strong>ใบสมัคร{trainer.displayName}</strong><small>ใบรับรอง {trainer.certificateCount} ไฟล์ · จังหวัด{trainer.province}</small></div><StatusBadge status="pending" /><AdminAction trainerId={trainer.id} /></div>)}
-            {adminQueue.payments.map((payment) => <div className="verification-row" key={`payment-${payment.id}`}><div><span>PAY-{String(payment.id).padStart(6, "0")}</span><strong>สลิปคำขอ {payment.bookingId}</strong><small>{payment.memberName} · รอตรวจยอดกับคำขอ</small></div><StatusBadge status="reviewing" /><PaymentAction payment={payment} /></div>)}
-            {adminQueue.trainers.length + adminQueue.payments.length === 0 && <div className="empty-state"><strong>ไม่มีรายการรอตรวจ</strong><p>คิวตรวจสอบเป็นปัจจุบันแล้ว</p></div>}
-          </section>
-        </div>
-      )}
+      {role === "admin" && <AdminReviewQueue />}
     </main>
   );
 }
