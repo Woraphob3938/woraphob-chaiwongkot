@@ -74,4 +74,29 @@ if ($Scenario -in @('availability', 'all')) {
     }
 }
 
+if ($Scenario -in @('admin', 'all')) {
+    $admin = Login 'admin.demo@fitconnect.local'
+    $headers = Auth-Headers $admin.token
+    $queue = (Invoke-RestMethod -Method Get -Uri "$ApiUrl/v1/admin/review-queue" -Headers $headers).data
+    $candidate = $queue.trainers | Where-Object { $_.id -eq 3 } | Select-Object -First 1
+    Assert-True ($null -ne $candidate) 'Seeded pending trainer must be in the review queue'
+    Assert-True ($candidate.certificates.Count -gt 0) 'Review queue must include certificate records'
+    Assert-True (
+        $candidate.certificates[0].fileUrl -eq "/v1/admin/files/certificate/$($candidate.certificates[0].id)"
+    ) 'Certificate URL must use the protected route'
+
+    Expect-Status 422 {
+        Invoke-RestMethod -Method Post -Uri "$ApiUrl/v1/admin/trainers/3/reject" -Headers $headers -ContentType 'application/json' -Body (@{ note = '' } | ConvertTo-Json)
+    }
+
+    $approved = (
+        Invoke-RestMethod -Method Post -Uri "$ApiUrl/v1/admin/trainers/3/approve" -Headers $headers -ContentType 'application/json' -Body (@{ note = 'ผ่านการตรวจสำหรับ smoke test' } | ConvertTo-Json)
+    ).data
+    Assert-True ($approved.status -eq 'approved') 'Pending trainer must become approved'
+
+    Expect-Status 409 {
+        Invoke-RestMethod -Method Post -Uri "$ApiUrl/v1/admin/trainers/3/approve" -Headers $headers -ContentType 'application/json' -Body (@{ note = 'กดซ้ำ' } | ConvertTo-Json)
+    }
+}
+
 Write-Host "PASS API workflow scenario: $Scenario"

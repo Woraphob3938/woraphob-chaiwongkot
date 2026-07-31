@@ -470,22 +470,42 @@ final class Handlers
         if (!in_array($decision, ['approve', 'reject'], true)) {
             throw new HttpException(404, 'ไม่พบการทำงานนี้', 'NOT_FOUND');
         }
-        $status = $decision === 'approve' ? 'approved' : 'rejected';
         $input = Http::body();
-        $changed = $this->database->transaction(function (PDO $pdo) use ($trainerId, $status, $input, $admin): int {
-            $statement = $pdo->prepare('UPDATE trainer_profiles SET approval_status = ?, approval_note = ?, reviewed_by_user_id = ?, reviewed_at = UTC_TIMESTAMP(), updated_at = UTC_TIMESTAMP() WHERE id = ?');
-            $statement->execute([$status, trim((string) ($input['note'] ?? '')), $admin['id'], (int) $trainerId]);
-            if ($statement->rowCount() > 0) {
-                $certificateStatus = $status === 'approved' ? 'verified' : 'rejected';
-                $pdo->prepare('UPDATE trainer_certificates SET status = ?, reviewed_by_user_id = ?, reviewed_at = UTC_TIMESTAMP() WHERE trainer_profile_id = ? AND status = "pending"')
-                    ->execute([$certificateStatus, $admin['id'], (int) $trainerId]);
+        $result = $this->database->transaction(function (PDO $pdo) use ($trainerId, $decision, $input, $admin): array {
+            $statement = $pdo->prepare(
+                'SELECT id, approval_status FROM trainer_profiles WHERE id = ? FOR UPDATE'
+            );
+            $statement->execute([(int) $trainerId]);
+            $trainer = $statement->fetch();
+            if (!$trainer) {
+                throw new HttpException(404, 'ไม่พบโปรไฟล์เทรนเนอร์', 'TRAINER_NOT_FOUND');
             }
-            return $statement->rowCount();
+
+            $note = trim((string) ($input['note'] ?? ''));
+            WorkflowRules::assertTrainerApplicationDecision(
+                (string) $trainer['approval_status'],
+                $decision,
+                $note
+            );
+            $status = $decision === 'approve' ? 'approved' : 'rejected';
+            $certificateStatus = $status === 'approved' ? 'verified' : 'rejected';
+
+            $pdo->prepare(
+                'UPDATE trainer_profiles
+                 SET approval_status = ?, approval_note = ?, reviewed_by_user_id = ?,
+                     reviewed_at = UTC_TIMESTAMP(), updated_at = UTC_TIMESTAMP()
+                 WHERE id = ?'
+            )->execute([$status, $note, $admin['id'], (int) $trainer['id']]);
+            $pdo->prepare(
+                'UPDATE trainer_certificates
+                 SET status = ?, review_note = ?, reviewed_by_user_id = ?, reviewed_at = UTC_TIMESTAMP()
+                 WHERE trainer_profile_id = ? AND status = "pending"'
+            )->execute([$certificateStatus, $note, $admin['id'], (int) $trainer['id']]);
+
+            return ['trainerId' => (int) $trainer['id'], 'status' => $status];
         });
-        if ($changed === 0) {
-            throw new HttpException(404, 'ไม่พบโปรไฟล์เทรนเนอร์', 'TRAINER_NOT_FOUND');
-        }
-        Http::json(['trainerId' => (int) $trainerId, 'status' => $status]);
+
+        Http::json($result);
     }
 
     public function adminReviewQueue(): never
@@ -508,6 +528,29 @@ final class Handlers
              WHERE pay.status = "reviewing" ORDER BY pay.submitted_at ASC LIMIT 100'
         );
 
+        $certificatesByTrainer = [];
+        if ($trainers !== []) {
+            $trainerIds = array_map(fn(array $row): int => (int) $row['id'], $trainers);
+            $placeholders = implode(',', array_fill(0, count($trainerIds), '?'));
+            $certificates = $this->database->fetchAll(
+                'SELECT id, trainer_profile_id, name, issuer, created_at
+                 FROM trainer_certificates
+                 WHERE trainer_profile_id IN (' . $placeholders . ')
+                 ORDER BY created_at ASC, id ASC',
+                $trainerIds
+            );
+            foreach ($certificates as $certificate) {
+                $profileId = (int) $certificate['trainer_profile_id'];
+                $certificatesByTrainer[$profileId][] = [
+                    'id' => (int) $certificate['id'],
+                    'name' => $certificate['name'],
+                    'issuer' => $certificate['issuer'],
+                    'submittedAt' => $this->iso($certificate['created_at']),
+                    'fileUrl' => '/v1/admin/files/certificate/' . $certificate['id'],
+                ];
+            }
+        }
+
         Http::json([
             'trainers' => array_map(fn(array $row): array => [
                 'id' => (int) $row['id'],
@@ -515,6 +558,7 @@ final class Handlers
                 'displayName' => $row['display_name'],
                 'province' => $row['province_name'],
                 'certificateCount' => (int) $row['certificate_count'],
+                'certificates' => $certificatesByTrainer[(int) $row['id']] ?? [],
                 'submittedAt' => $this->iso($row['created_at']),
                 'demo' => (bool) $row['is_demo'],
             ], $trainers),
