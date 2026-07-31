@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { FileText, RefreshCw } from "lucide-react";
 import { StatusBadge } from "@/components/status-badge";
 import { ApiError, authenticatedRequest, openProtectedFile } from "@/lib/api";
@@ -22,6 +22,7 @@ export function AdminReviewQueue() {
   const [notice, setNotice] = useState("");
   const [busy, setBusy] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
+  const noticeRef = useRef<HTMLParagraphElement>(null);
 
   const loadQueue = useCallback(async () => {
     setLoadError("");
@@ -40,6 +41,10 @@ export function AdminReviewQueue() {
     void loadQueue();
   }, [loadQueue]);
 
+  useEffect(() => {
+    if (notice) noticeRef.current?.focus();
+  }, [notice]);
+
   async function openFile(path: string, rowKey: string) {
     setRowErrors((current) => ({ ...current, [rowKey]: "" }));
     try {
@@ -56,6 +61,7 @@ export function AdminReviewQueue() {
   async function decideTrainer(trainerId: number, decision: "approve" | "reject") {
     const rowKey = `trainer-${trainerId}`;
     const note = notes[trainerId]?.trim() ?? "";
+    const trainerName = queue?.trainers.find((trainer) => trainer.id === trainerId)?.displayName ?? `TR-${String(trainerId).padStart(6, "0")}`;
     if (decision === "reject" && !note) {
       setRowErrors((current) => ({ ...current, [rowKey]: "กรุณาระบุเหตุผลก่อนปฏิเสธ" }));
       return;
@@ -70,6 +76,7 @@ export function AdminReviewQueue() {
         body: JSON.stringify({ note }),
       });
       await loadQueue();
+      setNotice(`${decision === "approve" ? "อนุมัติ" : "ปฏิเสธ"}ใบสมัคร${trainerName}แล้ว`);
     } catch (error) {
       if (leaveExpiredSession(error)) return;
       const message = error instanceof Error ? error.message : "บันทึกผลไม่สำเร็จ";
@@ -94,6 +101,7 @@ export function AdminReviewQueue() {
         body: JSON.stringify({ note: decision === "approve" ? "ยอดและคำขอตรงกัน" : "หลักฐานไม่ตรงกับคำขอ" }),
       });
       await loadQueue();
+      setNotice(`${decision === "approve" ? "อนุมัติ" : "ปฏิเสธ"}สลิป PAY-${String(paymentId).padStart(6, "0")} แล้ว`);
     } catch (error) {
       if (leaveExpiredSession(error)) return;
       const message = error instanceof Error ? error.message : "บันทึกผลไม่สำเร็จ";
@@ -130,15 +138,14 @@ export function AdminReviewQueue() {
       <section className="admin-summary" aria-label="สรุปคิวตรวจสอบ">
         <div><span>ใบสมัครรอตรวจ</span><strong>{String(currentQueue.trainers.length).padStart(2, "0")}</strong></div>
         <div><span>สลิปรอตรวจ</span><strong>{String(currentQueue.payments.length).padStart(2, "0")}</strong></div>
-        <div><span>รายงานที่ต้องติดตาม</span><strong>00</strong></div>
       </section>
 
       <section className="verification-queue" aria-labelledby="review-queue-title">
         <div className="section-line-heading">
-          <div><p className="label">ลำดับการตรวจ</p><h2 id="review-queue-title">รายการที่ต้องตัดสินใจ</h2></div>
+          <div><h2 id="review-queue-title">รายการที่ต้องตัดสินใจ</h2></div>
           <span>{loading ? "กำลังอัปเดต" : "ข้อมูลจากระบบ"}</span>
         </div>
-        {notice && <p className="queue-notice" role="status">{notice}</p>}
+        {notice && <p ref={noticeRef} className="queue-notice" role="status" tabIndex={-1}>{notice}</p>}
 
         {currentQueue.trainers.map((trainer) => {
           const rowKey = `trainer-${trainer.id}`;

@@ -53,5 +53,6 @@ describe("TrainerWorkbench", () => {
       "/v1/bookings/BK-TEST/status",
       { method: "PATCH", body: JSON.stringify({ status: "awaiting_payment" }) },
     ));
+    expect(await screen.findByRole("status")).toHaveTextContent("ตอบรับคำขอ BK-TEST แล้ว");
   });
 });

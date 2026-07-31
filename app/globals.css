@@ -1,7 +1,11 @@
 @import "../tokens.css";
 @import "tailwindcss";
 
-/* Hallmark surface · modern-minimal / utilitarian athletic · forest anchor · Workbench + Athlete Credential + persistent booking strip */
+/* Hallmark · pre-emit critique: P5 H5 E4 S5 R4 V4 */
+/* Hallmark · macrostructure: Workbench · genre: modern-minimal · tone: utilitarian athletic · anchor hue: forest
+ * nav: inline command palette · footer: compact statement · contrast: pass (40–41) · slop: pass (42–45)
+ * honest: pass (46) · chrome: pass (47) · tokens: pass (48) · responsive: pass (34, 49–57)
+ */
 
 * {
   box-sizing: border-box;
@@ -595,9 +599,9 @@ h3 {
 
 .discovery-intro > p {
   max-width: 60ch;
-  padding-left: var(--space-lg);
+  padding-top: var(--space-sm);
   color: var(--color-ink-2);
-  border-left: 3px solid var(--color-accent);
+  border-top: 1px solid var(--color-accent);
   font-size: var(--text-md);
 }
 
@@ -609,9 +613,8 @@ h3 {
   margin-top: var(--space-md);
   padding: var(--space-sm) var(--space-md);
   color: var(--color-ink-2);
-  background: var(--color-paper-2);
+  background: var(--color-accent-soft);
   border: 1px solid var(--color-rule);
-  border-left: 4px solid var(--color-accent);
   font-size: var(--text-sm);
 }
 
@@ -1832,7 +1835,7 @@ h3 {
 
 .admin-summary {
   display: grid;
-  grid-template-columns: repeat(3, minmax(0, 1fr));
+  grid-template-columns: repeat(2, minmax(0, 1fr));
   margin-top: var(--space-xl);
   color: var(--color-paper);
   background: var(--color-ink);
@@ -1874,7 +1877,7 @@ h3 {
 
 .queue-actions button,
 .queue-actions a {
-  min-height: 2.25rem;
+  min-height: var(--size-control);
   padding: var(--space-xs) var(--space-sm);
   color: var(--color-focus);
   background: transparent;

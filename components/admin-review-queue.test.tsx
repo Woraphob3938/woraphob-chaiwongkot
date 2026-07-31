@@ -44,5 +44,6 @@ describe("AdminReviewQueue", () => {
       expect.objectContaining({ method: "POST", body: JSON.stringify({ note: "เอกสารไม่ชัดเจน" }) }),
     ));
     await waitFor(() => expect(screen.queryByText("ผู้สมัครทดสอบ")).not.toBeInTheDocument());
+    expect(screen.getByRole("status")).toHaveTextContent("ปฏิเสธใบสมัครผู้สมัครทดสอบแล้ว");
   });
 });

@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { FormEvent, useCallback, useEffect, useMemo, useState } from "react";
+import { FormEvent, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { CalendarPlus, RefreshCw, Trash2 } from "lucide-react";
 import { StatusBadge } from "@/components/status-badge";
 import { ApiError, authenticatedRequest } from "@/lib/api";
@@ -25,12 +25,13 @@ export function TrainerWorkbench() {
   const [bookings, setBookings] = useState<Booking[]>([]);
   const [workspaceError, setWorkspaceError] = useState("");
   const [bookingError, setBookingError] = useState("");
-  const [bookingNotice, setBookingNotice] = useState("");
+  const [actionNotice, setActionNotice] = useState("");
   const [availabilityError, setAvailabilityError] = useState("");
   const [fieldErrors, setFieldErrors] = useState<Record<string, string>>({});
   const [form, setForm] = useState({ startsAt: "", endsAt: "" });
   const [busy, setBusy] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
+  const actionNoticeRef = useRef<HTMLParagraphElement>(null);
 
   const loadWorkspace = useCallback(async () => {
     try {
@@ -77,6 +78,10 @@ export function TrainerWorkbench() {
     });
   }, []);
 
+  useEffect(() => {
+    if (actionNotice) actionNoticeRef.current?.focus();
+  }, [actionNotice]);
+
   const now = useMemo(() => {
     const value = new Date();
     value.setSeconds(0, 0);
@@ -94,6 +99,7 @@ export function TrainerWorkbench() {
   async function createSlot(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     setAvailabilityError("");
+    setActionNotice("");
     setFieldErrors({});
     setBusy("slot-create");
     try {
@@ -105,6 +111,7 @@ export function TrainerWorkbench() {
       });
       setForm({ startsAt: "", endsAt: "" });
       await loadWorkspace();
+      setActionNotice("เพิ่มช่วงเวลาว่างแล้ว");
     } catch (error) {
       if (leaveExpiredSession(error)) return;
       if (error instanceof ApiError) setFieldErrors(error.fields ?? {});
@@ -116,10 +123,12 @@ export function TrainerWorkbench() {
 
   async function deleteSlot(slotId: number) {
     setAvailabilityError("");
+    setActionNotice("");
     setBusy(`slot-${slotId}`);
     try {
       await authenticatedRequest(`/v1/availability-slots/${slotId}`, { method: "DELETE" });
       await loadWorkspace();
+      setActionNotice("ลบช่วงเวลาว่างแล้ว");
     } catch (error) {
       if (leaveExpiredSession(error)) return;
       setAvailabilityError(error instanceof Error ? error.message : "ลบช่วงเวลาไม่สำเร็จ");
@@ -132,18 +141,19 @@ export function TrainerWorkbench() {
     const target = decision === "accept" ? "awaiting_payment" : "cancelled";
     setBusy(`booking-${bookingId}`);
     setBookingError("");
-    setBookingNotice("");
+    setActionNotice("");
     try {
       await authenticatedRequest(`/v1/bookings/${encodeURIComponent(bookingId)}/status`, {
         method: "PATCH",
         body: JSON.stringify({ status: target }),
       });
       await Promise.all([loadWorkspace(), loadBookings()]);
+      setActionNotice(`${decision === "accept" ? "ตอบรับ" : "ปฏิเสธ"}คำขอ ${bookingId} แล้ว`);
     } catch (error) {
       if (leaveExpiredSession(error)) return;
       setBookingError(error instanceof Error ? error.message : "บันทึกผลคำขอไม่สำเร็จ");
       if (error instanceof ApiError && error.status === 409) {
-        setBookingNotice("คำขอนี้ถูกเปลี่ยนสถานะแล้ว ระบบได้โหลดข้อมูลล่าสุดให้คุณ");
+        setActionNotice("คำขอนี้ถูกเปลี่ยนสถานะแล้ว ระบบได้โหลดข้อมูลล่าสุดให้คุณ");
         await Promise.all([loadWorkspace(), loadBookings()]);
       }
     } finally {
@@ -174,19 +184,20 @@ export function TrainerWorkbench() {
         {workspace?.profile && <StatusBadge status={workspace.profile.approvalStatus} />}
         {workspaceError && <div className="workbench-error" role="alert"><span>{workspaceError}</span><button type="button" onClick={() => void loadWorkspace()}>ลองใหม่</button></div>}
       </section>
+      {actionNotice && <p ref={actionNoticeRef} className="queue-notice workbench-success" role="status" tabIndex={-1}>{actionNotice}</p>}
 
       <section className="availability-panel trainer-availability" aria-labelledby="availability-title">
         <div className="section-line-heading"><div><h2 id="availability-title">ตารางว่างของฉัน</h2><p>ช่วงเวลาที่สมาชิกมองเห็นและส่งคำขอได้</p></div><CalendarPlus aria-hidden="true" size={22} /></div>
         <form className="availability-form" onSubmit={createSlot}>
           <label>
             <span>เริ่มต้น</span>
-            <input type="datetime-local" required min={localInputValue(now)} max={localInputValue(maxDate)} value={form.startsAt} onChange={(event) => setForm((current) => ({ ...current, startsAt: event.target.value }))} disabled={!approved || busy === "slot-create"} />
-            {fieldErrors.startsAt && <small className="field-error">{fieldErrors.startsAt}</small>}
+            <input type="datetime-local" required min={localInputValue(now)} max={localInputValue(maxDate)} value={form.startsAt} onChange={(event) => setForm((current) => ({ ...current, startsAt: event.target.value }))} disabled={!approved || busy === "slot-create"} aria-invalid={Boolean(fieldErrors.startsAt)} aria-describedby={fieldErrors.startsAt ? "availability-start-error" : undefined} />
+            {fieldErrors.startsAt && <small id="availability-start-error" className="field-error">{fieldErrors.startsAt}</small>}
           </label>
           <label>
             <span>สิ้นสุด</span>
-            <input type="datetime-local" required min={form.startsAt || localInputValue(now)} max={localInputValue(maxDate)} value={form.endsAt} onChange={(event) => setForm((current) => ({ ...current, endsAt: event.target.value }))} disabled={!approved || busy === "slot-create"} />
-            {fieldErrors.endsAt && <small className="field-error">{fieldErrors.endsAt}</small>}
+            <input type="datetime-local" required min={form.startsAt || localInputValue(now)} max={localInputValue(maxDate)} value={form.endsAt} onChange={(event) => setForm((current) => ({ ...current, endsAt: event.target.value }))} disabled={!approved || busy === "slot-create"} aria-invalid={Boolean(fieldErrors.endsAt)} aria-describedby={fieldErrors.endsAt ? "availability-end-error" : undefined} />
+            {fieldErrors.endsAt && <small id="availability-end-error" className="field-error">{fieldErrors.endsAt}</small>}
           </label>
           <button className="button button--accent" type="submit" disabled={!approved || busy === "slot-create"}>{busy === "slot-create" ? "กำลังเพิ่ม…" : "เพิ่มช่วงเวลาว่าง"}</button>
         </form>
@@ -207,7 +218,6 @@ export function TrainerWorkbench() {
 
       <section className="trainer-booking-list" aria-labelledby="trainer-requests-title">
         <div className="section-line-heading"><div><h2 id="trainer-requests-title">คำขอที่รอคำตอบ</h2><p>ตรวจวัน เวลา สถานที่ และข้อมูลจากสมาชิกก่อนตัดสินใจ</p></div><span className="queue-count">{String(pendingBookings.length).padStart(2, "0")}</span></div>
-        {bookingNotice && <p className="queue-notice" role="status">{bookingNotice}</p>}
         {bookingError && <div className="workbench-error" role="alert"><span>{bookingError}</span><button type="button" onClick={() => void loadBookings()}><RefreshCw aria-hidden="true" size={15} /> ลองใหม่</button></div>}
         {pendingBookings.map((booking) => {
           const isBusy = busy === `booking-${booking.id}`;

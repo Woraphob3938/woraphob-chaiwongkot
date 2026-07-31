@@ -62,4 +62,22 @@ describe("BookingForm", () => {
     expect(location).toHaveValue("สถานที่เดิม");
     await waitFor(() => expect(apiRequest).toHaveBeenCalledTimes(2));
   });
+
+  it("associates a location field error with its input", async () => {
+    vi.mocked(apiRequest).mockResolvedValue(liveTrainer);
+    vi.mocked(authenticatedRequest).mockRejectedValue(new ApiError(
+      "กรุณาแก้ไขสถานที่",
+      422,
+      "VALIDATION_FAILED",
+      { location: "กรุณาระบุสถานที่ให้ชัดเจน" },
+    ));
+    render(<BookingForm trainerSlug="live-trainer" slotId="44" />);
+    await screen.findByText("เทรนเนอร์จริง");
+    const location = screen.getByLabelText("สถานที่ที่สะดวก");
+    fireEvent.change(location, { target: { value: "ก" } });
+    fireEvent.click(screen.getByRole("button", { name: /ยืนยันและส่งคำขอ/ }));
+    expect(await screen.findByText("กรุณาระบุสถานที่ให้ชัดเจน")).toBeInTheDocument();
+    expect(location).toHaveAttribute("aria-invalid", "true");
+    expect(location).toHaveAttribute("aria-describedby", "booking-location-error");
+  });
 });

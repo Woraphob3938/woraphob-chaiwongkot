@@ -52,7 +52,7 @@ function PaymentUpload({ booking }: { booking: Booking }) {
 
   return (
     <form className="payment-upload" onSubmit={submit}>
-      <div><p className="label">หลักฐานการชำระ</p><h3>อัปโหลดสลิปหลังเทรนเนอร์ตอบรับ</h3><p>ไฟล์ JPG, PNG หรือ WebP ไม่เกิน 5 MB · แอดมินเป็นผู้ตรวจ</p></div>
+      <div><h3>หลักฐานการชำระ</h3><p>อัปโหลดสลิปหลังเทรนเนอร์ตอบรับ · ไฟล์ JPG, PNG หรือ WebP ไม่เกิน 5 MB · แอดมินเป็นผู้ตรวจ</p></div>
       <label className="file-control" htmlFor="payment-slip"><Upload aria-hidden="true" size={19} /><span>{ready ? "เลือกสลิป" : "ยังไม่พร้อมอัปโหลด"}</span><input id="payment-slip" name="slip" type="file" accept="image/jpeg,image/png,image/webp" required disabled={!ready} /></label>
       <button className="button button--dark" type="submit" disabled={!ready}>{ready ? "ส่งให้ตรวจ" : "รอตามสถานะ"}</button>
       <p className="upload-status" role="status">{status && <><CircleAlert aria-hidden="true" size={16} /> {status}</>}</p>
@@ -108,7 +108,7 @@ export function RoleDashboard({ role }: { role: UserRole }) {
           {bookingError && <div className="workbench-error" role="alert"><span>{bookingError}</span><button type="button" onClick={() => void loadMemberBookings()}>ลองใหม่</button></div>}
           {booking ? <>
           <section className="dashboard-ledger" aria-label="สถานะการจอง">
-            <div className="ledger-heading"><div><p className="label">คำขอล่าสุด</p><h2>{booking.id}</h2></div><StatusBadge status={booking.status} /></div>
+            <div className="ledger-heading"><div><h2>คำขอ {booking.id}</h2></div><StatusBadge status={booking.status} /></div>
             <div className="ledger-row"><span><CalendarDays aria-hidden="true" size={17} /> วันและเวลา</span><strong>{formatDateTime(booking.startsAt)}</strong></div>
             <div className="ledger-row"><span><UsersRound aria-hidden="true" size={17} /> เทรนเนอร์</span><strong>{booking.trainer.displayName}</strong></div>
             <div className="ledger-row"><span><ShieldCheck aria-hidden="true" size={17} /> การชำระ</span><strong>{paymentCopy[booking.paymentStatus]}</strong></div>

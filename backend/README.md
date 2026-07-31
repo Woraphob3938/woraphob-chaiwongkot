@@ -22,6 +22,9 @@ PHP REST API แบบไม่พึ่ง Composer สำหรับ Apache +
 - `POST /v1/auth/login`
 - `GET /v1/me`
 - `POST /v1/trainer-applications`
+- `GET /v1/trainer/me`
+- `POST /v1/availability-slots`
+- `DELETE /v1/availability-slots/{id}`
 - `GET|POST /v1/bookings`
 - `PATCH /v1/bookings/{publicId}/status`
 - `POST /v1/payments`
@@ -34,6 +37,16 @@ PHP REST API แบบไม่พึ่ง Composer สำหรับ Apache +
 - `POST /v1/admin/payments/{id}/{approve|reject}`
 
 เส้นทางที่เกี่ยวกับบัญชีต้องใส่ `Authorization: Bearer <token>`. การตรวจใบรับรองและสลิปเป็นขั้นตอนของแอดมิน ไม่ใช่ระบบชำระเงินอัตโนมัติ
+
+## ตรวจขั้นตอนหลักในเครื่อง
+
+หลังเปิด Apache และ MySQL แล้ว รันจากโฟลเดอร์โปรเจกต์:
+
+```powershell
+rtk powershell -NoProfile -ExecutionPolicy Bypass -File scripts/api-workflow-smoke.ps1 -Scenario all
+```
+
+การทดสอบครอบคลุมการอนุมัติเทรนเนอร์ การสร้าง/ลบช่วงเวลาว่าง การจองพร้อมกัน การตอบรับ และการปฏิเสธ สคริปต์เปลี่ยนแปลงเฉพาะฐานข้อมูลสำหรับพัฒนาในเครื่อง และ `npm run xampp:connect` จะคืนสถานะข้อมูลตั้งต้นก่อนเริ่มรอบสะอาดอีกครั้ง
 
 ## บัญชีสาธิต
 
