@@ -291,9 +291,15 @@ final class Handlers
             $params[] = $user['id'];
         }
         $rows = $this->database->fetchAll(
-            'SELECT b.public_id, b.starts_at, b.ends_at, b.location_text, b.status, b.payment_status, b.created_at,
-                    b.is_demo, tp.id AS trainer_id, tp.slug, u.display_name
-             FROM bookings b JOIN trainer_profiles tp ON tp.id = b.trainer_profile_id JOIN users u ON u.id = tp.user_id ' .
+            'SELECT b.public_id, b.starts_at, b.ends_at, b.location_text, b.member_note,
+                    b.status, b.payment_status, b.created_at, b.is_demo,
+                    tp.id AS trainer_id, tp.slug,
+                    trainer_user.display_name AS trainer_name,
+                    member_user.display_name AS member_name
+             FROM bookings b
+             JOIN trainer_profiles tp ON tp.id = b.trainer_profile_id
+             JOIN users trainer_user ON trainer_user.id = tp.user_id
+             JOIN users member_user ON member_user.id = b.member_user_id ' .
              $where . ' ORDER BY b.created_at DESC LIMIT 100',
             $params
         );
@@ -309,13 +315,22 @@ final class Handlers
 
         $booking = $this->database->transaction(function (PDO $pdo) use ($user, $input, $publicId): array {
             $statement = $pdo->prepare(
-                'SELECT s.id, s.trainer_profile_id, s.starts_at, s.ends_at, s.state, tp.approval_status
-                 FROM availability_slots s JOIN trainer_profiles tp ON tp.id = s.trainer_profile_id
+                'SELECT s.id, s.trainer_profile_id, s.starts_at, s.ends_at, s.state,
+                        tp.approval_status, trainer_user.status AS trainer_user_status
+                 FROM availability_slots s
+                 JOIN trainer_profiles tp ON tp.id = s.trainer_profile_id
+                 JOIN users trainer_user ON trainer_user.id = tp.user_id
                  WHERE s.id = ? AND s.trainer_profile_id = ? FOR UPDATE'
             );
             $statement->execute([(int) $input['slotId'], (int) $input['trainerId']]);
             $slot = $statement->fetch();
-            if (!$slot || $slot['state'] !== 'available' || $slot['approval_status'] !== 'approved') {
+            if (
+                !$slot
+                || $slot['state'] !== 'available'
+                || $slot['approval_status'] !== 'approved'
+                || $slot['trainer_user_status'] !== 'active'
+                || strtotime($slot['starts_at'] . ' UTC') <= time()
+            ) {
                 throw new HttpException(409, 'ช่วงเวลานี้ไม่พร้อมจองแล้ว', 'SLOT_UNAVAILABLE');
             }
             $insert = $pdo->prepare(
@@ -342,10 +357,6 @@ final class Handlers
         $user = $this->auth->requireUser(['trainer', 'admin']);
         $input = Http::body();
         Http::requireFields($input, ['status']);
-        $allowed = ['awaiting_payment', 'confirmed', 'completed', 'cancelled'];
-        if (!in_array($input['status'], $allowed, true)) {
-            throw new HttpException(422, 'สถานะการจองไม่ถูกต้อง', 'VALIDATION_FAILED');
-        }
 
         $this->database->transaction(function (PDO $pdo) use ($publicId, $input, $user): void {
             $statement = $pdo->prepare(
@@ -357,17 +368,40 @@ final class Handlers
             if (!$booking) {
                 throw new HttpException(404, 'ไม่พบคำขอจอง', 'BOOKING_NOT_FOUND');
             }
-            if ($user['role'] === 'trainer' && (int) $booking['trainer_user_id'] !== (int) $user['id']) {
-                throw new HttpException(403, 'ไม่มีสิทธิ์แก้ไขคำขอนี้', 'FORBIDDEN');
-            }
             $newStatus = (string) $input['status'];
+            if ($user['role'] === 'trainer') {
+                if ((int) $booking['trainer_user_id'] !== (int) $user['id']) {
+                    throw new HttpException(403, 'ไม่มีสิทธิ์แก้ไขคำขอนี้', 'FORBIDDEN');
+                }
+                $slotState = WorkflowRules::trainerBookingSlotState(
+                    (string) $booking['status'],
+                    $newStatus
+                );
+            } else {
+                $adminTransitions = [
+                    'pending_trainer' => ['cancelled'],
+                    'awaiting_payment' => ['cancelled'],
+                    'payment_review' => ['confirmed', 'cancelled'],
+                    'confirmed' => ['completed', 'cancelled'],
+                ];
+                if (!in_array($newStatus, $adminTransitions[$booking['status']] ?? [], true)) {
+                    throw new HttpException(
+                        409,
+                        'ไม่สามารถเปลี่ยนจากสถานะปัจจุบันไปสถานะนี้',
+                        'INVALID_BOOKING_TRANSITION'
+                    );
+                }
+                $slotState = $newStatus === 'confirmed'
+                    ? 'booked'
+                    : ($newStatus === 'cancelled' ? 'available' : null);
+            }
+
             $pdo->prepare('UPDATE bookings SET status = ?, updated_at = UTC_TIMESTAMP() WHERE id = ?')->execute([$newStatus, $booking['id']]);
             $pdo->prepare('INSERT INTO booking_status_history (booking_id, from_status, to_status, changed_by_user_id, note) VALUES (?, ?, ?, ?, ?)')
                 ->execute([$booking['id'], $booking['status'], $newStatus, $user['id'], trim((string) ($input['note'] ?? ''))]);
-            if ($newStatus === 'cancelled') {
-                $pdo->prepare('UPDATE availability_slots SET state = "available" WHERE id = ?')->execute([$booking['availability_slot_id']]);
-            } elseif ($newStatus === 'confirmed') {
-                $pdo->prepare('UPDATE availability_slots SET state = "booked" WHERE id = ?')->execute([$booking['availability_slot_id']]);
+            if ($slotState !== null && $booking['availability_slot_id'] !== null) {
+                $pdo->prepare('UPDATE availability_slots SET state = ? WHERE id = ?')
+                    ->execute([$slotState, $booking['availability_slot_id']]);
             }
         });
         Http::json(['id' => $publicId, 'status' => $input['status']]);
@@ -708,8 +742,10 @@ final class Handlers
     {
         return [
             'id' => $row['public_id'],
-            'trainer' => ['id' => (int) $row['trainer_id'], 'displayName' => $row['display_name'], 'slug' => $row['slug']],
+            'trainer' => ['id' => (int) $row['trainer_id'], 'displayName' => $row['trainer_name'], 'slug' => $row['slug']],
+            'member' => ['displayName' => $row['member_name']],
             'startsAt' => $this->iso($row['starts_at']), 'endsAt' => $this->iso($row['ends_at']), 'location' => $row['location_text'],
+            'note' => $row['member_note'] ?? '',
             'status' => $row['status'], 'paymentStatus' => $row['payment_status'], 'createdAt' => $this->iso($row['created_at']),
             'demo' => (bool) $row['is_demo'],
         ];

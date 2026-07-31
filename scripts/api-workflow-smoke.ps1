@@ -99,4 +99,95 @@ if ($Scenario -in @('admin', 'all')) {
     }
 }
 
+if ($Scenario -in @('booking', 'all')) {
+    $trainer = Login 'trainer.a@fitconnect.local'
+    $member = Login 'member.demo@fitconnect.local'
+    $trainerHeaders = Auth-Headers $trainer.token
+    $memberHeaders = Auth-Headers $member.token
+    $script:slotOffset = Get-Random -Minimum 1000 -Maximum 5000
+
+    function New-TestSlot {
+        $script:slotOffset += 90
+        $start = (Get-Date).ToUniversalTime().AddDays(10).AddMinutes($script:slotOffset).ToString('yyyy-MM-ddTHH:mm:ss.fffZ')
+        $end = ([DateTime]::Parse($start)).ToUniversalTime().AddHours(1).ToString('yyyy-MM-ddTHH:mm:ss.fffZ')
+        $payload = @{ startsAt = $start; endsAt = $end } | ConvertTo-Json
+        return (
+            Invoke-RestMethod -Method Post -Uri "$ApiUrl/v1/availability-slots" -Headers $trainerHeaders -ContentType 'application/json' -Body $payload
+        ).data
+    }
+
+    $acceptedSlot = New-TestSlot
+    $bookingBody = @{
+        trainerId = 1
+        slotId = $acceptedSlot.id
+        location = 'จุดนัดหมายทดสอบ'
+        note = 'ทดสอบตอบรับ'
+    } | ConvertTo-Json
+    $acceptedBooking = (
+        Invoke-RestMethod -Method Post -Uri "$ApiUrl/v1/bookings" -Headers $memberHeaders -ContentType 'application/json' -Body $bookingBody
+    ).data
+
+    Expect-Status 409 {
+        Invoke-RestMethod -Method Delete -Uri "$ApiUrl/v1/availability-slots/$($acceptedSlot.id)" -Headers $trainerHeaders
+    }
+
+    $otherTrainer = Login 'trainer.b@fitconnect.local'
+    $otherTrainerHeaders = Auth-Headers $otherTrainer.token
+    Expect-Status 403 {
+        Invoke-RestMethod -Method Patch -Uri "$ApiUrl/v1/bookings/$($acceptedBooking.id)/status" -Headers $otherTrainerHeaders -ContentType 'application/json' -Body (@{ status = 'awaiting_payment' } | ConvertTo-Json)
+    }
+
+    $accepted = (
+        Invoke-RestMethod -Method Patch -Uri "$ApiUrl/v1/bookings/$($acceptedBooking.id)/status" -Headers $trainerHeaders -ContentType 'application/json' -Body (@{ status = 'awaiting_payment' } | ConvertTo-Json)
+    ).data
+    Assert-True ($accepted.status -eq 'awaiting_payment') 'Trainer acceptance must move booking to awaiting_payment'
+    Expect-Status 409 {
+        Invoke-RestMethod -Method Patch -Uri "$ApiUrl/v1/bookings/$($acceptedBooking.id)/status" -Headers $trainerHeaders -ContentType 'application/json' -Body (@{ status = 'cancelled' } | ConvertTo-Json)
+    }
+
+    $rejectedSlot = New-TestSlot
+    $rejectBody = @{
+        trainerId = 1
+        slotId = $rejectedSlot.id
+        location = 'จุดนัดหมายทดสอบ'
+        note = 'ทดสอบปฏิเสธ'
+    } | ConvertTo-Json
+    $rejectedBooking = (
+        Invoke-RestMethod -Method Post -Uri "$ApiUrl/v1/bookings" -Headers $memberHeaders -ContentType 'application/json' -Body ([Text.Encoding]::UTF8.GetBytes($rejectBody))
+    ).data
+    Invoke-RestMethod -Method Patch -Uri "$ApiUrl/v1/bookings/$($rejectedBooking.id)/status" -Headers $trainerHeaders -ContentType 'application/json' -Body (@{ status = 'cancelled'; note = 'เวลาไม่สะดวก' } | ConvertTo-Json) | Out-Null
+
+    $workspace = (Invoke-RestMethod -Method Get -Uri "$ApiUrl/v1/trainer/me" -Headers $trainerHeaders).data
+    $released = $workspace.slots | Where-Object { $_.id -eq $rejectedSlot.id } | Select-Object -First 1
+    Assert-True ($released.state -eq 'available') 'Rejected booking must release its slot'
+
+    $trainerBookings = (Invoke-RestMethod -Method Get -Uri "$ApiUrl/v1/bookings" -Headers $trainerHeaders).data
+    $trainerView = $trainerBookings | Where-Object { $_.id -eq $rejectedBooking.id } | Select-Object -First 1
+    Assert-True (-not [string]::IsNullOrWhiteSpace($trainerView.member.displayName)) 'Trainer booking payload must include member name'
+    Assert-True ($trainerView.note -eq 'ทดสอบปฏิเสธ') 'Trainer booking payload must include the member note'
+
+    $contestedSlot = New-TestSlot
+    $contestedBody = @{
+        trainerId = 1
+        slotId = $contestedSlot.id
+        location = 'ทดสอบการจองพร้อมกัน'
+        note = 'concurrency'
+    } | ConvertTo-Json
+    $bookingRequest = {
+        param([string]$Uri, [string]$Token, [string]$Body)
+        try {
+            $response = Invoke-WebRequest -UseBasicParsing -Method Post -Uri $Uri -Headers @{ Authorization = "Bearer $Token" } -ContentType 'application/json' -Body $Body
+            return [pscustomobject]@{ Status = [int]$response.StatusCode; Body = $response.Content }
+        } catch {
+            return [pscustomobject]@{ Status = [int]$_.Exception.Response.StatusCode; Body = '' }
+        }
+    }
+    $jobs = 1..2 | ForEach-Object {
+        Start-Job -ScriptBlock $bookingRequest -ArgumentList "$ApiUrl/v1/bookings", $member.token, $contestedBody
+    }
+    $results = @($jobs | Receive-Job -Wait -AutoRemoveJob)
+    $codes = (($results.Status | Sort-Object) -join ',')
+    Assert-True ($codes -eq '201,409') "Concurrent booking must return 201 and 409, got $codes"
+}
+
 Write-Host "PASS API workflow scenario: $Scenario"
