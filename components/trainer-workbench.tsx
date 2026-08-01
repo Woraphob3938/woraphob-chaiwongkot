@@ -25,6 +25,7 @@ export function TrainerWorkbench() {
   const [bookings, setBookings] = useState<Booking[]>([]);
   const [workspaceError, setWorkspaceError] = useState("");
   const [bookingError, setBookingError] = useState("");
+  const [completionError, setCompletionError] = useState("");
   const [actionNotice, setActionNotice] = useState("");
   const [availabilityError, setAvailabilityError] = useState("");
   const [fieldErrors, setFieldErrors] = useState<Record<string, string>>({});
@@ -33,6 +34,7 @@ export function TrainerWorkbench() {
   const [busy, setBusy] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
   const actionNoticeRef = useRef<HTMLParagraphElement>(null);
+  const completionErrorRef = useRef<HTMLDivElement>(null);
 
   const loadWorkspace = useCallback(async () => {
     try {
@@ -45,16 +47,20 @@ export function TrainerWorkbench() {
     }
   }, []);
 
+  const refreshBookings = useCallback(async () => {
+    const data = await authenticatedRequest<Booking[]>("/v1/bookings");
+    setBookings(data);
+  }, []);
+
   const loadBookings = useCallback(async () => {
     try {
-      const data = await authenticatedRequest<Booking[]>("/v1/bookings");
-      setBookings(data);
+      await refreshBookings();
       setBookingError("");
     } catch (error) {
       if (leaveExpiredSession(error)) return;
       setBookingError(error instanceof Error ? error.message : "โหลดคำขอจองไม่สำเร็จ");
     }
-  }, []);
+  }, [refreshBookings]);
 
   useEffect(() => {
     const initialLoad = Promise.allSettled([
@@ -82,6 +88,10 @@ export function TrainerWorkbench() {
   useEffect(() => {
     if (actionNotice) actionNoticeRef.current?.focus();
   }, [actionNotice]);
+
+  useEffect(() => {
+    if (completionError) completionErrorRef.current?.focus();
+  }, [completionError]);
 
   const now = useMemo(() => {
     const value = new Date();
@@ -168,17 +178,42 @@ export function TrainerWorkbench() {
   async function completeBooking(bookingId: string) {
     setBusy(`booking-${bookingId}`);
     setBookingError("");
+    setCompletionError("");
     setActionNotice("");
     try {
       await authenticatedRequest(`/v1/bookings/${encodeURIComponent(bookingId)}/status`, {
         method: "PATCH",
         body: JSON.stringify({ status: "completed" }),
       });
-      await loadBookings();
+      setBookings((current) => current.map((booking) => booking.id === bookingId
+        ? { ...booking, status: "completed", actions: { ...booking.actions, canComplete: false } }
+        : booking));
+      try {
+        await refreshBookings();
+        setBookingError("");
+      } catch (error) {
+        if (leaveExpiredSession(error)) return;
+        setCompletionError("บันทึกว่าฝึกเสร็จแล้ว แต่โหลดรายการล่าสุดไม่สำเร็จ กรุณาลองใหม่");
+        return;
+      }
       setActionNotice(`บันทึกว่าคำขอ ${bookingId} ฝึกเสร็จแล้ว`);
     } catch (error) {
       if (leaveExpiredSession(error)) return;
-      setBookingError(error instanceof Error ? error.message : "บันทึกการฝึกเสร็จแล้วไม่สำเร็จ");
+      setCompletionError(error instanceof Error ? error.message : "บันทึกการฝึกเสร็จแล้วไม่สำเร็จ");
+    } finally {
+      setBusy(null);
+    }
+  }
+
+  async function retryBookingRefresh() {
+    setBusy("bookings-refresh");
+    setCompletionError("");
+    try {
+      await refreshBookings();
+      setBookingError("");
+    } catch (error) {
+      if (leaveExpiredSession(error)) return;
+      setCompletionError("ยังโหลดรายการนัดหมายล่าสุดไม่สำเร็จ กรุณาลองใหม่");
     } finally {
       setBusy(null);
     }
@@ -282,6 +317,14 @@ export function TrainerWorkbench() {
 
       <section className="trainer-booking-list" aria-labelledby="trainer-confirmed-title">
         <div className="section-line-heading"><div><h2 id="trainer-confirmed-title">นัดหมายที่ยืนยันแล้ว</h2><p>บันทึกว่าฝึกเสร็จเมื่อระบบเปิดให้ดำเนินการหลังเวลานัด</p></div><span className="queue-count">{String(confirmedBookings.length).padStart(2, "0")}</span></div>
+        {completionError && (
+          <div ref={completionErrorRef} className="workbench-error" role="alert" tabIndex={-1}>
+            <span>{completionError}</span>
+            <button type="button" disabled={busy === "bookings-refresh"} onClick={() => void retryBookingRefresh()}>
+              <RefreshCw aria-hidden="true" size={15} /> {busy === "bookings-refresh" ? "กำลังโหลด…" : "ลองโหลดใหม่"}
+            </button>
+          </div>
+        )}
         {confirmedBookings.map((booking) => {
           const isBusy = busy === `booking-${booking.id}`;
           return (

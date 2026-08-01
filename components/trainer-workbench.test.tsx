@@ -1,4 +1,4 @@
-import { fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { TrainerWorkbench } from "@/components/trainer-workbench";
 import { authenticatedRequest } from "@/lib/api";
@@ -123,5 +123,33 @@ describe("TrainerWorkbench", () => {
 
     expect(await screen.findByRole("button", { name: "ฝึกเสร็จแล้ว BK-WAIT" })).toBeDisabled();
     expect(screen.getByText("ฝึกเสร็จได้หลัง จันทร์ 10 ส.ค. · 10:00 น.")).toBeInTheDocument();
+  });
+
+  it("prevents duplicate completion and reports a failed refresh beside confirmed bookings", async () => {
+    const booking = bookingFixture({
+      id: "BK-REFRESH",
+      status: "confirmed",
+      quotedPrice: 1_200,
+      paymentStatus: "approved",
+      actions: { ...bookingFixture().actions, canComplete: true },
+    });
+    vi.mocked(authenticatedRequest)
+      .mockResolvedValueOnce(approvedWorkspace)
+      .mockResolvedValueOnce([booking])
+      .mockResolvedValueOnce({ id: "BK-REFRESH", status: "completed" })
+      .mockRejectedValueOnce(new Error("โหลดรายการนัดล่าสุดไม่ได้"));
+
+    render(<TrainerWorkbench />);
+    fireEvent.click(await screen.findByRole("button", { name: "ฝึกเสร็จแล้ว BK-REFRESH" }));
+
+    const confirmedSection = screen.getByRole("region", { name: "นัดหมายที่ยืนยันแล้ว" });
+    const refreshError = await within(confirmedSection).findByRole("alert");
+    expect(refreshError).toHaveTextContent("บันทึกว่าฝึกเสร็จแล้ว แต่โหลดรายการล่าสุดไม่สำเร็จ");
+    expect(refreshError).toHaveFocus();
+    expect(screen.queryByText("บันทึกว่าคำขอ BK-REFRESH ฝึกเสร็จแล้ว")).not.toBeInTheDocument();
+    expect(within(confirmedSection).queryByRole("button", { name: "ฝึกเสร็จแล้ว BK-REFRESH" })).not.toBeInTheDocument();
+    expect(vi.mocked(authenticatedRequest).mock.calls.filter(([path, options]) => (
+      path === "/v1/bookings/BK-REFRESH/status" && options?.method === "PATCH"
+    ))).toHaveLength(1);
   });
 });
