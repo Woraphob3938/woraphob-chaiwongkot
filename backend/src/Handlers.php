@@ -450,29 +450,45 @@ final class Handlers
     {
         $user = $this->auth->requireUser(['member']);
         $input = Http::body();
-        Http::requireFields($input, ['bookingId']);
-        $booking = $this->database->fetchOne(
-            'SELECT id, status FROM bookings WHERE public_id = ? AND member_user_id = ?',
-            [(string) $input['bookingId'], $user['id']]
+        Http::requireFields($input, ['bookingId', 'amount']);
+        $amount = WorkflowRules::normalizeMoney($input['amount'], 'amount');
+        $file = $this->saveUpload(
+            'slip',
+            ['image/jpeg', 'image/png', 'image/webp', 'application/pdf'],
+            5 * 1024 * 1024,
+            'payments'
         );
-        if (!$booking) {
-            throw new HttpException(404, 'ไม่พบคำขอจอง', 'BOOKING_NOT_FOUND');
+
+        try {
+            $paymentId = $this->database->transaction(function (PDO $pdo) use ($input, $user, $amount, $file): int {
+                $statement = $pdo->prepare(
+                    'SELECT id, status FROM bookings WHERE public_id = ? AND member_user_id = ? FOR UPDATE'
+                );
+                $statement->execute([(string) $input['bookingId'], $user['id']]);
+                $booking = $statement->fetch();
+                if (!$booking) {
+                    throw new HttpException(404, 'ไม่พบคำขอจอง', 'BOOKING_NOT_FOUND');
+                }
+                if ($booking['status'] !== 'awaiting_payment') {
+                    throw new HttpException(409, 'คำขอนี้ยังไม่อยู่ในขั้นส่งหลักฐานการชำระ', 'PAYMENT_NOT_READY');
+                }
+
+                $pdo->prepare(
+                    'INSERT INTO payments (booking_id, submitted_by_user_id, amount, slip_path, mime_type, status, submitted_at)
+                     VALUES (?, ?, ?, ?, ?, "reviewing", UTC_TIMESTAMP())'
+                )->execute([$booking['id'], $user['id'], $amount, $file['path'], $file['mime']]);
+                $paymentId = (int) $pdo->lastInsertId();
+                $pdo->prepare('UPDATE bookings SET status = "payment_review", payment_status = "reviewing", updated_at = UTC_TIMESTAMP() WHERE id = ?')
+                    ->execute([$booking['id']]);
+                $pdo->prepare('INSERT INTO booking_status_history (booking_id, from_status, to_status, changed_by_user_id, note) VALUES (?, "awaiting_payment", "payment_review", ?, "สมาชิกอัปโหลดสลิป")')
+                    ->execute([$booking['id'], $user['id']]);
+                return $paymentId;
+            });
+        } catch (Throwable $error) {
+            $this->removeUpload($file['path']);
+            throw $error;
         }
-        if ($booking['status'] !== 'awaiting_payment') {
-            throw new HttpException(409, 'คำขอนี้ยังไม่อยู่ในขั้นส่งหลักฐานการชำระ', 'PAYMENT_NOT_READY');
-        }
-        $file = $this->saveUpload('slip', ['image/jpeg', 'image/png', 'image/webp'], (int) $this->config['upload_max_bytes'], 'payments');
-        $this->database->transaction(function (PDO $pdo) use ($booking, $user, $file): void {
-            $pdo->prepare(
-                'INSERT INTO payments (booking_id, submitted_by_user_id, slip_path, mime_type, status, submitted_at)
-                 VALUES (?, ?, ?, ?, "reviewing", UTC_TIMESTAMP())'
-            )->execute([$booking['id'], $user['id'], $file['path'], $file['mime']]);
-            $pdo->prepare('UPDATE bookings SET status = "payment_review", payment_status = "reviewing", updated_at = UTC_TIMESTAMP() WHERE id = ?')
-                ->execute([$booking['id']]);
-            $pdo->prepare('INSERT INTO booking_status_history (booking_id, from_status, to_status, changed_by_user_id, note) VALUES (?, "awaiting_payment", "payment_review", ?, "สมาชิกอัปโหลดสลิป")')
-                ->execute([$booking['id'], $user['id']]);
-        });
-        Http::json(['bookingId' => $input['bookingId'], 'status' => 'reviewing', 'message' => 'ส่งสลิปให้แอดมินตรวจแล้ว'], 201);
+        Http::json(['paymentId' => $paymentId, 'bookingId' => $input['bookingId'], 'status' => 'reviewing', 'message' => 'ส่งสลิปให้แอดมินตรวจแล้ว'], 201);
     }
 
     public function messages(string $roomId): never
@@ -594,10 +610,14 @@ final class Handlers
              GROUP BY tp.id ORDER BY tp.created_at ASC LIMIT 100'
         );
         $payments = $this->database->fetchAll(
-            'SELECT pay.id, pay.submitted_at, pay.amount, b.public_id AS booking_public_id, b.is_demo, u.display_name AS member_name
+            'SELECT pay.id, pay.submitted_at, pay.amount,
+                    b.public_id AS booking_public_id, b.starts_at, b.ends_at, b.location_text, b.quoted_price, b.is_demo,
+                    member_user.display_name AS member_name, trainer_user.display_name AS trainer_name
              FROM payments pay
              JOIN bookings b ON b.id = pay.booking_id
-             JOIN users u ON u.id = pay.submitted_by_user_id
+             JOIN users member_user ON member_user.id = pay.submitted_by_user_id
+             JOIN trainer_profiles tp ON tp.id = b.trainer_profile_id
+             JOIN users trainer_user ON trainer_user.id = tp.user_id
              WHERE pay.status = "reviewing" ORDER BY pay.submitted_at ASC LIMIT 100'
         );
 
@@ -639,7 +659,13 @@ final class Handlers
                 'id' => (int) $row['id'],
                 'bookingId' => $row['booking_public_id'],
                 'memberName' => $row['member_name'],
-                'amount' => $row['amount'] === null ? null : (float) $row['amount'],
+                'trainerName' => $row['trainer_name'],
+                'startsAt' => $this->iso($row['starts_at']),
+                'endsAt' => $this->iso($row['ends_at']),
+                'location' => $row['location_text'],
+                'quotedPrice' => (float) $row['quoted_price'],
+                'amount' => (float) $row['amount'],
+                'difference' => (float) $row['amount'] - (float) $row['quoted_price'],
                 'submittedAt' => $this->iso($row['submitted_at']),
                 'fileUrl' => '/v1/admin/files/payment/' . $row['id'],
                 'demo' => (bool) $row['is_demo'],
@@ -656,7 +682,7 @@ final class Handlers
         $input = Http::body();
         $result = $this->database->transaction(function (PDO $pdo) use ($paymentId, $decision, $input, $admin): array {
             $statement = $pdo->prepare(
-                'SELECT pay.id, pay.status, pay.booking_id, b.public_id, b.status AS booking_status
+                'SELECT pay.id, pay.status, pay.booking_id, b.public_id, b.status AS booking_status, b.availability_slot_id
                  FROM payments pay JOIN bookings b ON b.id = pay.booking_id WHERE pay.id = ? FOR UPDATE'
             );
             $statement->execute([(int) $paymentId]);
@@ -664,17 +690,25 @@ final class Handlers
             if (!$payment) {
                 throw new HttpException(404, 'ไม่พบหลักฐานการชำระ', 'PAYMENT_NOT_FOUND');
             }
-            if ($payment['status'] !== 'reviewing') {
-                throw new HttpException(409, 'หลักฐานนี้ได้รับการตัดสินแล้ว', 'PAYMENT_ALREADY_REVIEWED');
-            }
+            $note = trim((string) ($input['note'] ?? ''));
+            WorkflowRules::assertPaymentDecision(
+                (string) $payment['status'],
+                (string) $payment['booking_status'],
+                $decision,
+                $note
+            );
             $paymentStatus = $decision === 'approve' ? 'approved' : 'rejected';
             $bookingStatus = $decision === 'approve' ? 'confirmed' : 'awaiting_payment';
             $pdo->prepare('UPDATE payments SET status = ?, review_note = ?, reviewed_by_user_id = ?, reviewed_at = UTC_TIMESTAMP() WHERE id = ?')
-                ->execute([$paymentStatus, trim((string) ($input['note'] ?? '')), $admin['id'], $payment['id']]);
+                ->execute([$paymentStatus, $note, $admin['id'], $payment['id']]);
             $pdo->prepare('UPDATE bookings SET status = ?, payment_status = ?, updated_at = UTC_TIMESTAMP() WHERE id = ?')
                 ->execute([$bookingStatus, $paymentStatus, $payment['booking_id']]);
             $pdo->prepare('INSERT INTO booking_status_history (booking_id, from_status, to_status, changed_by_user_id, note) VALUES (?, ?, ?, ?, ?)')
-                ->execute([$payment['booking_id'], $payment['booking_status'], $bookingStatus, $admin['id'], trim((string) ($input['note'] ?? ''))]);
+                ->execute([$payment['booking_id'], $payment['booking_status'], $bookingStatus, $admin['id'], $note]);
+            if ($decision === 'approve' && $payment['availability_slot_id'] !== null) {
+                $pdo->prepare('UPDATE availability_slots SET state = "booked" WHERE id = ?')
+                    ->execute([$payment['availability_slot_id']]);
+            }
             return ['paymentId' => (int) $payment['id'], 'bookingId' => $payment['public_id'], 'status' => $paymentStatus, 'bookingStatus' => $bookingStatus];
         });
         Http::json($result);
@@ -796,7 +830,7 @@ final class Handlers
             'chatRoomId' => $role === 'admin' || $row['chat_room_id'] === null ? null : (int) $row['chat_room_id'],
             'payment' => $row['payment_id'] === null ? null : [
                 'id' => (int) $row['payment_id'],
-                'amount' => (float) $row['payment_amount'],
+                'amount' => $row['payment_amount'] === null ? null : (float) $row['payment_amount'],
                 'status' => $row['payment_record_status'],
                 'reviewNote' => $row['payment_review_note'],
                 'submittedAt' => $this->iso($row['payment_submitted_at']),
@@ -840,16 +874,23 @@ final class Handlers
             throw new HttpException(422, 'กรุณาเลือกไฟล์', 'FILE_REQUIRED', [$field => 'จำเป็นต้องแนบไฟล์']);
         }
         $file = $_FILES[$field];
-        if (($file['error'] ?? UPLOAD_ERR_NO_FILE) !== UPLOAD_ERR_OK) {
+        $uploadError = (int) ($file['error'] ?? UPLOAD_ERR_NO_FILE);
+        if (in_array($uploadError, [UPLOAD_ERR_INI_SIZE, UPLOAD_ERR_FORM_SIZE], true)) {
+            throw new HttpException(413, 'ขนาดไฟล์เกินที่กำหนด', 'FILE_TOO_LARGE');
+        }
+        if ($uploadError !== UPLOAD_ERR_OK) {
             throw new HttpException(422, 'อัปโหลดไฟล์ไม่สำเร็จ', 'UPLOAD_FAILED');
         }
-        if ((int) $file['size'] <= 0 || (int) $file['size'] > $maxBytes) {
-            throw new HttpException(422, 'ขนาดไฟล์เกินที่กำหนด', 'FILE_TOO_LARGE');
+        if ((int) $file['size'] <= 0) {
+            throw new HttpException(422, 'อัปโหลดไฟล์ไม่สำเร็จ', 'UPLOAD_FAILED');
+        }
+        if ((int) $file['size'] > $maxBytes) {
+            throw new HttpException(413, 'ขนาดไฟล์เกินที่กำหนด', 'FILE_TOO_LARGE');
         }
         $finfo = new finfo(FILEINFO_MIME_TYPE);
         $mime = $finfo->file((string) $file['tmp_name']);
         if ($mime === false || !in_array($mime, $allowedMimeTypes, true)) {
-            throw new HttpException(422, 'ประเภทไฟล์ไม่รองรับ', 'INVALID_FILE_TYPE');
+            throw new HttpException(415, 'ประเภทไฟล์ไม่รองรับ', 'INVALID_FILE_TYPE');
         }
         $extensions = ['application/pdf' => 'pdf', 'image/jpeg' => 'jpg', 'image/png' => 'png', 'image/webp' => 'webp'];
         $uploadRoot = dirname(__DIR__) . '/uploads/' . $directory;
@@ -862,6 +903,20 @@ final class Handlers
             throw new RuntimeException('บันทึกไฟล์ไม่สำเร็จ');
         }
         return ['path' => 'uploads/' . $directory . '/' . $filename, 'mime' => $mime];
+    }
+
+    private function removeUpload(string $relativePath): void
+    {
+        $uploadRoot = realpath(dirname(__DIR__) . '/uploads');
+        $target = realpath(dirname(__DIR__) . '/' . ltrim($relativePath, '/\\'));
+        if (
+            $uploadRoot !== false
+            && $target !== false
+            && str_starts_with($target, $uploadRoot . DIRECTORY_SEPARATOR)
+            && is_file($target)
+        ) {
+            unlink($target);
+        }
     }
 
     private function iso(string $value): string
