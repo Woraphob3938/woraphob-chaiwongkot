@@ -6,6 +6,8 @@ param(
 )
 
 $ErrorActionPreference = 'Stop'
+$PSDefaultParameterValues['Invoke-RestMethod:TimeoutSec'] = 20
+$PSDefaultParameterValues['Invoke-WebRequest:TimeoutSec'] = 20
 
 function Assert-True {
     param([bool]$Condition, [string]$Message)
@@ -103,7 +105,8 @@ VALUES
 
     function Submit-Payment {
         param([string]$BookingId)
-        $paymentJson = & curl.exe --silent --show-error --fail-with-body `
+    $paymentJson = & curl.exe --silent --show-error --fail-with-body `
+            --max-time 20 `
             -H "Authorization: Bearer $($member.token)" `
             -F "bookingId=$BookingId" `
             -F 'amount=1200' `
@@ -199,6 +202,149 @@ VALUES
         Invoke-RestMethod -Method Post -Uri "$ApiUrl/v1/admin/payments/$($retryQueuePayment.id)/approve" -Headers $adminHeaders -ContentType 'application/json' -Body ([Text.Encoding]::UTF8.GetBytes((@{ note = 'หลักฐานใหม่ถูกต้อง' } | ConvertTo-Json)))
     ).data
     Assert-True ($retryApproved.bookingStatus -eq 'confirmed') 'Approved retry must confirm the booking'
+}
+
+if ($Scenario -in @('chat', 'all')) {
+    $trainer = Login 'trainer.a@fitconnect.local'
+    $member = Login 'member.demo@fitconnect.local'
+    $admin = Login 'admin.demo@fitconnect.local'
+    $trainerHeaders = Auth-Headers $trainer.token
+    $memberHeaders = Auth-Headers $member.token
+    $adminHeaders = Auth-Headers $admin.token
+    $attachmentPath = (Resolve-Path (Join-Path $PSScriptRoot '..\public\demo\trainer-a.png')).Path
+    $attachmentFile = Get-Item -LiteralPath $attachmentPath
+
+    function Get-OrCreate-ChatOutsider {
+        $email = 'chat.outsider@fitconnect.local'
+        try {
+            return Login $email
+        } catch {
+            if ([int]$_.Exception.Response.StatusCode -ne 401) { throw }
+        }
+
+        $body = @{
+            displayName = 'สมาชิกนอกห้องสนทนา'
+            email = $email
+            password = 'password'
+            role = 'member'
+        } | ConvertTo-Json
+        return (Invoke-RestMethod -Method Post -Uri "$ApiUrl/v1/auth/register" -ContentType 'application/json' -Body ([Text.Encoding]::UTF8.GetBytes($body))).data
+    }
+
+    function New-ChatTestSlot {
+        for ($attempt = 1; $attempt -le 30; $attempt++) {
+            $start = (Get-Date).ToUniversalTime().Date.AddDays((Get-Random -Minimum 2 -Maximum 50)).AddMinutes((Get-Random -Minimum 0 -Maximum 1380))
+            $end = $start.AddHours(1)
+            $body = @{
+                startsAt = $start.ToString('yyyy-MM-ddTHH:mm:ss.fffZ')
+                endsAt = $end.ToString('yyyy-MM-ddTHH:mm:ss.fffZ')
+            } | ConvertTo-Json
+            try {
+                return (Invoke-RestMethod -Method Post -Uri "$ApiUrl/v1/availability-slots" -Headers $trainerHeaders -ContentType 'application/json' -Body $body).data
+            } catch {
+                if ([int]$_.Exception.Response.StatusCode -ne 409 -or $attempt -eq 30) { throw }
+            }
+        }
+    }
+
+    $outsider = Get-OrCreate-ChatOutsider
+    $outsiderHeaders = Auth-Headers $outsider.token
+    $slot = New-ChatTestSlot
+    $label = [Guid]::NewGuid().ToString('N').Substring(0, 8)
+    $bookingBody = @{
+        trainerId = 1
+        slotId = $slot.id
+        location = "จุดนัดหมายทดสอบแชต $label"
+        note = "chat smoke $label"
+    } | ConvertTo-Json
+    $booking = (
+        Invoke-RestMethod -Method Post -Uri "$ApiUrl/v1/bookings" -Headers $memberHeaders -ContentType 'application/json' -Body ([Text.Encoding]::UTF8.GetBytes($bookingBody))
+    ).data
+    Invoke-RestMethod -Method Patch -Uri "$ApiUrl/v1/bookings/$($booking.id)/status" -Headers $trainerHeaders -ContentType 'application/json' -Body (@{ status = 'awaiting_payment'; quotedPrice = 1200 } | ConvertTo-Json) | Out-Null
+
+    $memberBookings = (Invoke-RestMethod -Method Get -Uri "$ApiUrl/v1/bookings" -Headers $memberHeaders).data
+    $acceptedBooking = $memberBookings | Where-Object { $_.id -eq $booking.id } | Select-Object -First 1
+    Assert-True ($acceptedBooking.chatRoomId -gt 0) 'Accepted booking must expose its chat room'
+    $roomId = [int]$acceptedBooking.chatRoomId
+
+    $text = "พร้อมเจอกันตามนัด $label"
+    $textMessage = (
+        Invoke-RestMethod -Method Post -Uri "$ApiUrl/v1/chat-rooms/$roomId/messages" -Headers $memberHeaders -ContentType 'application/json' -Body ([Text.Encoding]::UTF8.GetBytes((@{ message = $text } | ConvertTo-Json)))
+    ).data
+    Assert-True ($textMessage.id -gt 0) 'Text message must be persisted'
+    Assert-True ($textMessage.message -eq $text) 'Text message response must preserve the message'
+
+    $memberOwnPoll = (Invoke-RestMethod -Method Get -Uri "$ApiUrl/v1/chat-rooms/$roomId/messages?afterId=0" -Headers $memberHeaders).data
+    $memberOwnMessage = $memberOwnPoll | Where-Object { $_.id -eq $textMessage.id } | Select-Object -First 1
+    Assert-True ($null -ne $memberOwnMessage) 'Message polling must return the persisted text message'
+    Assert-True ($null -eq $memberOwnMessage.readAt) 'Polling must not mark the participant own message as read'
+
+    Expect-Status 422 {
+        Invoke-RestMethod -Method Get -Uri "$ApiUrl/v1/chat-rooms/$roomId/messages?afterId=-1" -Headers $memberHeaders
+    }
+    Expect-Status 422 {
+        Invoke-RestMethod -Method Get -Uri "$ApiUrl/v1/chat-rooms/$roomId/messages?afterId=not-a-number" -Headers $memberHeaders
+    }
+    Expect-Status 422 {
+        Invoke-RestMethod -Method Post -Uri "$ApiUrl/v1/chat-rooms/$roomId/messages" -Headers $memberHeaders -ContentType 'application/json' -Body (@{ message = ('ก' * 4001) } | ConvertTo-Json)
+    }
+    Expect-Status 422 {
+        Invoke-RestMethod -Method Post -Uri "$ApiUrl/v1/chat-rooms/$roomId/messages" -Headers $memberHeaders -ContentType 'application/json' -Body (@{ message = '   ' } | ConvertTo-Json)
+    }
+
+    $attachmentJson = & curl.exe --silent --show-error --fail-with-body `
+        --max-time 20 `
+        -H "Authorization: Bearer $($trainer.token)" `
+        -F "attachment=@$attachmentPath;type=image/png" `
+        "$ApiUrl/v1/chat-rooms/$roomId/messages"
+    Assert-True ($LASTEXITCODE -eq 0) "Chat attachment upload failed: $attachmentJson"
+    $attachmentMessage = ($attachmentJson | ConvertFrom-Json).data
+    Assert-True ($attachmentMessage.id -gt $textMessage.id) 'Attachment message must be inserted after the text message'
+
+    $laterMessages = (Invoke-RestMethod -Method Get -Uri "$ApiUrl/v1/chat-rooms/$roomId/messages?afterId=$($textMessage.id)" -Headers $memberHeaders).data
+    Assert-True ($laterMessages.Count -eq 1) 'Cursor polling must return only messages after afterId'
+    Assert-True ($laterMessages[0].id -eq $attachmentMessage.id) 'Cursor polling must return the later attachment message'
+    Assert-True ($laterMessages[0].attachment.name -eq $attachmentFile.Name) 'Attachment metadata must preserve a safe display name'
+    Assert-True ($laterMessages[0].attachment.mime -eq 'image/png') 'Attachment metadata must expose detected MIME type'
+    Assert-True ([int64]$laterMessages[0].attachment.size -eq $attachmentFile.Length) 'Attachment metadata must expose the exact byte size'
+    Assert-True ($laterMessages[0].attachment.url -eq "/v1/chat-rooms/$roomId/messages/$($attachmentMessage.id)/attachment") 'Attachment metadata must expose only the protected API URL'
+    Assert-True (-not [string]::IsNullOrWhiteSpace($laterMessages[0].readAt)) 'Polling must mark the other participant message as read'
+    $attachmentPayload = $laterMessages[0].attachment | ConvertTo-Json -Compress
+    Assert-True ($attachmentPayload -notmatch 'uploads[/\\]') 'Attachment metadata must never expose the upload path'
+    Assert-True ($attachmentPayload -notmatch '\\') 'Attachment metadata must never expose a filesystem path'
+
+    $trainerPoll = (Invoke-RestMethod -Method Get -Uri "$ApiUrl/v1/chat-rooms/$roomId/messages?afterId=0" -Headers $trainerHeaders).data
+    $trainerViewOfMemberMessage = $trainerPoll | Where-Object { $_.id -eq $textMessage.id } | Select-Object -First 1
+    Assert-True (-not [string]::IsNullOrWhiteSpace($trainerViewOfMemberMessage.readAt)) 'Trainer polling must mark the member message as read'
+
+    Expect-Status 403 {
+        Invoke-RestMethod -Method Get -Uri "$ApiUrl/v1/chat-rooms/$roomId/messages" -Headers $outsiderHeaders
+    }
+    Expect-Status 403 {
+        Invoke-RestMethod -Method Post -Uri "$ApiUrl/v1/chat-rooms/$roomId/messages" -Headers $outsiderHeaders -ContentType 'application/json' -Body (@{ message = 'ห้ามส่งเข้าห้องของผู้อื่น' } | ConvertTo-Json)
+    }
+    Expect-Status 403 {
+        Invoke-RestMethod -Method Get -Uri "$ApiUrl/v1/chat-rooms/$roomId/messages/$($attachmentMessage.id)/attachment" -Headers $outsiderHeaders
+    }
+    Expect-Status 403 {
+        Invoke-RestMethod -Method Get -Uri "$ApiUrl/v1/chat-rooms/$roomId/messages" -Headers $adminHeaders
+    }
+
+    $attachmentResponse = Invoke-WebRequest -UseBasicParsing -Method Get -Uri "$ApiUrl/v1/chat-rooms/$roomId/messages/$($attachmentMessage.id)/attachment" -Headers $memberHeaders
+    Assert-True ($attachmentResponse.StatusCode -eq 200) 'Participant must be able to download a protected attachment'
+    Assert-True ([string]$attachmentResponse.Headers['Content-Type'] -eq 'image/png') 'Attachment response must use the detected MIME type'
+    Assert-True ([int64]$attachmentResponse.Headers['Content-Length'] -eq $attachmentFile.Length) 'Attachment response must use the exact byte length'
+    Assert-True ([string]$attachmentResponse.Headers['Content-Disposition'] -match [regex]::Escape($attachmentFile.Name)) 'Attachment response must use the safe display filename'
+    Assert-True ([string]$attachmentResponse.Headers['Content-Disposition'] -notmatch 'uploads[/\\]') 'Attachment response must not reveal its upload path'
+    Assert-True ([string]$attachmentResponse.Headers['X-Content-Type-Options'] -match '(^|,)nosniff(,|$)') 'Attachment response must disable MIME sniffing'
+    Assert-True ([string]$attachmentResponse.Headers['Cache-Control'] -eq 'private, no-store') 'Attachment response must not be publicly cached'
+
+    Invoke-RestMethod -Method Patch -Uri "$ApiUrl/v1/bookings/$($booking.id)/status" -Headers $adminHeaders -ContentType 'application/json' -Body (@{ status = 'cancelled'; note = 'chat smoke complete' } | ConvertTo-Json) | Out-Null
+    $cancelledMessages = (Invoke-RestMethod -Method Get -Uri "$ApiUrl/v1/chat-rooms/$roomId/messages" -Headers $memberHeaders).data
+    Assert-True ($cancelledMessages.Count -eq 2) 'Cancelled booking chat must remain readable'
+    Expect-Status 409 {
+        Invoke-RestMethod -Method Post -Uri "$ApiUrl/v1/chat-rooms/$roomId/messages" -Headers $memberHeaders -ContentType 'application/json' -Body (@{ message = 'ข้อความหลังยกเลิก' } | ConvertTo-Json)
+    }
 }
 
 Write-Host "PASS payment/chat/review API scenario: $Scenario"

@@ -493,17 +493,39 @@ final class Handlers
 
     public function messages(string $roomId): never
     {
-        $user = $this->auth->requireUser(['member', 'trainer', 'admin']);
+        $user = $this->auth->requireUser();
         $room = $this->requireChatParticipant((int) $roomId, $user);
+        $rawAfterId = $_GET['afterId'] ?? '0';
+        if (is_array($rawAfterId) || preg_match('/^\d+$/', (string) $rawAfterId) !== 1) {
+            throw new HttpException(422, 'ตัวชี้ข้อความไม่ถูกต้อง', 'VALIDATION_FAILED', ['afterId' => 'ต้องเป็นจำนวนเต็มตั้งแต่ 0 ขึ้นไป']);
+        }
+        $afterId = filter_var((string) $rawAfterId, FILTER_VALIDATE_INT, ['options' => ['min_range' => 0]]);
+        if ($afterId === false) {
+            throw new HttpException(422, 'ตัวชี้ข้อความไม่ถูกต้อง', 'VALIDATION_FAILED', ['afterId' => 'ต้องเป็นจำนวนเต็มตั้งแต่ 0 ขึ้นไป']);
+        }
+
+        $this->database->execute(
+            'UPDATE messages SET read_at = UTC_TIMESTAMP()
+             WHERE chat_room_id = ? AND id > ? AND sender_user_id <> ? AND read_at IS NULL',
+            [$room['id'], $afterId, $user['id']]
+        );
         $rows = $this->database->fetchAll(
-            'SELECT m.id, m.message_text, m.attachment_path, m.created_at, u.id AS sender_id, u.display_name
-             FROM messages m JOIN users u ON u.id = m.sender_user_id WHERE m.chat_room_id = ? ORDER BY m.id ASC LIMIT 500',
-            [$room['id']]
+            'SELECT m.id, m.message_text, m.attachment_path, m.attachment_mime, m.attachment_name,
+                    m.attachment_size, m.read_at, m.created_at, u.id AS sender_id, u.display_name
+             FROM messages m JOIN users u ON u.id = m.sender_user_id
+             WHERE m.chat_room_id = ? AND m.id > ? ORDER BY m.id ASC LIMIT 500',
+            [$room['id'], $afterId]
         );
         Http::json(array_map(fn(array $row): array => [
             'id' => (int) $row['id'],
             'message' => $row['message_text'],
-            'attachment' => $row['attachment_path'],
+            'attachment' => $row['attachment_path'] === null ? null : [
+                'name' => $row['attachment_name'],
+                'mime' => $row['attachment_mime'],
+                'size' => (int) $row['attachment_size'],
+                'url' => '/v1/chat-rooms/' . $room['id'] . '/messages/' . $row['id'] . '/attachment',
+            ],
+            'readAt' => $row['read_at'] === null ? null : $this->iso($row['read_at']),
             'createdAt' => $this->iso($row['created_at']),
             'sender' => ['id' => (int) $row['sender_id'], 'displayName' => $row['display_name']],
         ], $rows));
@@ -511,16 +533,105 @@ final class Handlers
 
     public function sendMessage(string $roomId): never
     {
-        $user = $this->auth->requireUser(['member', 'trainer', 'admin']);
+        $user = $this->auth->requireUser();
         $room = $this->requireChatParticipant((int) $roomId, $user);
+        WorkflowRules::assertChatWritable((string) $room['booking_status']);
         $input = Http::body();
-        Http::requireFields($input, ['message']);
-        $message = trim((string) $input['message']);
+        $message = trim((string) ($input['message'] ?? ''));
         if (mb_strlen($message) > 4000) {
             throw new HttpException(422, 'ข้อความยาวเกิน 4,000 ตัวอักษร', 'VALIDATION_FAILED');
         }
-        $this->database->execute('INSERT INTO messages (chat_room_id, sender_user_id, message_text) VALUES (?, ?, ?)', [$room['id'], $user['id'], $message]);
-        Http::json(['id' => (int) $this->database->pdo()->lastInsertId(), 'message' => $message, 'createdAt' => gmdate('c')], 201);
+        $file = $this->saveUpload(
+            'attachment',
+            ['image/jpeg', 'image/png', 'image/webp', 'application/pdf'],
+            5 * 1024 * 1024,
+            'messages',
+            false
+        );
+        if ($message === '' && $file === null) {
+            throw new HttpException(422, 'กรุณาพิมพ์ข้อความหรือแนบไฟล์', 'VALIDATION_FAILED');
+        }
+
+        try {
+            $this->database->execute(
+                'INSERT INTO messages
+                    (chat_room_id, sender_user_id, message_text, attachment_path, attachment_mime, attachment_name, attachment_size)
+                 VALUES (?, ?, ?, ?, ?, ?, ?)',
+                [
+                    $room['id'],
+                    $user['id'],
+                    $message,
+                    $file['path'] ?? null,
+                    $file['mime'] ?? null,
+                    $file['name'] ?? null,
+                    $file['size'] ?? null,
+                ]
+            );
+        } catch (Throwable $error) {
+            if ($file !== null) {
+                $this->removeUpload($file['path']);
+            }
+            throw $error;
+        }
+
+        $messageId = (int) $this->database->pdo()->lastInsertId();
+        Http::json([
+            'id' => $messageId,
+            'message' => $message,
+            'attachment' => $file === null ? null : [
+                'name' => $file['name'],
+                'mime' => $file['mime'],
+                'size' => $file['size'],
+                'url' => '/v1/chat-rooms/' . $room['id'] . '/messages/' . $messageId . '/attachment',
+            ],
+            'readAt' => null,
+            'createdAt' => gmdate('c'),
+            'sender' => ['id' => (int) $user['id'], 'displayName' => $user['displayName']],
+        ], 201);
+    }
+
+    public function chatAttachment(string $roomId, string $messageId): never
+    {
+        $user = $this->auth->requireUser();
+        $room = $this->requireChatParticipant((int) $roomId, $user);
+        $attachment = $this->database->fetchOne(
+            'SELECT attachment_path, attachment_name
+             FROM messages WHERE id = ? AND chat_room_id = ? AND attachment_path IS NOT NULL',
+            [(int) $messageId, $room['id']]
+        );
+        if (!$attachment) {
+            throw new HttpException(404, 'ไม่พบไฟล์แนบ', 'FILE_NOT_FOUND');
+        }
+
+        $uploadRoot = realpath(dirname(__DIR__) . '/uploads');
+        $target = realpath(dirname(__DIR__) . '/' . ltrim((string) $attachment['attachment_path'], '/\\'));
+        if ($uploadRoot === false || $target === false || !str_starts_with($target, $uploadRoot . DIRECTORY_SEPARATOR) || !is_file($target)) {
+            throw new HttpException(404, 'ไม่พบไฟล์แนบ', 'FILE_NOT_FOUND');
+        }
+
+        $finfo = new finfo(FILEINFO_MIME_TYPE);
+        $mime = $finfo->file($target);
+        if ($mime === false) {
+            throw new HttpException(404, 'ไม่พบไฟล์แนบ', 'FILE_NOT_FOUND');
+        }
+        $rawName = trim((string) basename((string) $attachment['attachment_name']));
+        $safeName = preg_replace('/[^\pL\pN._ -]+/u', '_', $rawName) ?? '';
+        $displayName = mb_substr($safeName, 0, 255);
+        if ($displayName === '') {
+            $displayName = 'attachment';
+        }
+        $asciiName = preg_replace('/[^A-Za-z0-9._ -]+/', '_', $displayName) ?? '';
+        if ($asciiName === '') {
+            $asciiName = 'attachment';
+        }
+
+        header('Content-Type: ' . $mime);
+        header('Content-Length: ' . filesize($target));
+        header('Content-Disposition: attachment; filename="' . $asciiName . '"; filename*=UTF-8\'\'' . rawurlencode($displayName));
+        header('X-Content-Type-Options: nosniff');
+        header('Cache-Control: private, no-store');
+        readfile($target);
+        exit;
     }
 
     public function review(): never
@@ -857,26 +968,34 @@ final class Handlers
     private function requireChatParticipant(int $roomId, array $user): array
     {
         $room = $this->database->fetchOne(
-            'SELECT cr.id, b.member_user_id, tp.user_id AS trainer_user_id
+            'SELECT cr.id, b.status AS booking_status, b.member_user_id, tp.user_id AS trainer_user_id
              FROM chat_rooms cr JOIN bookings b ON b.id = cr.booking_id JOIN trainer_profiles tp ON tp.id = b.trainer_profile_id WHERE cr.id = ?',
             [$roomId]
         );
         if (!$room) {
             throw new HttpException(404, 'ไม่พบห้องสนทนา', 'CHAT_NOT_FOUND');
         }
-        if ($user['role'] !== 'admin' && (int) $user['id'] !== (int) $room['member_user_id'] && (int) $user['id'] !== (int) $room['trainer_user_id']) {
+        $isMember = $user['role'] === 'member' && (int) $user['id'] === (int) $room['member_user_id'];
+        $isTrainer = $user['role'] === 'trainer' && (int) $user['id'] === (int) $room['trainer_user_id'];
+        if (!$isMember && !$isTrainer) {
             throw new HttpException(403, 'ไม่มีสิทธิ์เปิดห้องสนทนานี้', 'FORBIDDEN');
         }
         return $room;
     }
 
-    private function saveUpload(string $field, array $allowedMimeTypes, int $maxBytes, string $directory): array
+    private function saveUpload(string $field, array $allowedMimeTypes, int $maxBytes, string $directory, bool $required = true): ?array
     {
         if (!isset($_FILES[$field]) || !is_array($_FILES[$field])) {
+            if (!$required) {
+                return null;
+            }
             throw new HttpException(422, 'กรุณาเลือกไฟล์', 'FILE_REQUIRED', [$field => 'จำเป็นต้องแนบไฟล์']);
         }
         $file = $_FILES[$field];
         $uploadError = (int) ($file['error'] ?? UPLOAD_ERR_NO_FILE);
+        if ($uploadError === UPLOAD_ERR_NO_FILE && !$required) {
+            return null;
+        }
         if (in_array($uploadError, [UPLOAD_ERR_INI_SIZE, UPLOAD_ERR_FORM_SIZE], true)) {
             throw new HttpException(413, 'ขนาดไฟล์เกินที่กำหนด', 'FILE_TOO_LARGE');
         }
@@ -904,7 +1023,15 @@ final class Handlers
         if (!move_uploaded_file((string) $file['tmp_name'], $target)) {
             throw new RuntimeException('บันทึกไฟล์ไม่สำเร็จ');
         }
-        return ['path' => 'uploads/' . $directory . '/' . $filename, 'mime' => $mime];
+        $rawName = trim((string) basename((string) $file['name']));
+        $safeName = preg_replace('/[^\pL\pN._ -]+/u', '_', $rawName) ?? '';
+        $displayName = mb_substr($safeName, 0, 255);
+        return [
+            'path' => 'uploads/' . $directory . '/' . $filename,
+            'mime' => $mime,
+            'name' => $displayName === '' ? 'ไฟล์แนบ' : $displayName,
+            'size' => (int) $file['size'],
+        ];
     }
 
     private function removeUpload(string $relativePath): void

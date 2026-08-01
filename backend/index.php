@@ -45,6 +45,7 @@ try {
     if ($method === 'GET' && preg_match('#^/v1/trainers/([^/]+)$#', $path, $matches) === 1) $handlers->trainer(urldecode($matches[1]));
     if ($method === 'DELETE' && preg_match('#^/v1/availability-slots/(\d+)$#', $path, $matches) === 1) $handlers->deleteAvailabilitySlot($matches[1]);
     if ($method === 'PATCH' && preg_match('#^/v1/bookings/([^/]+)/status$#', $path, $matches) === 1) $handlers->updateBookingStatus(urldecode($matches[1]));
+    if ($method === 'GET' && preg_match('#^/v1/chat-rooms/(\d+)/messages/(\d+)/attachment$#', $path, $matches) === 1) $handlers->chatAttachment($matches[1], $matches[2]);
     if ($method === 'GET' && preg_match('#^/v1/chat-rooms/(\d+)/messages$#', $path, $matches) === 1) $handlers->messages($matches[1]);
     if ($method === 'POST' && preg_match('#^/v1/chat-rooms/(\d+)/messages$#', $path, $matches) === 1) $handlers->sendMessage($matches[1]);
     if ($method === 'POST' && preg_match('#^/v1/admin/trainers/(\d+)/(approve|reject)$#', $path, $matches) === 1) $handlers->decideTrainer($matches[1], $matches[2]);
