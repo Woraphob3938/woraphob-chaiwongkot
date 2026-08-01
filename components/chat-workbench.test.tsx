@@ -70,6 +70,19 @@ function setVisibility(value: DocumentVisibilityState) {
   Object.defineProperty(document, "visibilityState", { configurable: true, value });
 }
 
+function stubDesktopFacts(matches: boolean) {
+  vi.stubGlobal("matchMedia", vi.fn().mockReturnValue({
+    matches,
+    media: "(min-width: 58.001rem)",
+    onchange: null,
+    addEventListener: vi.fn(),
+    removeEventListener: vi.fn(),
+    addListener: vi.fn(),
+    removeListener: vi.fn(),
+    dispatchEvent: vi.fn(),
+  }));
+}
+
 describe("ChatWorkbench", () => {
   const originalVisibility = Object.getOwnPropertyDescriptor(document, "visibilityState");
 
@@ -82,6 +95,7 @@ describe("ChatWorkbench", () => {
 
   afterEach(() => {
     vi.useRealTimers();
+    vi.unstubAllGlobals();
     if (originalVisibility) Object.defineProperty(document, "visibilityState", originalVisibility);
   });
 
@@ -112,8 +126,57 @@ describe("ChatWorkbench", () => {
     expect(screen.getByRole("button", { name: /เทรนเนอร์ ค\./ })).toBeInTheDocument();
     expect(screen.queryByText("เทรนเนอร์ จ.")).not.toBeInTheDocument();
     expect(screen.getByText("ห้องที่เลือก")).toBeInTheDocument();
-    expect(screen.getAllByText("ยืนยันการชำระแล้ว")).toHaveLength(2);
     expect(authenticatedRequest).toHaveBeenCalledWith("/v1/chat-rooms/22/messages?afterId=0");
+  });
+
+  it.each([
+    ["awaiting_payment", "รอชำระเงิน"],
+    ["payment_review", "รอตรวจสลิป"],
+    ["confirmed", "ยืนยันการชำระแล้ว"],
+    ["completed", "ฝึกเสร็จแล้ว"],
+  ] as const)("shows the exact %s workflow label in the active chat", async (status, label) => {
+    const booking = bookingFixture({ status });
+    vi.mocked(authenticatedRequest)
+      .mockResolvedValueOnce([booking])
+      .mockResolvedValueOnce([]);
+
+    render(<ChatWorkbench />);
+    await flushPromises();
+
+    expect(screen.getAllByText(label)).toHaveLength(2);
+  });
+
+  it("exposes booking facts as a closed disclosure outside desktop", async () => {
+    stubDesktopFacts(false);
+    const booking = bookingFixture();
+    vi.mocked(authenticatedRequest)
+      .mockResolvedValueOnce([booking])
+      .mockResolvedValueOnce([]);
+
+    const { container } = render(<ChatWorkbench />);
+    await flushPromises();
+
+    const summary = container.querySelector("summary") as HTMLElement;
+    expect(summary).toHaveTextContent("รายละเอียดนัดหมาย");
+    const disclosure = summary.closest("details");
+    expect(disclosure).not.toHaveAttribute("open");
+
+    fireEvent.click(summary);
+    await flushPromises();
+    expect(disclosure).toHaveAttribute("open");
+  });
+
+  it("keeps booking facts expanded in the desktop three-zone workbench", async () => {
+    stubDesktopFacts(true);
+    const booking = bookingFixture();
+    vi.mocked(authenticatedRequest)
+      .mockResolvedValueOnce([booking])
+      .mockResolvedValueOnce([]);
+
+    const { container } = render(<ChatWorkbench />);
+    await flushPromises();
+
+    expect(container.querySelector("details")).toHaveAttribute("open");
   });
 
   it("polls the latest cursor every five seconds only on a visible tab and cleans up", async () => {

@@ -1720,6 +1720,37 @@ h3 {
   border-bottom: 1px solid var(--color-rule);
 }
 
+.payment-panel,
+.payment-panel__form,
+.payment-panel__form .form-grid,
+.payment-panel__form .field,
+.payment-slip-input,
+.payment-selected-file,
+.payment-selected-file strong {
+  min-width: 0;
+  max-width: 100%;
+}
+
+.payment-panel__form .form-grid,
+.payment-slip-input {
+  width: 100%;
+}
+
+.payment-slip-input {
+  overflow: hidden;
+}
+
+.payment-selected-file {
+  display: block;
+  color: var(--color-muted);
+  font-size: var(--text-sm);
+  overflow-wrap: anywhere;
+}
+
+.payment-selected-file strong {
+  color: var(--color-ink);
+}
+
 .member-booking-ledger .ledger-heading > *,
 .member-booking-ledger .ledger-row > *,
 .dashboard-ledger .ledger-heading > *,
@@ -2383,6 +2414,10 @@ h3 {
   border-bottom: 0;
 }
 
+.chat-booking-facts__summary {
+  display: none;
+}
+
 .chat-contact {
   display: grid;
   min-width: 0;
@@ -2903,6 +2938,30 @@ h3 {
     grid-column: 2;
     grid-row: 2;
     border-top: 1px solid var(--color-rule);
+  }
+
+  .chat-booking-facts__summary {
+    display: list-item;
+    min-height: var(--size-control);
+    padding: var(--space-sm) var(--space-md);
+    color: var(--color-ink);
+    background: var(--color-paper-2);
+    font-family: var(--font-display);
+    font-weight: 600;
+    overflow-wrap: anywhere;
+    cursor: pointer;
+  }
+
+  .chat-booking-facts__summary::marker {
+    color: var(--color-focus);
+  }
+
+  .chat-booking-facts[open] > .chat-booking-facts__summary {
+    border-bottom: 1px solid var(--color-rule);
+  }
+
+  .chat-booking-facts__heading {
+    display: none;
   }
 
   .footer-line {

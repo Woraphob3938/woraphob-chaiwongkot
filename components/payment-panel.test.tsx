@@ -109,6 +109,17 @@ describe("PaymentPanel", () => {
     expect(authenticatedRequest).not.toHaveBeenCalled();
   });
 
+  it("announces a long selected filename without truncating its accessible text", () => {
+    const longFilename = `หลักฐาน-${"ยาวมาก".repeat(40)}.pdf`;
+    render(<PaymentPanel booking={bookingFixture()} onUpdated={vi.fn()} />);
+
+    fireEvent.change(screen.getByLabelText("หลักฐานการโอน"), {
+      target: { files: [new File(["pdf"], longFilename, { type: "application/pdf" })] },
+    });
+
+    expect(screen.getByRole("status")).toHaveTextContent(`ไฟล์ที่เลือก: ${longFilename}`);
+  });
+
   it("blocks a duplicate submit while the upload is busy", async () => {
     let resolveUpload!: (value: unknown) => void;
     vi.mocked(authenticatedRequest).mockImplementation(() => new Promise((resolve) => { resolveUpload = resolve; }));

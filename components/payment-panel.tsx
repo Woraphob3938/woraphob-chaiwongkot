@@ -153,7 +153,7 @@ export function PaymentPanel({ booking, onUpdated }: PaymentPanelProps) {
   const canUpload = booking.actions.canPay && !uploaded;
 
   return (
-    <section aria-labelledby={`${amountId}-title`}>
+    <section className="payment-panel" aria-labelledby={`${amountId}-title`}>
       <div className="ledger-row">
         <span>หลักฐานการชำระ</span>
         <strong id={`${amountId}-title`}>ส่งสลิปให้ผู้ดูแลตรวจ</strong>
@@ -168,7 +168,7 @@ export function PaymentPanel({ booking, onUpdated }: PaymentPanelProps) {
       )}
 
       {canUpload && (
-        <form className="booking-fields" onSubmit={submit} aria-busy={busy} noValidate>
+        <form className="booking-fields payment-panel__form" onSubmit={submit} aria-busy={busy} noValidate>
           <div className="form-grid">
             <div className="field">
               <label htmlFor={amountId}>ยอดที่โอน</label>
@@ -192,6 +192,7 @@ export function PaymentPanel({ booking, onUpdated }: PaymentPanelProps) {
             <div className="field">
               <label htmlFor={slipId}>หลักฐานการโอน</label>
               <input
+                className="payment-slip-input"
                 id={slipId}
                 type="file"
                 accept="image/jpeg,image/png,image/webp,application/pdf"
@@ -201,7 +202,9 @@ export function PaymentPanel({ booking, onUpdated }: PaymentPanelProps) {
                 onChange={(event) => selectSlip(event.target.files?.[0] ?? null)}
               />
               <small id={slipGuideId}>รองรับ JPEG, PNG, WebP หรือ PDF ขนาดไม่เกิน 5 MB</small>
-              <small>{slip ? <>ไฟล์ที่เลือก: <strong>{slip.name}</strong></> : "ยังไม่ได้เลือกไฟล์"}</small>
+              <output className="payment-selected-file" htmlFor={slipId}>
+                {slip ? <>ไฟล์ที่เลือก: <strong>{slip.name}</strong></> : "ยังไม่ได้เลือกไฟล์"}
+              </output>
               {fieldErrors.slip && <small className="field-error" id={slipErrorId}>{fieldErrors.slip}</small>}
             </div>
           </div>

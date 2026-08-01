@@ -14,6 +14,7 @@ import { formatDateTime, initials } from "@/lib/format";
 import type { Booking, ChatMessage } from "@/lib/types";
 
 const MAX_ATTACHMENT_SIZE = 5 * 1024 * 1024;
+const DESKTOP_FACTS_QUERY = "(min-width: 58.001rem)";
 const ACCEPTED_ATTACHMENT_TYPES = new Set([
   "image/jpeg",
   "image/png",
@@ -85,6 +86,7 @@ export function ChatWorkbench({ initialBookingId }: ChatWorkbenchProps) {
   const [sending, setSending] = useState(false);
   const [retrying, setRetrying] = useState(false);
   const [openingAttachment, setOpeningAttachment] = useState<number | null>(null);
+  const [factsOpen, setFactsOpen] = useState(true);
 
   const mountedRef = useRef(true);
   const generationRef = useRef(0);
@@ -105,6 +107,15 @@ export function ChatWorkbench({ initialBookingId }: ChatWorkbenchProps) {
   useEffect(() => {
     mountedRef.current = true;
     return () => { mountedRef.current = false; };
+  }, []);
+
+  useEffect(() => {
+    if (typeof window.matchMedia !== "function") return;
+    const desktop = window.matchMedia(DESKTOP_FACTS_QUERY);
+    const syncFactsDisclosure = () => setFactsOpen(desktop.matches);
+    syncFactsDisclosure();
+    desktop.addEventListener("change", syncFactsDisclosure);
+    return () => desktop.removeEventListener("change", syncFactsDisclosure);
   }, []);
 
   const loadRooms = useCallback(async () => {
@@ -547,8 +558,13 @@ export function ChatWorkbench({ initialBookingId }: ChatWorkbenchProps) {
           )}
         </section>
 
-        <aside className="trainer-booking-list" aria-labelledby="chat-booking-facts-title">
-          <div className="section-line-heading"><h2 id="chat-booking-facts-title">รายละเอียดนัดหมาย</h2></div>
+        <details
+          className="trainer-booking-list chat-booking-facts"
+          open={factsOpen}
+          onToggle={(event) => setFactsOpen(event.currentTarget.open)}
+        >
+          <summary className="chat-booking-facts__summary">รายละเอียดนัดหมาย</summary>
+          <div className="section-line-heading chat-booking-facts__heading"><h2>รายละเอียดนัดหมาย</h2></div>
           <div className="ledger-row"><span>รหัสคำขอ</span><strong>{selectedBooking.id}</strong></div>
           <div className="ledger-row"><span>วันและเวลา</span><strong>{formatDateTime(selectedBooking.startsAt)}</strong></div>
           <div className="ledger-row"><span>สิ้นสุด</span><strong>{formatDateTime(selectedBooking.endsAt)}</strong></div>
@@ -557,7 +573,7 @@ export function ChatWorkbench({ initialBookingId }: ChatWorkbenchProps) {
           <div className="ledger-row"><span>สถานะหลักฐาน</span><strong>{paymentStatusCopy[selectedBooking.paymentStatus]}</strong></div>
           <div className="ledger-row"><span>ค่าฝึกที่แจ้ง</span><strong>{formatAmount(selectedBooking.quotedPrice)}</strong></div>
           <div className="ledger-row"><span>หมายเหตุ</span><strong style={{ overflowWrap: "anywhere" }}>{selectedBooking.note || "ไม่มีหมายเหตุ"}</strong></div>
-        </aside>
+        </details>
       </div>
     </div>
   );
