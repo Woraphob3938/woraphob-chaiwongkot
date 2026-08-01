@@ -129,15 +129,26 @@ export function AdminReviewQueue() {
         method: "POST",
         body: JSON.stringify({ note }),
       });
-      await loadQueue();
-      setNotice(`${decision === "approve" ? "อนุมัติ" : "ปฏิเสธ"}ใบสมัคร${trainerName}แล้ว`);
+      const refreshResult = await loadQueue();
+      if (refreshResult === "applied") {
+        setNotice(`${decision === "approve" ? "อนุมัติ" : "ปฏิเสธ"}ใบสมัคร${trainerName}แล้ว`);
+      } else if (refreshResult === "failed") {
+        setRowErrors((current) => ({ ...current, [rowKey]: "บันทึกผลแล้ว แต่ยังโหลดคิวล่าสุดไม่ได้" }));
+        setNotice(`บันทึกผลใบสมัคร${trainerName}แล้ว แต่ยังโหลดคิวล่าสุดไม่ได้`);
+      }
     } catch (error) {
       if (leaveExpiredSession(error)) return;
-      const message = error instanceof Error ? error.message : "บันทึกผลไม่สำเร็จ";
-      setRowErrors((current) => ({ ...current, [rowKey]: message }));
       if (error instanceof ApiError && error.status === 409) {
-        setNotice("รายการนี้ถูกผู้ดูแลคนอื่นตัดสินใจแล้ว คิวได้รับการอัปเดตล่าสุด");
-        await loadQueue();
+        const refreshResult = await loadQueue();
+        if (refreshResult === "applied") {
+          setNotice("ผู้ดูแลคนอื่นบันทึกผลรายการนี้แล้ว โหลดคิวล่าสุดแล้ว");
+        } else if (refreshResult === "failed") {
+          setRowErrors((current) => ({ ...current, [rowKey]: "รายการนี้มีผลตรวจแล้ว แต่ยังโหลดคิวล่าสุดไม่ได้" }));
+          setNotice("ผู้ดูแลคนอื่นบันทึกผลรายการนี้แล้ว แต่ยังโหลดคิวล่าสุดไม่ได้");
+        }
+      } else {
+        const message = error instanceof Error ? error.message : "บันทึกผลไม่สำเร็จ";
+        setRowErrors((current) => ({ ...current, [rowKey]: message }));
       }
     } finally {
       finishRowTask(rowKey);
@@ -164,9 +175,9 @@ export function AdminReviewQueue() {
       });
       setResolvedPayments((current) => ({ ...current, [paymentId]: true }));
       const refreshResult = await loadQueue();
-      if (refreshResult !== "failed") {
+      if (refreshResult === "applied") {
         setNotice(`${decision === "approve" ? "อนุมัติ" : "ไม่อนุมัติ"}สลิป ${paymentCode} แล้ว`);
-      } else {
+      } else if (refreshResult === "failed") {
         setRowErrors((current) => ({ ...current, [rowKey]: "บันทึกผลแล้ว แต่ยังโหลดคิวล่าสุดไม่ได้" }));
         setNotice(`บันทึกผลสลิป ${paymentCode} แล้ว แต่ยังโหลดคิวล่าสุดไม่ได้`);
       }
@@ -175,9 +186,9 @@ export function AdminReviewQueue() {
       if (error instanceof ApiError && error.status === 409) {
         setResolvedPayments((current) => ({ ...current, [paymentId]: true }));
         const refreshResult = await loadQueue();
-        if (refreshResult !== "failed") {
+        if (refreshResult === "applied") {
           setNotice("ผู้ดูแลคนอื่นบันทึกผลรายการนี้แล้ว โหลดคิวล่าสุดแล้ว");
-        } else {
+        } else if (refreshResult === "failed") {
           setRowErrors((current) => ({ ...current, [rowKey]: "รายการนี้มีผลตรวจแล้ว แต่ยังโหลดคิวล่าสุดไม่ได้" }));
           setNotice("ผู้ดูแลคนอื่นบันทึกผลรายการนี้แล้ว แต่ยังโหลดคิวล่าสุดไม่ได้");
         }
@@ -196,9 +207,9 @@ export function AdminReviewQueue() {
     startRowTask(rowKey, "refresh");
     setRowErrors((current) => ({ ...current, [rowKey]: "" }));
     const refreshResult = await loadQueue();
-    if (refreshResult !== "failed") {
+    if (refreshResult === "applied") {
       setNotice("โหลดคิวตรวจสอบล่าสุดแล้ว");
-    } else {
+    } else if (refreshResult === "failed") {
       setRowErrors((current) => ({ ...current, [rowKey]: "ยังโหลดคิวล่าสุดไม่ได้ กรุณาลองอีกครั้ง" }));
     }
     finishRowTask(rowKey);

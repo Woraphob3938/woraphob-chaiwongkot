@@ -1,4 +1,4 @@
-import { fireEvent, render, screen, waitFor, within } from "@testing-library/react";
+import { act, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { AdminReviewQueue } from "@/components/admin-review-queue";
 import { ApiError, authenticatedRequest, openProtectedFile } from "@/lib/api";
@@ -333,6 +333,85 @@ describe("AdminReviewQueue", () => {
     newerRefresh.resolve(paymentQueue([]));
     await waitFor(() => expect(screen.queryByText("PAY-000021")).not.toBeInTheDocument());
     expect(screen.getByText("ข้อมูลจากระบบ")).toBeInTheDocument();
+  });
+
+  it("keeps the newest refresh failure when an older response completes later", async () => {
+    const olderRefresh = deferred<AdminQueue>();
+    const newerRefresh = deferred<AdminQueue>();
+    let queueLoads = 0;
+    vi.mocked(authenticatedRequest).mockImplementation((path) => {
+      if (path.includes("/v1/admin/payments/")) return Promise.resolve({ status: "approved" });
+      queueLoads += 1;
+      if (queueLoads === 1) {
+        return Promise.resolve(paymentQueue([
+          payment,
+          { ...payment, id: 22, bookingId: "BK-000778", fileUrl: "/v1/admin/files/payment/22" },
+        ]));
+      }
+      return queueLoads === 2 ? olderRefresh.promise : newerRefresh.promise;
+    });
+
+    render(<AdminReviewQueue />);
+    await screen.findByText("PAY-000021");
+    fireEvent.click(screen.getByRole("button", { name: "อนุมัติสลิป PAY-000021" }));
+    fireEvent.click(screen.getByRole("button", { name: "อนุมัติสลิป PAY-000022" }));
+    await waitFor(() => expect(queueLoads).toBe(3));
+
+    newerRefresh.reject(new Error("โหลดคิวล่าสุดไม่สำเร็จ"));
+    expect(await screen.findByText("บันทึกผลสลิป PAY-000022 แล้ว แต่ยังโหลดคิวล่าสุดไม่ได้")).toBeInTheDocument();
+
+    await act(async () => {
+      olderRefresh.resolve(paymentQueue([
+        payment,
+        { ...payment, id: 22, bookingId: "BK-000778", fileUrl: "/v1/admin/files/payment/22" },
+      ]));
+      await Promise.resolve();
+    });
+
+    expect(screen.getByText("บันทึกผลสลิป PAY-000022 แล้ว แต่ยังโหลดคิวล่าสุดไม่ได้")).toBeInTheDocument();
+    expect(screen.queryByText("อนุมัติสลิป PAY-000021 แล้ว")).not.toBeInTheDocument();
+    expect(screen.getByText("บันทึกผลแล้ว แต่ยังโหลดคิวล่าสุดไม่ได้")).toBeInTheDocument();
+  });
+
+  it("does not announce success for a retry superseded by a newer refresh", async () => {
+    const olderRetry = deferred<AdminQueue>();
+    const newerRefresh = deferred<AdminQueue>();
+    let queueLoads = 0;
+    vi.mocked(authenticatedRequest).mockImplementation((path) => {
+      if (path.includes("/v1/admin/payments/")) return Promise.resolve({ status: "approved" });
+      queueLoads += 1;
+      if (queueLoads === 1) {
+        return Promise.resolve(paymentQueue([
+          payment,
+          { ...payment, id: 22, bookingId: "BK-000778", fileUrl: "/v1/admin/files/payment/22" },
+        ]));
+      }
+      if (queueLoads === 2) return Promise.reject(new Error("โหลดคิวล่าสุดไม่สำเร็จ"));
+      return queueLoads === 3 ? olderRetry.promise : newerRefresh.promise;
+    });
+
+    render(<AdminReviewQueue />);
+    await screen.findByText("PAY-000021");
+    fireEvent.click(screen.getByRole("button", { name: "อนุมัติสลิป PAY-000021" }));
+    const retry = await screen.findByRole("button", { name: "ลองโหลดคิว PAY-000021 อีกครั้ง" });
+    fireEvent.click(retry);
+    await waitFor(() => expect(queueLoads).toBe(3));
+
+    fireEvent.click(screen.getByRole("button", { name: "อนุมัติสลิป PAY-000022" }));
+    await waitFor(() => expect(queueLoads).toBe(4));
+    newerRefresh.resolve(paymentQueue([]));
+    expect(await screen.findByText("อนุมัติสลิป PAY-000022 แล้ว")).toBeInTheDocument();
+
+    await act(async () => {
+      olderRetry.resolve(paymentQueue([
+        payment,
+        { ...payment, id: 22, bookingId: "BK-000778", fileUrl: "/v1/admin/files/payment/22" },
+      ]));
+      await Promise.resolve();
+    });
+
+    expect(screen.getByText("อนุมัติสลิป PAY-000022 แล้ว")).toBeInTheDocument();
+    expect(screen.queryByText("โหลดคิวตรวจสอบล่าสุดแล้ว")).not.toBeInTheDocument();
   });
 
   it("labels unknown legacy payment amounts honestly", async () => {
