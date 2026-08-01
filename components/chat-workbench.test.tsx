@@ -112,6 +112,7 @@ describe("ChatWorkbench", () => {
     expect(screen.getByRole("button", { name: /เทรนเนอร์ ค\./ })).toBeInTheDocument();
     expect(screen.queryByText("เทรนเนอร์ จ.")).not.toBeInTheDocument();
     expect(screen.getByText("ห้องที่เลือก")).toBeInTheDocument();
+    expect(screen.getAllByText("ยืนยันการชำระแล้ว")).toHaveLength(2);
     expect(authenticatedRequest).toHaveBeenCalledWith("/v1/chat-rooms/22/messages?afterId=0");
   });
 

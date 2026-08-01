@@ -23,9 +23,9 @@ const ACCEPTED_ATTACHMENT_TYPES = new Set([
 
 const bookingStatusCopy: Record<Booking["status"], string> = {
   pending_trainer: "รอเทรนเนอร์ตอบรับ",
-  awaiting_payment: "รอส่งหลักฐานการชำระ",
-  payment_review: "รอผู้ดูแลตรวจหลักฐาน",
-  confirmed: "ยืนยันนัดแล้ว",
+  awaiting_payment: "รอชำระเงิน",
+  payment_review: "รอตรวจสลิป",
+  confirmed: "ยืนยันการชำระแล้ว",
   completed: "ฝึกเสร็จแล้ว",
   cancelled: "ยกเลิกแล้ว",
 };

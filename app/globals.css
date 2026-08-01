@@ -924,6 +924,8 @@ h3 {
 
 .status-badge {
   display: inline-flex;
+  min-width: 0;
+  max-width: 100%;
   min-height: 1.8rem;
   flex: 0 0 auto;
   align-items: center;
@@ -934,7 +936,7 @@ h3 {
   font-size: var(--text-xs);
   font-weight: 700;
   line-height: 1;
-  white-space: nowrap;
+  overflow-wrap: anywhere;
 }
 
 .status-badge--success {
@@ -1678,12 +1680,76 @@ h3 {
   font-size: var(--text-md);
 }
 
+.member-booking-ledger,
 .dashboard-ledger,
 .queue-panel,
 .verification-queue {
   margin-top: var(--space-xl);
   background: var(--color-paper);
   border: 1px solid var(--color-rule);
+}
+
+.member-booking-ledger,
+.dashboard-ledger,
+.payment-panel,
+.review-form,
+.payment-evidence,
+.chat-workbench,
+.chat-room-list,
+.chat-thread,
+.chat-booking-facts,
+.chat-composer {
+  min-width: 0;
+}
+
+.payment-panel,
+.review-form,
+.dashboard-ledger > section {
+  border-top: 2px solid var(--color-ink);
+}
+
+.payment-panel > .ledger-row:first-child,
+.review-form > .ledger-row:first-child,
+.dashboard-ledger > section > .ledger-row:first-child {
+  background: var(--color-paper-2);
+}
+
+.payment-panel > .booking-fields,
+.review-form > .booking-fields,
+.dashboard-ledger > section > .booking-fields {
+  border-bottom: 1px solid var(--color-rule);
+}
+
+.member-booking-ledger .ledger-heading > *,
+.member-booking-ledger .ledger-row > *,
+.dashboard-ledger .ledger-heading > *,
+.dashboard-ledger .ledger-row > *,
+.payment-evidence > *,
+.verification-row > *,
+.review-applicant,
+.review-note,
+.review-note textarea {
+  min-width: 0;
+}
+
+.member-booking-ledger .ledger-row strong,
+.dashboard-ledger .ledger-row strong,
+.payment-evidence strong,
+.verification-row strong,
+.review-applicant,
+.row-error,
+.queue-notice {
+  overflow-wrap: anywhere;
+}
+
+.payment-panel .ledger-actions label,
+.review-form .ledger-actions label,
+.dashboard-ledger > section .ledger-actions label {
+  display: inline-flex;
+  min-height: var(--size-control);
+  align-items: center;
+  gap: var(--space-xs);
+  padding-block: var(--space-xs);
 }
 
 .ledger-heading,
@@ -1804,6 +1870,7 @@ h3 {
 .queue-record,
 .verification-row {
   display: grid;
+  min-width: 0;
   align-items: center;
   gap: var(--space-md);
   padding: var(--space-lg);
@@ -2276,27 +2343,49 @@ h3 {
   background: var(--color-paper-2);
 }
 
-/* Chat */
+/* Post-booking chat workbench */
 .chat-page {
   padding-block: var(--space-xl) var(--space-3xl);
 }
 
+.chat-workbench,
 .chat-layout {
   display: grid;
-  grid-template-columns: minmax(14rem, 0.55fr) minmax(0, 1.45fr);
+  grid-template-columns: minmax(14rem, 0.72fr) minmax(22rem, 1.65fr) minmax(15rem, 0.78fr);
   min-height: 38rem;
   margin-top: var(--space-md);
   border: 1px solid var(--color-rule);
+  background: var(--color-paper);
 }
 
+.chat-layout > .dashboard-columns {
+  display: contents;
+}
+
+.chat-room-list,
 .chat-sidebar {
+  min-width: 0;
   padding: var(--space-lg);
   background: var(--color-paper-2);
-  border-right: 1px solid var(--color-rule);
+}
+
+.chat-thread,
+.chat-booking-facts,
+.chat-layout .trainer-booking-list {
+  border-inline-start: 1px solid var(--color-rule);
+}
+
+.chat-booking-facts,
+.chat-layout .trainer-booking-list {
+  min-width: 0;
+  border-top: 0;
+  border-right: 0;
+  border-bottom: 0;
 }
 
 .chat-contact {
   display: grid;
+  min-width: 0;
   width: 100%;
   grid-template-columns: 2.75rem minmax(0, 1fr);
   align-items: center;
@@ -2333,9 +2422,8 @@ h3 {
 
 .chat-contact strong,
 .chat-contact small {
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
+  min-width: 0;
+  overflow-wrap: anywhere;
 }
 
 .chat-contact small {
@@ -2350,11 +2438,39 @@ h3 {
 
 .chat-thread > header {
   display: flex;
+  min-width: 0;
   align-items: center;
   justify-content: space-between;
   gap: var(--space-md);
   padding: var(--space-lg);
   border-bottom: 1px solid var(--color-rule);
+}
+
+.chat-thread > header > *,
+.chat-thread > header p,
+.status-dot,
+.messages,
+.messages > *,
+.chat-composer,
+.chat-thread > .booking-fields,
+.chat-thread > .booking-fields .field,
+.chat-thread > .booking-fields input,
+.chat-thread > .booking-fields textarea,
+.chat-thread .certificate-list,
+.chat-thread .certificate-list li,
+.chat-thread .certificate-list li > div,
+.chat-thread .certificate-list li > div > span {
+  min-width: 0;
+}
+
+.chat-thread > header p,
+.status-dot,
+.messages p,
+.chat-thread .certificate-list strong,
+.chat-thread .ledger-row strong,
+.chat-booking-facts .ledger-row strong,
+.chat-layout .trainer-booking-list .ledger-row strong {
+  overflow-wrap: anywhere;
 }
 
 .chat-thread h2 {
@@ -2370,6 +2486,7 @@ h3 {
 
 .messages {
   display: flex;
+  min-width: 0;
   flex-direction: column;
   justify-content: flex-end;
   padding: var(--space-lg);
@@ -2393,6 +2510,16 @@ h3 {
 
 .chat-thread > .form-message {
   margin: 0 var(--space-lg) var(--space-sm);
+}
+
+.chat-composer,
+.chat-thread > .booking-fields {
+  border-top: 1px solid var(--color-rule);
+}
+
+.chat-thread > .booking-fields input[type="file"] {
+  max-width: 100%;
+  overflow: hidden;
 }
 
 .message-form {
@@ -2678,8 +2805,7 @@ h3 {
   .trainer-detail-hero,
   .auth-shell,
   .booking-form,
-  .dashboard-columns,
-  .chat-layout {
+  .dashboard-columns {
     grid-template-columns: minmax(0, 1fr);
   }
 
@@ -2691,8 +2817,7 @@ h3 {
     min-height: 26rem;
   }
 
-  .trainer-detail-evidence,
-  .chat-sidebar {
+  .trainer-detail-evidence {
     border-right: 0;
     border-bottom: 1px solid var(--color-rule);
   }
@@ -2749,8 +2874,35 @@ h3 {
     text-align: left;
   }
 
+  .chat-room-list,
   .chat-sidebar {
     padding: var(--space-md);
+  }
+
+  .chat-workbench,
+  .chat-layout {
+    grid-template-columns: minmax(14rem, 0.72fr) minmax(0, 1.28fr);
+    align-items: start;
+  }
+
+  .chat-room-list,
+  .chat-sidebar {
+    grid-column: 1;
+    grid-row: 1 / span 2;
+    border-right: 0;
+    border-bottom: 0;
+  }
+
+  .chat-thread {
+    grid-column: 2;
+    grid-row: 1;
+  }
+
+  .chat-booking-facts,
+  .chat-layout .trainer-booking-list {
+    grid-column: 2;
+    grid-row: 2;
+    border-top: 1px solid var(--color-rule);
   }
 
   .footer-line {
@@ -3016,6 +3168,48 @@ h3 {
   .trainer-booking-card dl > div {
     grid-template-columns: minmax(0, 1fr);
     gap: var(--space-2xs);
+  }
+
+  .payment-panel > .booking-fields,
+  .review-form > .booking-fields,
+  .dashboard-ledger > section > .booking-fields,
+  .chat-composer,
+  .chat-thread > .booking-fields {
+    padding: var(--space-md);
+  }
+
+  .payment-panel .button--accent,
+  .review-form .button--accent,
+  .dashboard-ledger > section .button--accent,
+  .chat-composer .button--accent,
+  .chat-thread > .booking-fields .button--accent {
+    width: 100%;
+  }
+
+  .chat-workbench,
+  .chat-layout {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .chat-room-list,
+  .chat-sidebar {
+    grid-column: 1;
+    grid-row: 1;
+    border-bottom: 1px solid var(--color-rule);
+  }
+
+  .chat-thread {
+    grid-column: 1;
+    grid-row: 2;
+    border-inline-start: 0;
+  }
+
+  .chat-booking-facts,
+  .chat-layout .trainer-booking-list {
+    grid-column: 1;
+    grid-row: 3;
+    border-inline-start: 0;
+    border-top: 1px solid var(--color-rule);
   }
 
   .chat-thread > header {
