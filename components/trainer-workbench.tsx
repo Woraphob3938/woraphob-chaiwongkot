@@ -29,6 +29,7 @@ export function TrainerWorkbench() {
   const [availabilityError, setAvailabilityError] = useState("");
   const [fieldErrors, setFieldErrors] = useState<Record<string, string>>({});
   const [form, setForm] = useState({ startsAt: "", endsAt: "" });
+  const [quotedPrices, setQuotedPrices] = useState<Record<string, string>>({});
   const [busy, setBusy] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
   const actionNoticeRef = useRef<HTMLParagraphElement>(null);
@@ -95,6 +96,7 @@ export function TrainerWorkbench() {
   }, [now]);
   const approved = workspace?.profile?.approvalStatus === "approved";
   const pendingBookings = bookings.filter((booking) => booking.status === "pending_trainer");
+  const confirmedBookings = bookings.filter((booking) => booking.status === "confirmed");
 
   async function createSlot(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -145,7 +147,9 @@ export function TrainerWorkbench() {
     try {
       await authenticatedRequest(`/v1/bookings/${encodeURIComponent(bookingId)}/status`, {
         method: "PATCH",
-        body: JSON.stringify({ status: target }),
+        body: JSON.stringify(decision === "accept"
+          ? { status: target, quotedPrice: quotedPrices[bookingId] ?? "" }
+          : { status: target }),
       });
       await Promise.all([loadWorkspace(), loadBookings()]);
       setActionNotice(`${decision === "accept" ? "ตอบรับ" : "ปฏิเสธ"}คำขอ ${bookingId} แล้ว`);
@@ -156,6 +160,25 @@ export function TrainerWorkbench() {
         setActionNotice("คำขอนี้ถูกเปลี่ยนสถานะแล้ว ระบบได้โหลดข้อมูลล่าสุดให้คุณ");
         await Promise.all([loadWorkspace(), loadBookings()]);
       }
+    } finally {
+      setBusy(null);
+    }
+  }
+
+  async function completeBooking(bookingId: string) {
+    setBusy(`booking-${bookingId}`);
+    setBookingError("");
+    setActionNotice("");
+    try {
+      await authenticatedRequest(`/v1/bookings/${encodeURIComponent(bookingId)}/status`, {
+        method: "PATCH",
+        body: JSON.stringify({ status: "completed" }),
+      });
+      await loadBookings();
+      setActionNotice(`บันทึกว่าคำขอ ${bookingId} ฝึกเสร็จแล้ว`);
+    } catch (error) {
+      if (leaveExpiredSession(error)) return;
+      setBookingError(error instanceof Error ? error.message : "บันทึกการฝึกเสร็จแล้วไม่สำเร็จ");
     } finally {
       setBusy(null);
     }
@@ -221,6 +244,9 @@ export function TrainerWorkbench() {
         {bookingError && <div className="workbench-error" role="alert"><span>{bookingError}</span><button type="button" onClick={() => void loadBookings()}><RefreshCw aria-hidden="true" size={15} /> ลองใหม่</button></div>}
         {pendingBookings.map((booking) => {
           const isBusy = busy === `booking-${booking.id}`;
+          const rawQuote = quotedPrices[booking.id] ?? "";
+          const quoteAmount = Number(rawQuote);
+          const hasValidQuote = rawQuote.trim() !== "" && Number.isFinite(quoteAmount) && quoteAmount > 0;
           return (
             <article className="trainer-booking-card" key={booking.id} aria-busy={isBusy}>
               <div className="trainer-booking-card__identity"><span>{booking.id}</span><h3>{booking.member?.displayName ?? "สมาชิก FitConnect"}</h3></div>
@@ -229,14 +255,58 @@ export function TrainerWorkbench() {
                 <div><dt>สถานที่</dt><dd>{booking.location}</dd></div>
                 <div><dt>หมายเหตุ</dt><dd>{booking.note || "ไม่มีหมายเหตุ"}</dd></div>
               </dl>
-              <div className="queue-actions">
-                <button type="button" disabled={isBusy} aria-label={`ตอบรับคำขอ ${booking.id}`} onClick={() => void decideBooking(booking.id, "accept")}>{isBusy ? "กำลังบันทึก…" : "ตอบรับ"}</button>
-                <button type="button" disabled={isBusy} aria-label={`ปฏิเสธคำขอ ${booking.id}`} onClick={() => void decideBooking(booking.id, "reject")}>ปฏิเสธ</button>
+              <div>
+                <div className="field">
+                  <label htmlFor={`quote-${booking.id}`}>ค่าฝึกสำหรับคำขอ {booking.id}</label>
+                  <input
+                    id={`quote-${booking.id}`}
+                    type="number"
+                    min="0.01"
+                    step="0.01"
+                    inputMode="decimal"
+                    value={rawQuote}
+                    disabled={isBusy}
+                    onChange={(event) => setQuotedPrices((current) => ({ ...current, [booking.id]: event.target.value }))}
+                  />
+                </div>
+                <div className="queue-actions">
+                  <button type="button" disabled={isBusy || !hasValidQuote} aria-label={`ตอบรับคำขอ ${booking.id}`} onClick={() => void decideBooking(booking.id, "accept")}>{isBusy ? "กำลังบันทึก…" : "ตอบรับ"}</button>
+                  <button type="button" disabled={isBusy} aria-label={`ปฏิเสธคำขอ ${booking.id}`} onClick={() => void decideBooking(booking.id, "reject")}>ปฏิเสธ</button>
+                </div>
               </div>
             </article>
           );
         })}
         {pendingBookings.length === 0 && <div className="empty-state"><strong>ไม่มีคำขอที่รอคำตอบ</strong><p>เมื่อสมาชิกส่งคำขอ รายละเอียดจะปรากฏที่นี่</p></div>}
+      </section>
+
+      <section className="trainer-booking-list" aria-labelledby="trainer-confirmed-title">
+        <div className="section-line-heading"><div><h2 id="trainer-confirmed-title">นัดหมายที่ยืนยันแล้ว</h2><p>บันทึกว่าฝึกเสร็จเมื่อระบบเปิดให้ดำเนินการหลังเวลานัด</p></div><span className="queue-count">{String(confirmedBookings.length).padStart(2, "0")}</span></div>
+        {confirmedBookings.map((booking) => {
+          const isBusy = busy === `booking-${booking.id}`;
+          return (
+            <article className="trainer-booking-card" key={booking.id} aria-busy={isBusy}>
+              <div className="trainer-booking-card__identity"><span>{booking.id}</span><h3>{booking.member?.displayName ?? "สมาชิก FitConnect"}</h3></div>
+              <dl>
+                <div><dt>เริ่มฝึก</dt><dd>{formatDateTime(booking.startsAt)}</dd></div>
+                <div><dt>สิ้นสุด</dt><dd>{formatDateTime(booking.endsAt)}</dd></div>
+                <div><dt>สถานที่</dt><dd>{booking.location}</dd></div>
+              </dl>
+              <div className="queue-actions">
+                {!booking.actions.canComplete && <span>ฝึกเสร็จได้หลัง {formatDateTime(booking.endsAt)}</span>}
+                <button
+                  type="button"
+                  disabled={!booking.actions.canComplete || isBusy}
+                  aria-label={`ฝึกเสร็จแล้ว ${booking.id}`}
+                  onClick={() => void completeBooking(booking.id)}
+                >
+                  {isBusy ? "กำลังบันทึก…" : "ฝึกเสร็จแล้ว"}
+                </button>
+              </div>
+            </article>
+          );
+        })}
+        {confirmedBookings.length === 0 && <div className="empty-state"><strong>ยังไม่มีนัดที่ยืนยันแล้ว</strong><p>นัดหมายจะย้ายมาที่นี่หลังผู้ดูแลอนุมัติการชำระเงิน</p></div>}
       </section>
     </div>
   );
