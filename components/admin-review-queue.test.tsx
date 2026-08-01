@@ -45,6 +45,16 @@ function paymentQueue(payments: AdminQueue["payments"] = [payment]): AdminQueue 
   return { trainers: [], payments };
 }
 
+function deferred<T>() {
+  let resolve!: (value: T) => void;
+  let reject!: (reason?: unknown) => void;
+  const promise = new Promise<T>((resolvePromise, rejectPromise) => {
+    resolve = resolvePromise;
+    reject = rejectPromise;
+  });
+  return { promise, resolve, reject };
+}
+
 describe("AdminReviewQueue", () => {
   beforeEach(() => {
     vi.mocked(authenticatedRequest).mockReset();
@@ -90,6 +100,30 @@ describe("AdminReviewQueue", () => {
     expect(within(row).getByText("-฿200.00")).toBeInTheDocument();
     expect(within(row).getByText("เสาร์ 1 ส.ค. · 09:00 น.")).toBeInTheDocument();
     expect(within(row).getByText("ผู้ดูแลกำลังตรวจหลักฐาน")).toBeInTheDocument();
+  });
+
+  it("gives long unbroken evidence values an explicit wrapping contract", async () => {
+    const longBooking = `BK-${"X".repeat(90)}`;
+    const longTrainer = `เทรนเนอร์${"ย".repeat(90)}`;
+    const longLocation = `อาคาร${"A".repeat(120)}`;
+    vi.mocked(authenticatedRequest).mockResolvedValueOnce(paymentQueue([{
+      ...payment,
+      bookingId: longBooking,
+      trainerName: longTrainer,
+      location: longLocation,
+    }]));
+
+    render(<AdminReviewQueue />);
+    const row = await screen.findByRole("article", { name: "ตรวจสลิป PAY-000021" });
+
+    const wrappedValues = [
+      within(row).getByText(`คำขอจอง ${longBooking}`),
+      within(row).getByText(longTrainer),
+      within(row).getByText(longLocation),
+    ];
+    for (const value of wrappedValues) {
+      expect(value).toHaveStyle({ display: "block", minWidth: "0", maxWidth: "100%", overflowWrap: "anywhere" });
+    }
   });
 
   it("requires a trimmed rejection note and sends that exact note", async () => {
@@ -230,6 +264,75 @@ describe("AdminReviewQueue", () => {
 
     fireEvent.click(screen.getByRole("button", { name: "ลองโหลดคิว PAY-000021 อีกครั้ง" }));
     await waitFor(() => expect(screen.queryByText("PAY-000021")).not.toBeInTheDocument());
+  });
+
+  it("ignores an older queue response after a newer refresh has applied", async () => {
+    const olderRefresh = deferred<AdminQueue>();
+    const newerRefresh = deferred<AdminQueue>();
+    let queueLoads = 0;
+    vi.mocked(authenticatedRequest).mockImplementation((path) => {
+      if (path.includes("/v1/admin/payments/")) return Promise.resolve({ status: "approved" });
+      queueLoads += 1;
+      if (queueLoads === 1) {
+        return Promise.resolve(paymentQueue([
+          payment,
+          { ...payment, id: 22, bookingId: "BK-000778", fileUrl: "/v1/admin/files/payment/22" },
+        ]));
+      }
+      return queueLoads === 2 ? olderRefresh.promise : newerRefresh.promise;
+    });
+
+    render(<AdminReviewQueue />);
+    await screen.findByText("PAY-000021");
+    fireEvent.click(screen.getByRole("button", { name: "อนุมัติสลิป PAY-000021" }));
+    fireEvent.click(screen.getByRole("button", { name: "อนุมัติสลิป PAY-000022" }));
+    await waitFor(() => expect(queueLoads).toBe(3));
+
+    newerRefresh.resolve(paymentQueue([]));
+    await waitFor(() => expect(screen.queryByText("PAY-000021")).not.toBeInTheDocument());
+    expect(screen.queryByText("PAY-000022")).not.toBeInTheDocument();
+    expect(screen.getByText("ข้อมูลจากระบบ")).toBeInTheDocument();
+
+    olderRefresh.resolve(paymentQueue([
+      payment,
+      { ...payment, id: 22, bookingId: "BK-000778", fileUrl: "/v1/admin/files/payment/22" },
+    ]));
+    await waitFor(() => expect(screen.queryByRole("button", { name: "อนุมัติสลิป PAY-000021" })).not.toBeInTheDocument());
+    expect(screen.queryByRole("button", { name: "อนุมัติสลิป PAY-000022" })).not.toBeInTheDocument();
+    expect(screen.getByText("ข้อมูลจากระบบ")).toBeInTheDocument();
+  });
+
+  it("does not let an obsolete refresh failure clear loading or show an error", async () => {
+    const olderRefresh = deferred<AdminQueue>();
+    const newerRefresh = deferred<AdminQueue>();
+    let queueLoads = 0;
+    vi.mocked(authenticatedRequest).mockImplementation((path) => {
+      if (path.includes("/v1/admin/payments/")) return Promise.resolve({ status: "approved" });
+      queueLoads += 1;
+      if (queueLoads === 1) {
+        return Promise.resolve(paymentQueue([
+          payment,
+          { ...payment, id: 22, bookingId: "BK-000778", fileUrl: "/v1/admin/files/payment/22" },
+        ]));
+      }
+      return queueLoads === 2 ? olderRefresh.promise : newerRefresh.promise;
+    });
+
+    render(<AdminReviewQueue />);
+    await screen.findByText("PAY-000021");
+    fireEvent.click(screen.getByRole("button", { name: "อนุมัติสลิป PAY-000021" }));
+    fireEvent.click(screen.getByRole("button", { name: "อนุมัติสลิป PAY-000022" }));
+    await waitFor(() => expect(queueLoads).toBe(3));
+
+    olderRefresh.reject(new Error("คำขอเก่าล้มเหลว"));
+    await waitFor(() => expect(screen.getByText("กำลังอัปเดต")).toBeInTheDocument());
+    expect(screen.queryByText("บันทึกผลแล้ว แต่ยังโหลดคิวล่าสุดไม่ได้")).not.toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "อนุมัติสลิป PAY-000021" })).toBeDisabled();
+    expect(screen.getByRole("button", { name: "อนุมัติสลิป PAY-000022" })).toBeDisabled();
+
+    newerRefresh.resolve(paymentQueue([]));
+    await waitFor(() => expect(screen.queryByText("PAY-000021")).not.toBeInTheDocument());
+    expect(screen.getByText("ข้อมูลจากระบบ")).toBeInTheDocument();
   });
 
   it("labels unknown legacy payment amounts honestly", async () => {

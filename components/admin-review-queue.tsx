@@ -12,6 +12,13 @@ const paymentCurrency = new Intl.NumberFormat("th-TH", {
   currency: "THB",
 });
 
+const wrapAnywhereStyle = {
+  display: "block",
+  minWidth: 0,
+  maxWidth: "100%",
+  overflowWrap: "anywhere",
+} as const;
+
 function formatPaymentAmount(value: number | null) {
   return value === null ? "ไม่มียอดที่บันทึก" : paymentCurrency.format(value);
 }
@@ -39,6 +46,7 @@ export function AdminReviewQueue() {
   const [busyRows, setBusyRows] = useState<Record<string, "file" | "approve" | "reject" | "refresh">>({});
   const [loading, setLoading] = useState(true);
   const noticeRef = useRef<HTMLParagraphElement>(null);
+  const queueRequestRef = useRef(0);
 
   function startRowTask(rowKey: string, action: "file" | "approve" | "reject" | "refresh") {
     setBusyRows((current) => ({ ...current, [rowKey]: action }));
@@ -53,10 +61,12 @@ export function AdminReviewQueue() {
   }
 
   const loadQueue = useCallback(async () => {
+    const requestId = ++queueRequestRef.current;
     setLoadError("");
     setLoading(true);
     try {
       const nextQueue = await authenticatedRequest<AdminQueue>("/v1/admin/review-queue");
+      if (requestId !== queueRequestRef.current) return "superseded" as const;
       setQueue(nextQueue);
       setResolvedPayments((current) => {
         const next = { ...current };
@@ -65,13 +75,14 @@ export function AdminReviewQueue() {
         }
         return next;
       });
-      return true;
+      return "applied" as const;
     } catch (error) {
-      if (leaveExpiredSession(error)) return false;
+      if (requestId !== queueRequestRef.current) return "superseded" as const;
+      if (leaveExpiredSession(error)) return "failed" as const;
       setLoadError(error instanceof Error ? error.message : "โหลดคิวตรวจสอบไม่สำเร็จ");
-      return false;
+      return "failed" as const;
     } finally {
-      setLoading(false);
+      if (requestId === queueRequestRef.current) setLoading(false);
     }
   }, []);
 
@@ -152,8 +163,8 @@ export function AdminReviewQueue() {
         body: JSON.stringify(decision === "approve" ? {} : { note }),
       });
       setResolvedPayments((current) => ({ ...current, [paymentId]: true }));
-      const refreshed = await loadQueue();
-      if (refreshed) {
+      const refreshResult = await loadQueue();
+      if (refreshResult !== "failed") {
         setNotice(`${decision === "approve" ? "อนุมัติ" : "ไม่อนุมัติ"}สลิป ${paymentCode} แล้ว`);
       } else {
         setRowErrors((current) => ({ ...current, [rowKey]: "บันทึกผลแล้ว แต่ยังโหลดคิวล่าสุดไม่ได้" }));
@@ -163,8 +174,8 @@ export function AdminReviewQueue() {
       if (leaveExpiredSession(error)) return;
       if (error instanceof ApiError && error.status === 409) {
         setResolvedPayments((current) => ({ ...current, [paymentId]: true }));
-        const refreshed = await loadQueue();
-        if (refreshed) {
+        const refreshResult = await loadQueue();
+        if (refreshResult !== "failed") {
           setNotice("ผู้ดูแลคนอื่นบันทึกผลรายการนี้แล้ว โหลดคิวล่าสุดแล้ว");
         } else {
           setRowErrors((current) => ({ ...current, [rowKey]: "รายการนี้มีผลตรวจแล้ว แต่ยังโหลดคิวล่าสุดไม่ได้" }));
@@ -184,8 +195,8 @@ export function AdminReviewQueue() {
     if (busyRows[rowKey]) return;
     startRowTask(rowKey, "refresh");
     setRowErrors((current) => ({ ...current, [rowKey]: "" }));
-    const refreshed = await loadQueue();
-    if (refreshed) {
+    const refreshResult = await loadQueue();
+    if (refreshResult !== "failed") {
       setNotice("โหลดคิวตรวจสอบล่าสุดแล้ว");
     } else {
       setRowErrors((current) => ({ ...current, [rowKey]: "ยังโหลดคิวล่าสุดไม่ได้ กรุณาลองอีกครั้ง" }));
@@ -295,7 +306,7 @@ export function AdminReviewQueue() {
             >
               <div className="review-applicant">
                 <span>{paymentCode}</span>
-                <strong>คำขอจอง {payment.bookingId}</strong>
+                <strong style={wrapAnywhereStyle}>คำขอจอง {payment.bookingId}</strong>
                 <small>ผู้ดูแลกำลังตรวจหลักฐาน</small>
                 <ul className="certificate-list" aria-label={`ข้อมูลประกอบสลิป ${paymentCode}`}>
                   {evidence.map(([label, value]) => (
@@ -303,7 +314,7 @@ export function AdminReviewQueue() {
                       <div>
                         <span>
                           <small>{label}</small>
-                          <strong>{value}</strong>
+                          <strong style={wrapAnywhereStyle}>{value}</strong>
                         </span>
                       </div>
                     </li>
