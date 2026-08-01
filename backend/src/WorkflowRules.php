@@ -127,7 +127,7 @@ final class WorkflowRules
         if ($bookingStatus !== 'confirmed' || $paymentStatus !== 'approved') {
             throw new HttpException(409, 'การจองนี้ยังปิดงานไม่ได้', 'BOOKING_NOT_COMPLETABLE');
         }
-        if ($now < $endsAt) {
+        if ($now <= $endsAt) {
             throw new HttpException(409, 'ปิดงานได้หลังเวลานัดสิ้นสุด', 'BOOKING_END_NOT_REACHED');
         }
     }

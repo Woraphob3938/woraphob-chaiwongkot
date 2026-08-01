@@ -152,6 +152,15 @@ test('allows completion after a paid appointment ends', function (): void {
     );
 });
 
+test('blocks completion exactly at a paid appointment end', function (): void {
+    $endsAt = new DateTimeImmutable('2026-08-01T01:00:00.000Z');
+    expectHttp(
+        409,
+        'BOOKING_END_NOT_REACHED',
+        fn() => WorkflowRules::assertTrainerCompletion('confirmed', 'approved', $endsAt, $endsAt)
+    );
+});
+
 test('requires a non-empty review comment', function (): void {
     expectHttp(422, 'VALIDATION_FAILED', fn() => WorkflowRules::assertReviewSubmission('completed', 5, '   '));
 });
