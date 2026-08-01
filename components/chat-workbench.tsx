@@ -88,6 +88,10 @@ export function ChatWorkbench({ initialBookingId }: ChatWorkbenchProps) {
 
   const mountedRef = useRef(true);
   const generationRef = useRef(0);
+  const messageRequestRef = useRef(0);
+  const sendOperationRef = useRef(0);
+  const retryOperationRef = useRef(0);
+  const attachmentOperationRef = useRef(0);
   const cursorRef = useRef(0);
   const retryCursorRef = useRef<number | null>(null);
   const sendLockRef = useRef(false);
@@ -139,6 +143,8 @@ export function ChatWorkbench({ initialBookingId }: ChatWorkbenchProps) {
     generation: number,
     failureMessage = "โหลดข้อความไม่สำเร็จ กรุณาลองใหม่",
   ): Promise<boolean> => {
+    const request = messageRequestRef.current + 1;
+    messageRequestRef.current = request;
     try {
       const incoming = await authenticatedRequest<ChatMessage[]>(
         `/v1/chat-rooms/${roomId}/messages?afterId=${afterId}`,
@@ -148,14 +154,25 @@ export function ChatWorkbench({ initialBookingId }: ChatWorkbenchProps) {
       if (incoming.length > 0) {
         cursorRef.current = Math.max(cursorRef.current, ...incoming.map((message) => message.id));
       }
-      setThreadError("");
+      if (messageRequestRef.current === request) setThreadError("");
       return true;
     } catch {
-      if (!mountedRef.current || generationRef.current !== generation) return false;
-      setThreadError(failureMessage);
+      if (
+        mountedRef.current
+        && generationRef.current === generation
+        && messageRequestRef.current === request
+      ) {
+        setThreadError(failureMessage);
+      }
       return false;
     } finally {
-      if (mountedRef.current && generationRef.current === generation) setThreadLoading(false);
+      if (
+        mountedRef.current
+        && generationRef.current === generation
+        && messageRequestRef.current === request
+      ) {
+        setThreadLoading(false);
+      }
     }
   }, []);
 
@@ -167,6 +184,10 @@ export function ChatWorkbench({ initialBookingId }: ChatWorkbenchProps) {
     const roomId = selectedBooking.chatRoomId;
     const generation = generationRef.current + 1;
     generationRef.current = generation;
+    messageRequestRef.current += 1;
+    sendOperationRef.current += 1;
+    retryOperationRef.current += 1;
+    attachmentOperationRef.current += 1;
     cursorRef.current = 0;
     retryCursorRef.current = null;
     sendLockRef.current = false;
@@ -179,6 +200,9 @@ export function ChatWorkbench({ initialBookingId }: ChatWorkbenchProps) {
       setNotice("");
       setMessageText("");
       setAttachment(null);
+      setSending(false);
+      setRetrying(false);
+      setOpeningAttachment(null);
       setThreadLoading(true);
       if (fileInputRef.current) fileInputRef.current.value = "";
       void loadMessages(roomId, 0, generation);
@@ -238,6 +262,8 @@ export function ChatWorkbench({ initialBookingId }: ChatWorkbenchProps) {
 
     const roomId = selectedBooking.chatRoomId;
     const generation = generationRef.current;
+    const operation = sendOperationRef.current + 1;
+    sendOperationRef.current = operation;
     const previousCursor = cursorRef.current;
     const body = new FormData();
     if (trimmedMessage) body.set("message", trimmedMessage);
@@ -254,7 +280,11 @@ export function ChatWorkbench({ initialBookingId }: ChatWorkbenchProps) {
         method: "POST",
         body,
       });
-      if (!mountedRef.current || generationRef.current !== generation) return;
+      if (
+        !mountedRef.current
+        || generationRef.current !== generation
+        || sendOperationRef.current !== operation
+      ) return;
 
       setMessages((current) => mergeMessages(current, [created]));
       cursorRef.current = Math.max(cursorRef.current, created.id);
@@ -269,43 +299,73 @@ export function ChatWorkbench({ initialBookingId }: ChatWorkbenchProps) {
         generation,
         "ส่งข้อความแล้ว แต่โหลดข้อความล่าสุดไม่สำเร็จ",
       );
-      if (mountedRef.current && generationRef.current === generation) {
+      if (
+        mountedRef.current
+        && generationRef.current === generation
+        && sendOperationRef.current === operation
+      ) {
         retryCursorRef.current = refreshed ? null : previousCursor;
       }
     } catch (error) {
-      if (mountedRef.current && generationRef.current === generation) {
+      if (
+        mountedRef.current
+        && generationRef.current === generation
+        && sendOperationRef.current === operation
+      ) {
         setComposerError(error instanceof Error ? error.message : "ส่งข้อความไม่สำเร็จ กรุณาลองใหม่");
       }
     } finally {
-      sendLockRef.current = false;
-      if (mountedRef.current && generationRef.current === generation) setSending(false);
+      if (sendOperationRef.current === operation) {
+        sendLockRef.current = false;
+        if (mountedRef.current && generationRef.current === generation) setSending(false);
+      }
     }
   }
 
   async function retryMessages() {
     if (!selectedBooking?.chatRoomId || retrying) return;
     const generation = generationRef.current;
+    const operation = retryOperationRef.current + 1;
+    retryOperationRef.current = operation;
     const afterId = retryCursorRef.current ?? cursorRef.current;
     setRetrying(true);
     setThreadLoading(true);
     const refreshed = await loadMessages(selectedBooking.chatRoomId, afterId, generation);
-    if (refreshed) retryCursorRef.current = null;
-    if (mountedRef.current && generationRef.current === generation) setRetrying(false);
+    if (
+      mountedRef.current
+      && generationRef.current === generation
+      && retryOperationRef.current === operation
+    ) {
+      if (refreshed) retryCursorRef.current = null;
+      setRetrying(false);
+    }
   }
 
   async function openAttachment(message: ChatMessage) {
     if (!message.attachment || openingAttachment !== null) return;
     const generation = generationRef.current;
+    const operation = attachmentOperationRef.current + 1;
+    attachmentOperationRef.current = operation;
     setOpeningAttachment(message.id);
     setAttachmentError("");
     try {
       await openProtectedFile(message.attachment.url);
     } catch (error) {
-      if (mountedRef.current && generationRef.current === generation) {
+      if (
+        mountedRef.current
+        && generationRef.current === generation
+        && attachmentOperationRef.current === operation
+      ) {
         setAttachmentError(error instanceof Error ? error.message : "เปิดไฟล์แนบไม่สำเร็จ");
       }
     } finally {
-      if (mountedRef.current && generationRef.current === generation) setOpeningAttachment(null);
+      if (
+        mountedRef.current
+        && generationRef.current === generation
+        && attachmentOperationRef.current === operation
+      ) {
+        setOpeningAttachment(null);
+      }
     }
   }
 

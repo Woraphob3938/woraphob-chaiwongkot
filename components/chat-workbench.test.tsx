@@ -192,6 +192,162 @@ describe("ChatWorkbench", () => {
     expect(screen.getByText("ข้อความห้องใหม่")).toBeInTheDocument();
   });
 
+  it("resets a pending send on room change and ignores the old completion while the new send is pending", async () => {
+    const oldPost = deferred<ChatMessage>();
+    const newPost = deferred<ChatMessage>();
+    const oldCreated = messageFixture(31, "ข้อความจากห้องเก่า");
+    const newCreated = messageFixture(41, "ข้อความจากห้องใหม่");
+    const second = bookingFixture({
+      id: "BK-CHAT-002",
+      chatRoomId: 22,
+      trainer: { id: 4, slug: "trainer-d", displayName: "เทรนเนอร์ ด." },
+    });
+    let newRoomLoads = 0;
+    vi.mocked(authenticatedRequest).mockImplementation((path, init) => {
+      if (path === "/v1/bookings") return Promise.resolve([bookingFixture(), second]);
+      if (path === "/v1/chat-rooms/11/messages?afterId=0") return Promise.resolve([]);
+      if (path === "/v1/chat-rooms/22/messages?afterId=0") {
+        newRoomLoads += 1;
+        return Promise.resolve(newRoomLoads === 1 ? [] : [newCreated]);
+      }
+      if (path === "/v1/chat-rooms/11/messages" && init?.method === "POST") return oldPost.promise;
+      if (path === "/v1/chat-rooms/22/messages" && init?.method === "POST") return newPost.promise;
+      return Promise.reject(new Error(`unexpected ${path}`));
+    });
+
+    render(<ChatWorkbench />);
+    await flushPromises();
+    fireEvent.change(screen.getByLabelText("ข้อความ"), { target: { value: "ข้อความจากห้องเก่า" } });
+    fireEvent.click(screen.getByRole("button", { name: "ส่งข้อความ" }));
+
+    fireEvent.click(screen.getByRole("button", { name: /เทรนเนอร์ ด\./ }));
+    await flushPromises();
+    const newRoomTextarea = screen.getByLabelText("ข้อความ");
+    expect(newRoomTextarea).toBeEnabled();
+    fireEvent.change(newRoomTextarea, { target: { value: "ข้อความจากห้องใหม่" } });
+    fireEvent.click(screen.getByRole("button", { name: "ส่งข้อความ" }));
+    expect(screen.getByRole("button", { name: "กำลังส่ง…" })).toBeDisabled();
+
+    await act(async () => { oldPost.resolve(oldCreated); });
+    await flushPromises();
+    expect(screen.getByRole("button", { name: "กำลังส่ง…" })).toBeDisabled();
+    expect(screen.queryByText("ข้อความจากห้องเก่า")).not.toBeInTheDocument();
+
+    await act(async () => { newPost.resolve(newCreated); });
+    await flushPromises();
+    expect(screen.getByRole("button", { name: "ส่งข้อความ" })).toBeEnabled();
+    expect(screen.getAllByText("ข้อความจากห้องใหม่")).toHaveLength(1);
+  });
+
+  it("does not show an older same-room load failure after a newer load succeeds", async () => {
+    const olderLoad = deferred<ChatMessage[]>();
+    vi.mocked(authenticatedRequest)
+      .mockResolvedValueOnce([bookingFixture()])
+      .mockImplementationOnce(() => olderLoad.promise)
+      .mockResolvedValueOnce([messageFixture(5, "ข้อความล่าสุด")]);
+
+    render(<ChatWorkbench />);
+    await flushPromises();
+    await act(async () => { vi.advanceTimersByTime(5_000); });
+    await flushPromises();
+    expect(screen.getByText("ข้อความล่าสุด")).toBeInTheDocument();
+
+    await act(async () => { olderLoad.reject(new Error("คำขอเก่าล้มเหลว")); });
+    await flushPromises();
+    expect(screen.queryByRole("alert")).not.toBeInTheDocument();
+    expect(screen.getByText("ข้อความล่าสุด")).toBeInTheDocument();
+  });
+
+  it("resets retry state on room change and ignores the old retry completion", async () => {
+    const oldRetry = deferred<ChatMessage[]>();
+    const newRetry = deferred<ChatMessage[]>();
+    const second = bookingFixture({
+      id: "BK-CHAT-002",
+      chatRoomId: 22,
+      trainer: { id: 4, slug: "trainer-d", displayName: "เทรนเนอร์ ด." },
+    });
+    let oldRoomLoads = 0;
+    let newRoomLoads = 0;
+    vi.mocked(authenticatedRequest).mockImplementation((path) => {
+      if (path === "/v1/bookings") return Promise.resolve([bookingFixture(), second]);
+      if (path === "/v1/chat-rooms/11/messages?afterId=0") {
+        oldRoomLoads += 1;
+        return oldRoomLoads === 1 ? Promise.reject(new Error("โหลดห้องเก่าไม่สำเร็จ")) : oldRetry.promise;
+      }
+      if (path === "/v1/chat-rooms/22/messages?afterId=0") {
+        newRoomLoads += 1;
+        return newRoomLoads === 1 ? Promise.reject(new Error("โหลดห้องใหม่ไม่สำเร็จ")) : newRetry.promise;
+      }
+      return Promise.reject(new Error(`unexpected ${path}`));
+    });
+
+    render(<ChatWorkbench />);
+    await flushPromises();
+    fireEvent.click(screen.getByRole("button", { name: "ลองโหลดข้อความใหม่" }));
+    fireEvent.click(screen.getByRole("button", { name: /เทรนเนอร์ ด\./ }));
+    await flushPromises();
+    const newRetryButton = screen.getByRole("button", { name: "ลองโหลดข้อความใหม่" });
+    expect(newRetryButton).toBeEnabled();
+    fireEvent.click(newRetryButton);
+    expect(screen.getByRole("button", { name: "กำลังโหลด…" })).toBeDisabled();
+
+    await act(async () => { oldRetry.resolve([messageFixture(7, "ข้อความรีไทรห้องเก่า")]); });
+    await flushPromises();
+    expect(screen.getByRole("button", { name: "กำลังโหลด…" })).toBeDisabled();
+    expect(screen.queryByText("ข้อความรีไทรห้องเก่า")).not.toBeInTheDocument();
+
+    await act(async () => { newRetry.resolve([messageFixture(8, "ข้อความรีไทรห้องใหม่")]); });
+    await flushPromises();
+    expect(screen.queryByRole("alert")).not.toBeInTheDocument();
+    expect(screen.getByText("ข้อความรีไทรห้องใหม่")).toBeInTheDocument();
+  });
+
+  it("resets attachment-opening state on room change and ignores the old completion", async () => {
+    const oldOpen = deferred<void>();
+    const newOpen = deferred<void>();
+    const oldAttachment = { name: "old.pdf", mime: "application/pdf", size: 1_024, url: "/protected/old" };
+    const newAttachment = { name: "new.pdf", mime: "application/pdf", size: 2_048, url: "/protected/new" };
+    const second = bookingFixture({
+      id: "BK-CHAT-002",
+      chatRoomId: 22,
+      trainer: { id: 4, slug: "trainer-d", displayName: "เทรนเนอร์ ด." },
+    });
+    vi.mocked(authenticatedRequest).mockImplementation((path) => {
+      if (path === "/v1/bookings") return Promise.resolve([bookingFixture(), second]);
+      if (path === "/v1/chat-rooms/11/messages?afterId=0") {
+        return Promise.resolve([messageFixture(3, "ไฟล์ห้องเก่า", { attachment: oldAttachment })]);
+      }
+      if (path === "/v1/chat-rooms/22/messages?afterId=0") {
+        return Promise.resolve([messageFixture(4, "ไฟล์ห้องใหม่", { attachment: newAttachment })]);
+      }
+      return Promise.reject(new Error(`unexpected ${path}`));
+    });
+    vi.mocked(openProtectedFile).mockImplementation((url) => {
+      if (url === "/protected/old") return oldOpen.promise;
+      if (url === "/protected/new") return newOpen.promise;
+      return Promise.reject(new Error(`unexpected ${url}`));
+    });
+
+    render(<ChatWorkbench />);
+    await flushPromises();
+    fireEvent.click(screen.getByRole("button", { name: "เปิดไฟล์ old.pdf" }));
+    fireEvent.click(screen.getByRole("button", { name: /เทรนเนอร์ ด\./ }));
+    await flushPromises();
+    const newOpenButton = screen.getByRole("button", { name: "เปิดไฟล์ new.pdf" });
+    expect(newOpenButton).toBeEnabled();
+    fireEvent.click(newOpenButton);
+    expect(screen.getByRole("button", { name: "เปิดไฟล์ new.pdf" })).toHaveTextContent("กำลังเปิด…");
+
+    await act(async () => { oldOpen.resolve(); });
+    await flushPromises();
+    expect(screen.getByRole("button", { name: "เปิดไฟล์ new.pdf" })).toHaveTextContent("กำลังเปิด…");
+
+    await act(async () => { newOpen.resolve(); });
+    await flushPromises();
+    expect(screen.getByRole("button", { name: "เปิดไฟล์ new.pdf" })).toHaveTextContent("เปิดไฟล์");
+    expect(screen.queryByRole("alert")).not.toBeInTheDocument();
+  });
+
   it("sends trimmed text and an optional PDF once, then clears only after success", async () => {
     const post = deferred<ChatMessage>();
     const created = messageFixture(10, "พร้อมเจอกันครับ", {
