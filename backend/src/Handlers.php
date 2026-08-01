@@ -292,18 +292,34 @@ final class Handlers
         }
         $rows = $this->database->fetchAll(
             'SELECT b.public_id, b.starts_at, b.ends_at, b.location_text, b.member_note,
-                    b.status, b.payment_status, b.created_at, b.is_demo,
+                    b.status, b.payment_status, b.quoted_price, b.created_at, b.is_demo,
                     tp.id AS trainer_id, tp.slug,
                     trainer_user.display_name AS trainer_name,
-                    member_user.display_name AS member_name
+                    member_user.display_name AS member_name,
+                    cr.id AS chat_room_id,
+                    pay.id AS payment_id, pay.amount AS payment_amount,
+                    pay.status AS payment_record_status, pay.review_note AS payment_review_note,
+                    pay.submitted_at AS payment_submitted_at,
+                    r.id AS review_id, r.rating AS review_rating, r.comment AS review_comment,
+                    r.status AS review_status, r.created_at AS review_created_at
              FROM bookings b
              JOIN trainer_profiles tp ON tp.id = b.trainer_profile_id
              JOIN users trainer_user ON trainer_user.id = tp.user_id
-             JOIN users member_user ON member_user.id = b.member_user_id ' .
+             JOIN users member_user ON member_user.id = b.member_user_id
+             LEFT JOIN chat_rooms cr ON cr.booking_id = b.id
+             LEFT JOIN payments pay ON pay.id = (
+                 SELECT latest_payment.id FROM payments latest_payment
+                 WHERE latest_payment.booking_id = b.id
+                 ORDER BY latest_payment.submitted_at DESC, latest_payment.id DESC LIMIT 1
+             )
+             LEFT JOIN reviews r ON r.booking_id = b.id ' .
              $where . ' ORDER BY b.created_at DESC LIMIT 100',
             $params
         );
-        Http::json(array_map(fn(array $row): array => $this->bookingPayload($row), $rows));
+        Http::json(array_map(
+            fn(array $row): array => $this->bookingPayload($row, (string) $user['role']),
+            $rows
+        ));
     }
 
     public function createBooking(): never
@@ -358,9 +374,10 @@ final class Handlers
         $input = Http::body();
         Http::requireFields($input, ['status']);
 
-        $this->database->transaction(function (PDO $pdo) use ($publicId, $input, $user): void {
+        $result = $this->database->transaction(function (PDO $pdo) use ($publicId, $input, $user): array {
             $statement = $pdo->prepare(
-                'SELECT b.id, b.status, b.availability_slot_id, tp.user_id AS trainer_user_id
+                'SELECT b.id, b.status, b.payment_status, b.quoted_price, b.ends_at,
+                        b.availability_slot_id, tp.user_id AS trainer_user_id
                  FROM bookings b JOIN trainer_profiles tp ON tp.id = b.trainer_profile_id WHERE b.public_id = ? FOR UPDATE'
             );
             $statement->execute([$publicId]);
@@ -373,16 +390,26 @@ final class Handlers
                 if ((int) $booking['trainer_user_id'] !== (int) $user['id']) {
                     throw new HttpException(403, 'ไม่มีสิทธิ์แก้ไขคำขอนี้', 'FORBIDDEN');
                 }
-                $slotState = WorkflowRules::trainerBookingSlotState(
-                    (string) $booking['status'],
-                    $newStatus
-                );
+                if ($newStatus === 'completed') {
+                    WorkflowRules::assertTrainerCompletion(
+                        (string) $booking['status'],
+                        (string) $booking['payment_status'],
+                        new DateTimeImmutable((string) $booking['ends_at'], new DateTimeZone('UTC')),
+                        new DateTimeImmutable('now', new DateTimeZone('UTC'))
+                    );
+                    $slotState = 'booked';
+                } else {
+                    $slotState = WorkflowRules::trainerBookingSlotState(
+                        (string) $booking['status'],
+                        $newStatus
+                    );
+                }
             } else {
                 $adminTransitions = [
                     'pending_trainer' => ['cancelled'],
                     'awaiting_payment' => ['cancelled'],
                     'payment_review' => ['confirmed', 'cancelled'],
-                    'confirmed' => ['completed', 'cancelled'],
+                    'confirmed' => ['cancelled'],
                 ];
                 if (!in_array($newStatus, $adminTransitions[$booking['status']] ?? [], true)) {
                     throw new HttpException(
@@ -396,15 +423,27 @@ final class Handlers
                     : ($newStatus === 'cancelled' ? 'available' : null);
             }
 
-            $pdo->prepare('UPDATE bookings SET status = ?, updated_at = UTC_TIMESTAMP() WHERE id = ?')->execute([$newStatus, $booking['id']]);
+            $quotedPrice = null;
+            if ($newStatus === 'awaiting_payment') {
+                $quotedPrice = WorkflowRules::normalizeMoney($input['quotedPrice'] ?? null, 'quotedPrice');
+            }
+            $pdo->prepare('UPDATE bookings SET status = ?, quoted_price = COALESCE(?, quoted_price), updated_at = UTC_TIMESTAMP() WHERE id = ?')
+                ->execute([$newStatus, $quotedPrice, $booking['id']]);
             $pdo->prepare('INSERT INTO booking_status_history (booking_id, from_status, to_status, changed_by_user_id, note) VALUES (?, ?, ?, ?, ?)')
                 ->execute([$booking['id'], $booking['status'], $newStatus, $user['id'], trim((string) ($input['note'] ?? ''))]);
             if ($slotState !== null && $booking['availability_slot_id'] !== null) {
                 $pdo->prepare('UPDATE availability_slots SET state = ? WHERE id = ?')
                     ->execute([$slotState, $booking['availability_slot_id']]);
             }
+            return [
+                'id' => $publicId,
+                'status' => $newStatus,
+                'quotedPrice' => $quotedPrice === null
+                    ? ($booking['quoted_price'] === null ? null : (float) $booking['quoted_price'])
+                    : (float) $quotedPrice,
+            ];
         });
-        Http::json(['id' => $publicId, 'status' => $input['status']]);
+        Http::json($result);
     }
 
     public function payment(): never
@@ -738,8 +777,14 @@ final class Handlers
         ];
     }
 
-    private function bookingPayload(array $row): array
+    private function bookingPayload(array $row, string $role): array
     {
+        $acceptedStatuses = ['awaiting_payment', 'payment_review', 'confirmed', 'completed'];
+        $isMember = $role === 'member';
+        $isTrainer = $role === 'trainer';
+        $hasReview = $row['review_id'] !== null;
+        $appointmentEnded = strtotime($row['ends_at'] . ' UTC') <= time();
+
         return [
             'id' => $row['public_id'],
             'trainer' => ['id' => (int) $row['trainer_id'], 'displayName' => $row['trainer_name'], 'slug' => $row['slug']],
@@ -747,6 +792,28 @@ final class Handlers
             'startsAt' => $this->iso($row['starts_at']), 'endsAt' => $this->iso($row['ends_at']), 'location' => $row['location_text'],
             'note' => $row['member_note'] ?? '',
             'status' => $row['status'], 'paymentStatus' => $row['payment_status'], 'createdAt' => $this->iso($row['created_at']),
+            'quotedPrice' => $row['quoted_price'] === null ? null : (float) $row['quoted_price'],
+            'chatRoomId' => $role === 'admin' || $row['chat_room_id'] === null ? null : (int) $row['chat_room_id'],
+            'payment' => $row['payment_id'] === null ? null : [
+                'id' => (int) $row['payment_id'],
+                'amount' => (float) $row['payment_amount'],
+                'status' => $row['payment_record_status'],
+                'reviewNote' => $row['payment_review_note'],
+                'submittedAt' => $this->iso($row['payment_submitted_at']),
+            ],
+            'review' => !$hasReview ? null : [
+                'rating' => (int) $row['review_rating'],
+                'comment' => $row['review_comment'],
+                'status' => $row['review_status'],
+                'createdAt' => $this->iso($row['review_created_at']),
+            ],
+            'actions' => [
+                'canPay' => $isMember && $row['status'] === 'awaiting_payment',
+                'canReadChat' => $role !== 'admin' && $row['status'] !== 'pending_trainer',
+                'canSendChat' => $role !== 'admin' && in_array($row['status'], $acceptedStatuses, true),
+                'canComplete' => $isTrainer && $row['status'] === 'confirmed' && $row['payment_status'] === 'approved' && $appointmentEnded,
+                'canReview' => $isMember && $row['status'] === 'completed' && !$hasReview,
+            ],
             'demo' => (bool) $row['is_demo'],
         ];
     }

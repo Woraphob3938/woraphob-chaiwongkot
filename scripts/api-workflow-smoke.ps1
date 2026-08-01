@@ -138,9 +138,16 @@ if ($Scenario -in @('booking', 'all')) {
     }
 
     $accepted = (
-        Invoke-RestMethod -Method Patch -Uri "$ApiUrl/v1/bookings/$($acceptedBooking.id)/status" -Headers $trainerHeaders -ContentType 'application/json' -Body (@{ status = 'awaiting_payment' } | ConvertTo-Json)
+        Invoke-RestMethod -Method Patch -Uri "$ApiUrl/v1/bookings/$($acceptedBooking.id)/status" -Headers $trainerHeaders -ContentType 'application/json' -Body (@{ status = 'awaiting_payment'; quotedPrice = 1200 } | ConvertTo-Json)
     ).data
     Assert-True ($accepted.status -eq 'awaiting_payment') 'Trainer acceptance must move booking to awaiting_payment'
+    Assert-True ([decimal]$accepted.quotedPrice -eq 1200) 'Trainer acceptance must save the final quote'
+
+    $memberBookings = (Invoke-RestMethod -Method Get -Uri "$ApiUrl/v1/bookings" -Headers $memberHeaders).data
+    $memberView = $memberBookings | Where-Object { $_.id -eq $acceptedBooking.id } | Select-Object -First 1
+    Assert-True ([decimal]$memberView.quotedPrice -eq 1200) 'Member booking payload must expose the final quote'
+    Assert-True ($memberView.chatRoomId -gt 0) 'Booking payload must expose its chat room'
+    Assert-True ($memberView.actions.canPay) 'Accepted member booking must allow payment'
     Expect-Status 409 {
         Invoke-RestMethod -Method Patch -Uri "$ApiUrl/v1/bookings/$($acceptedBooking.id)/status" -Headers $trainerHeaders -ContentType 'application/json' -Body (@{ status = 'cancelled' } | ConvertTo-Json)
     }
