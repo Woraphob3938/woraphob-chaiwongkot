@@ -247,6 +247,14 @@ if ($Scenario -in @('chat', 'all')) {
         }
     }
 
+    function Invoke-ChatSql {
+        param([string]$Sql)
+        $mysqlPath = 'C:\xampp\mysql\bin\mysql.exe'
+        $output = $Sql | & $mysqlPath --connect-timeout=5 --default-character-set=utf8mb4 --batch --skip-column-names -u root fitconnect 2>&1
+        Assert-True ($LASTEXITCODE -eq 0) "Chat fixture SQL failed: $output"
+        return @($output)
+    }
+
     $outsider = Get-OrCreate-ChatOutsider
     $outsiderHeaders = Auth-Headers $outsider.token
     $slot = New-ChatTestSlot
@@ -291,6 +299,20 @@ if ($Scenario -in @('chat', 'all')) {
     Expect-Status 422 {
         Invoke-RestMethod -Method Post -Uri "$ApiUrl/v1/chat-rooms/$roomId/messages" -Headers $memberHeaders -ContentType 'application/json' -Body (@{ message = '   ' } | ConvertTo-Json)
     }
+    Expect-Status 422 {
+        Invoke-RestMethod -Method Post -Uri "$ApiUrl/v1/chat-rooms/$roomId/messages" -Headers $memberHeaders -ContentType 'application/json' -Body (@{ message = @('not', 'text') } | ConvertTo-Json)
+    }
+    Expect-Status 422 {
+        Invoke-RestMethod -Method Post -Uri "$ApiUrl/v1/chat-rooms/$roomId/messages" -Headers $memberHeaders -ContentType 'application/json' -Body (@{ message = @{ nested = 'not text' } } | ConvertTo-Json -Depth 4)
+    }
+
+    $multipartArrayStatus = & curl.exe --silent --show-error --output NUL --write-out '%{http_code}' `
+        --max-time 20 `
+        -H "Authorization: Bearer $($member.token)" `
+        -F 'message[]=not-text' `
+        "$ApiUrl/v1/chat-rooms/$roomId/messages"
+    Assert-True ($LASTEXITCODE -eq 0) 'Multipart array validation request failed before receiving an HTTP status'
+    Assert-True ([int]$multipartArrayStatus -eq 422) "Multipart message array must return HTTP 422, got $multipartArrayStatus"
 
     $attachmentJson = & curl.exe --silent --show-error --fail-with-body `
         --max-time 20 `
@@ -317,6 +339,33 @@ if ($Scenario -in @('chat', 'all')) {
     $trainerViewOfMemberMessage = $trainerPoll | Where-Object { $_.id -eq $textMessage.id } | Select-Object -First 1
     Assert-True (-not [string]::IsNullOrWhiteSpace($trainerViewOfMemberMessage.readAt)) 'Trainer polling must mark the member message as read'
 
+    $paginationBaseId = [int64]$attachmentMessage.id
+    $bulkValues = 1..501 | ForEach-Object { "($roomId, $($trainer.user.id), 'pagination unread fixture $_')" }
+    $bulkSql = "INSERT INTO messages (chat_room_id, sender_user_id, message_text) VALUES $($bulkValues -join ','); SELECT MAX(id) FROM messages WHERE chat_room_id = $roomId;"
+    $bulkOutput = @(Invoke-ChatSql $bulkSql)
+    $bulkMaxId = [int64]$bulkOutput[-1]
+
+    $pageOne = @((Invoke-RestMethod -Method Get -Uri "$ApiUrl/v1/chat-rooms/$roomId/messages?afterId=$paginationBaseId" -Headers $memberHeaders).data)
+    Assert-True ($pageOne.Count -eq 500) 'First unread page must return exactly 500 messages'
+    Assert-True (($pageOne | Where-Object { [string]::IsNullOrWhiteSpace($_.readAt) }).Count -eq 0) 'Every returned page-one trainer message must be marked read'
+    $pageOneLastId = [int64]$pageOne[-1].id
+    Assert-True ($pageOneLastId -lt $bulkMaxId) 'The overflow message must remain outside page one'
+
+    $pageOneReadOutput = @(Invoke-ChatSql "SELECT COUNT(*) FROM messages WHERE chat_room_id = $roomId AND id > $paginationBaseId AND id <= $bulkMaxId AND read_at IS NOT NULL;")
+    $pageOneUnreadOutput = @(Invoke-ChatSql "SELECT COUNT(*) FROM messages WHERE chat_room_id = $roomId AND id > $paginationBaseId AND id <= $bulkMaxId AND read_at IS NULL;")
+    $pageOneReadCount = [int]$pageOneReadOutput[-1]
+    $pageOneUnreadCount = [int]$pageOneUnreadOutput[-1]
+    Assert-True ($pageOneReadCount -eq 500) "Page one must mark exactly 500 messages read, got $pageOneReadCount"
+    Assert-True ($pageOneUnreadCount -eq 1) "The page-two overflow message must remain unread, got $pageOneUnreadCount unread"
+
+    $pageTwo = @((Invoke-RestMethod -Method Get -Uri "$ApiUrl/v1/chat-rooms/$roomId/messages?afterId=$pageOneLastId" -Headers $memberHeaders).data)
+    Assert-True ($pageTwo.Count -eq 1) 'Second unread page must return only the overflow message'
+    Assert-True ([int64]$pageTwo[0].id -eq $bulkMaxId) 'Second unread page must return the exact overflow message'
+    Assert-True (-not [string]::IsNullOrWhiteSpace($pageTwo[0].readAt)) 'The overflow message must be marked read when page two returns it'
+    $allReadOutput = @(Invoke-ChatSql "SELECT COUNT(*) FROM messages WHERE chat_room_id = $roomId AND id > $paginationBaseId AND id <= $bulkMaxId AND read_at IS NOT NULL;")
+    $allReadCount = [int]$allReadOutput[-1]
+    Assert-True ($allReadCount -eq 501) 'Both pages together must mark all 501 fixture messages read'
+
     Expect-Status 403 {
         Invoke-RestMethod -Method Get -Uri "$ApiUrl/v1/chat-rooms/$roomId/messages" -Headers $outsiderHeaders
     }
@@ -340,8 +389,8 @@ if ($Scenario -in @('chat', 'all')) {
     Assert-True ([string]$attachmentResponse.Headers['Cache-Control'] -eq 'private, no-store') 'Attachment response must not be publicly cached'
 
     Invoke-RestMethod -Method Patch -Uri "$ApiUrl/v1/bookings/$($booking.id)/status" -Headers $adminHeaders -ContentType 'application/json' -Body (@{ status = 'cancelled'; note = 'chat smoke complete' } | ConvertTo-Json) | Out-Null
-    $cancelledMessages = (Invoke-RestMethod -Method Get -Uri "$ApiUrl/v1/chat-rooms/$roomId/messages" -Headers $memberHeaders).data
-    Assert-True ($cancelledMessages.Count -eq 2) 'Cancelled booking chat must remain readable'
+    $cancelledMessages = @((Invoke-RestMethod -Method Get -Uri "$ApiUrl/v1/chat-rooms/$roomId/messages?afterId=$pageOneLastId" -Headers $memberHeaders).data)
+    Assert-True ($cancelledMessages.Count -eq 1) 'Cancelled booking chat must remain readable'
     Expect-Status 409 {
         Invoke-RestMethod -Method Post -Uri "$ApiUrl/v1/chat-rooms/$roomId/messages" -Headers $memberHeaders -ContentType 'application/json' -Body (@{ message = 'ข้อความหลังยกเลิก' } | ConvertTo-Json)
     }

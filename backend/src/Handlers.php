@@ -504,18 +504,35 @@ final class Handlers
             throw new HttpException(422, 'ตัวชี้ข้อความไม่ถูกต้อง', 'VALIDATION_FAILED', ['afterId' => 'ต้องเป็นจำนวนเต็มตั้งแต่ 0 ขึ้นไป']);
         }
 
-        $this->database->execute(
-            'UPDATE messages SET read_at = UTC_TIMESTAMP()
-             WHERE chat_room_id = ? AND id > ? AND sender_user_id <> ? AND read_at IS NULL',
-            [$room['id'], $afterId, $user['id']]
-        );
-        $rows = $this->database->fetchAll(
-            'SELECT m.id, m.message_text, m.attachment_path, m.attachment_mime, m.attachment_name,
-                    m.attachment_size, m.read_at, m.created_at, u.id AS sender_id, u.display_name
-             FROM messages m JOIN users u ON u.id = m.sender_user_id
-             WHERE m.chat_room_id = ? AND m.id > ? ORDER BY m.id ASC LIMIT 500',
-            [$room['id'], $afterId]
-        );
+        $rows = $this->database->transaction(function (PDO $pdo) use ($room, $afterId, $user): array {
+            $page = $pdo->prepare(
+                'SELECT m.id, m.message_text, m.attachment_path, m.attachment_mime, m.attachment_name,
+                        m.attachment_size, m.read_at, m.created_at, u.id AS sender_id, u.display_name
+                 FROM messages m JOIN users u ON u.id = m.sender_user_id
+                 WHERE m.chat_room_id = ? AND m.id > ? ORDER BY m.id ASC LIMIT 500 FOR UPDATE'
+            );
+            $page->execute([$room['id'], $afterId]);
+            $selectedRows = $page->fetchAll();
+            if ($selectedRows === []) {
+                return [];
+            }
+
+            $maxId = (int) $selectedRows[count($selectedRows) - 1]['id'];
+            $markRead = $pdo->prepare(
+                'UPDATE messages SET read_at = UTC_TIMESTAMP()
+                 WHERE chat_room_id = ? AND id > ? AND id <= ? AND sender_user_id <> ? AND read_at IS NULL'
+            );
+            $markRead->execute([$room['id'], $afterId, $maxId, $user['id']]);
+
+            $refreshedPage = $pdo->prepare(
+                'SELECT m.id, m.message_text, m.attachment_path, m.attachment_mime, m.attachment_name,
+                        m.attachment_size, m.read_at, m.created_at, u.id AS sender_id, u.display_name
+                 FROM messages m JOIN users u ON u.id = m.sender_user_id
+                 WHERE m.chat_room_id = ? AND m.id > ? AND m.id <= ? ORDER BY m.id ASC'
+            );
+            $refreshedPage->execute([$room['id'], $afterId, $maxId]);
+            return $refreshedPage->fetchAll();
+        });
         Http::json(array_map(fn(array $row): array => [
             'id' => (int) $row['id'],
             'message' => $row['message_text'],
@@ -537,6 +554,9 @@ final class Handlers
         $room = $this->requireChatParticipant((int) $roomId, $user);
         WorkflowRules::assertChatWritable((string) $room['booking_status']);
         $input = Http::body();
+        if (array_key_exists('message', $input) && !is_string($input['message'])) {
+            throw new HttpException(422, 'รูปแบบข้อความไม่ถูกต้อง', 'VALIDATION_FAILED', ['message' => 'ต้องเป็นข้อความ']);
+        }
         $message = trim((string) ($input['message'] ?? ''));
         if (mb_strlen($message) > 4000) {
             throw new HttpException(422, 'ข้อความยาวเกิน 4,000 ตัวอักษร', 'VALIDATION_FAILED');
