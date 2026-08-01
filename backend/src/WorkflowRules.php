@@ -82,4 +82,67 @@ final class WorkflowRules
         }
         return $target === 'cancelled' ? 'available' : 'held';
     }
+
+    public static function normalizeMoney(mixed $value, string $field): string
+    {
+        $raw = trim((string) $value);
+        if (preg_match('/^\d{1,8}(?:\.\d{1,2})?$/', $raw) !== 1 || (float) $raw <= 0) {
+            throw new HttpException(
+                422,
+                'จำนวนเงินไม่ถูกต้อง',
+                'VALIDATION_FAILED',
+                [$field => 'กรอกจำนวนเงินที่มากกว่า 0 และมีทศนิยมไม่เกิน 2 ตำแหน่ง']
+            );
+        }
+        return number_format((float) $raw, 2, '.', '');
+    }
+
+    public static function assertPaymentDecision(
+        string $paymentStatus,
+        string $bookingStatus,
+        string $decision,
+        string $note
+    ): void {
+        if ($paymentStatus !== 'reviewing' || $bookingStatus !== 'payment_review') {
+            throw new HttpException(409, 'หลักฐานนี้ได้รับการตัดสินแล้ว', 'PAYMENT_ALREADY_REVIEWED');
+        }
+        if ($decision === 'reject' && trim($note) === '') {
+            throw new HttpException(422, 'กรุณาระบุเหตุผลที่สลิปไม่ผ่าน', 'VALIDATION_FAILED', ['note' => 'จำเป็นต้องระบุเหตุผล']);
+        }
+    }
+
+    public static function assertChatWritable(string $bookingStatus): void
+    {
+        if (!in_array($bookingStatus, ['awaiting_payment', 'payment_review', 'confirmed', 'completed'], true)) {
+            throw new HttpException(409, 'ห้องสนทนานี้ส่งข้อความเพิ่มไม่ได้', 'CHAT_READ_ONLY');
+        }
+    }
+
+    public static function assertTrainerCompletion(
+        string $bookingStatus,
+        string $paymentStatus,
+        DateTimeImmutable $endsAt,
+        DateTimeImmutable $now
+    ): void {
+        if ($bookingStatus !== 'confirmed' || $paymentStatus !== 'approved') {
+            throw new HttpException(409, 'การจองนี้ยังปิดงานไม่ได้', 'BOOKING_NOT_COMPLETABLE');
+        }
+        if ($now < $endsAt) {
+            throw new HttpException(409, 'ปิดงานได้หลังเวลานัดสิ้นสุด', 'BOOKING_END_NOT_REACHED');
+        }
+    }
+
+    public static function assertReviewSubmission(string $bookingStatus, int $rating, string $comment): void
+    {
+        if ($bookingStatus !== 'completed') {
+            throw new HttpException(409, 'รีวิวได้หลังการฝึกเสร็จเท่านั้น', 'REVIEW_NOT_READY');
+        }
+        if ($rating < 1 || $rating > 5) {
+            throw new HttpException(422, 'คะแนนต้องอยู่ระหว่าง 1 ถึง 5', 'VALIDATION_FAILED', ['rating' => 'เลือกคะแนน 1 ถึง 5']);
+        }
+        $length = mb_strlen(trim($comment));
+        if ($length < 1 || $length > 2000) {
+            throw new HttpException(422, 'ความคิดเห็นต้องมี 1 ถึง 2,000 ตัวอักษร', 'VALIDATION_FAILED', ['comment' => 'เขียนความคิดเห็นไม่เกิน 2,000 ตัวอักษร']);
+        }
+    }
 }

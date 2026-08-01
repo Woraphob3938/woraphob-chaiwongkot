@@ -127,6 +127,35 @@ test('rejects a trainer booking status outside the decision flow', function (): 
     );
 });
 
+test('normalizes a positive money value', function (): void {
+    assertSameValue('1200.50', WorkflowRules::normalizeMoney('1200.5', 'quotedPrice'));
+});
+
+test('rejects money with more than two decimal places', function (): void {
+    expectHttp(422, 'VALIDATION_FAILED', fn() => WorkflowRules::normalizeMoney('1200.555', 'amount'));
+});
+
+test('requires a payment rejection note', function (): void {
+    expectHttp(422, 'VALIDATION_FAILED', fn() => WorkflowRules::assertPaymentDecision('reviewing', 'payment_review', 'reject', ''));
+});
+
+test('blocks chat before trainer acceptance', function (): void {
+    expectHttp(409, 'CHAT_READ_ONLY', fn() => WorkflowRules::assertChatWritable('pending_trainer'));
+});
+
+test('allows completion after a paid appointment ends', function (): void {
+    WorkflowRules::assertTrainerCompletion(
+        'confirmed',
+        'approved',
+        new DateTimeImmutable('2026-08-01T01:00:00.000Z'),
+        new DateTimeImmutable('2026-08-01T01:01:00.000Z')
+    );
+});
+
+test('requires a non-empty review comment', function (): void {
+    expectHttp(422, 'VALIDATION_FAILED', fn() => WorkflowRules::assertReviewSubmission('completed', 5, '   '));
+});
+
 $failures = 0;
 foreach ($tests as $name => $callback) {
     try {
