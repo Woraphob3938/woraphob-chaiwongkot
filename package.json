@@ -9,6 +9,9 @@
     "lint": "eslint .",
     "typecheck": "tsc --noEmit",
     "test": "vitest run",
+    "test:php": "C:\\xampp\\php\\php.exe backend/tests/WorkflowRulesTest.php",
+    "smoke:postbooking": "powershell -NoProfile -ExecutionPolicy Bypass -File scripts/api-payment-chat-review-smoke.ps1 -Scenario all",
+    "audit:booking": "powershell -NoProfile -ExecutionPolicy Bypass -File scripts/audit-booking.ps1",
     "check": "npm run lint && npm run typecheck && npm run build",
     "xampp:connect": "powershell -NoProfile -ExecutionPolicy Bypass -File scripts/connect-xampp.ps1"
   },

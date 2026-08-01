@@ -26,17 +26,18 @@ PHP REST API แบบไม่พึ่ง Composer สำหรับ Apache +
 - `POST /v1/availability-slots`
 - `DELETE /v1/availability-slots/{id}`
 - `GET|POST /v1/bookings`
-- `PATCH /v1/bookings/{publicId}/status`
-- `POST /v1/payments`
-- `GET|POST /v1/chat-rooms/{id}/messages`
-- `POST /v1/reviews`
+- `PATCH /v1/bookings/{publicId}/status` — เทรนเนอร์ตอบรับพร้อมราคาสุทธิ ยกเลิก หรือจบการฝึกตามสิทธิ์
+- `POST /v1/payments` — สมาชิกส่งหลักฐานการชำระเงินแบบ multipart
+- `GET|POST /v1/chat-rooms/{id}/messages` — อ่านและส่งข้อความหรือไฟล์แนบในห้องของการจอง
+- `GET /v1/chat-rooms/{id}/messages/{messageId}/attachment` — ดาวน์โหลดไฟล์แนบสำหรับคู่สนทนาเท่านั้น
+- `POST /v1/reviews` — สมาชิกเจ้าของการจองเผยแพร่รีวิวหลังจบการฝึก
 - `POST /v1/admin/trainers/{id}/approve`
 - `POST /v1/admin/trainers/{id}/reject`
-- `GET /v1/admin/review-queue`
-- `GET /v1/admin/files/{payment|certificate}/{id}`
-- `POST /v1/admin/payments/{id}/{approve|reject}`
+- `GET /v1/admin/review-queue` — คิวหลักฐานที่รอแอดมินตรวจ
+- `GET /v1/admin/files/{payment|certificate}/{id}` — เปิดหลักฐานที่มีสิทธิ์ดู
+- `POST /v1/admin/payments/{id}/{approve|reject}` — แอดมินอนุมัติหรือปฏิเสธพร้อมเหตุผล
 
-เส้นทางที่เกี่ยวกับบัญชีต้องใส่ `Authorization: Bearer <token>`. การตรวจใบรับรองและสลิปเป็นขั้นตอนของแอดมิน ไม่ใช่ระบบชำระเงินอัตโนมัติ
+เส้นทางที่เกี่ยวกับบัญชีต้องใส่ `Authorization: Bearer <token>`. การตรวจใบรับรองและสลิปเป็นการตรวจโดยแอดมินจริง ไม่ใช่การตรวจอัตโนมัติหรือระบบชำระเงินอัตโนมัติ เมื่อปฏิเสธ แอดมินต้องระบุเหตุผลให้สมาชิกแก้ไขและส่งหลักฐานใหม่
 
 ## ตรวจขั้นตอนหลักในเครื่อง
 
@@ -47,6 +48,30 @@ rtk powershell -NoProfile -ExecutionPolicy Bypass -File scripts/api-workflow-smo
 ```
 
 การทดสอบครอบคลุมการอนุมัติเทรนเนอร์ การสร้าง/ลบช่วงเวลาว่าง การจองพร้อมกัน การตอบรับ และการปฏิเสธ สคริปต์เปลี่ยนแปลงเฉพาะฐานข้อมูลสำหรับพัฒนาในเครื่อง และ `npm run xampp:connect` จะคืนสถานะข้อมูลตั้งต้นก่อนเริ่มรอบสะอาดอีกครั้ง
+
+## ตรวจ flow หลังการจองและเปิดดูใน phpMyAdmin
+
+รัน flow เดียวตั้งแต่สร้างการจอง แชต ส่งสลิปสองครั้ง ให้แอดมินตรวจ จบการฝึก และรีวิว:
+
+```powershell
+npm run smoke:postbooking
+```
+
+สคริปต์จะพิมพ์ `Smoke booking id: BK-...` และเก็บแถวฐานข้อมูลกับไฟล์อัปโหลดไว้โดยตั้งใจเพื่อให้ตรวจต่อได้ นำรหัสที่พิมพ์มาใช้ตรวจความเชื่อมโยงทั้ง flow:
+
+```powershell
+npm run audit:booking -- -BookingId BK-...
+```
+
+สำหรับการตรวจด้วยตา เปิด `http://localhost/phpmyadmin` เลือกฐานข้อมูล `fitconnect` แล้วทำตามลำดับนี้:
+
+1. เปิด `bookings` กรอง `public_id` ด้วย `BK-...` แล้วจด `id` ภายในของแถวนี้
+2. กรอง `booking_status_history` และ `payments` ด้วย `booking_id` เดียวกัน
+3. กรอง `chat_rooms` ด้วย `booking_id` เดียวกัน แล้วจด `id` ของห้อง
+4. กรอง `messages` ด้วย `chat_room_id` จากห้องที่ผูกกับ booking เดียวกัน
+5. กรอง `reviews` ด้วย `booking_id` เดียวกัน
+
+ผลที่ผ่านต้องมี booking 1 แถว ประวัติอย่างน้อย 7 แถว หลักฐานชำระเงิน 2 แถว ห้องสนทนา 1 แถว ข้อความอย่างน้อย 2 แถว และรีวิว 1 แถว โดยใช้สายอ้างอิงจาก internal booking id เดียวกัน
 
 ## บัญชีสาธิต
 
