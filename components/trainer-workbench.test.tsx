@@ -36,6 +36,17 @@ describe("TrainerWorkbench", () => {
       note: "มีอาการเจ็บเข่า",
       status: "pending_trainer" as const,
       paymentStatus: "not_submitted" as const,
+      quotedPrice: null,
+      chatRoomId: null,
+      payment: null,
+      review: null,
+      actions: {
+        canPay: false,
+        canReadChat: false,
+        canSendChat: false,
+        canComplete: false,
+        canReview: false,
+      },
       createdAt: "2026-08-01T00:00:00.000Z",
       demo: false,
     }];

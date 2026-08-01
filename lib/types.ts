@@ -19,6 +19,45 @@ export type BookingStatus =
   | "completed"
   | "cancelled";
 
+export type PaymentSummary = {
+  id: number;
+  amount: number | null;
+  status: "reviewing" | "approved" | "rejected";
+  reviewNote: string | null;
+  submittedAt: string;
+};
+
+export type ReviewSummary = {
+  rating: number;
+  comment: string;
+  status: "published" | "hidden" | "reported";
+  createdAt: string;
+};
+
+export type BookingActions = {
+  canPay: boolean;
+  canReadChat: boolean;
+  canSendChat: boolean;
+  canComplete: boolean;
+  canReview: boolean;
+};
+
+export type ChatAttachment = {
+  name: string;
+  mime: string;
+  size: number;
+  url: string;
+};
+
+export type ChatMessage = {
+  id: number;
+  message: string;
+  attachment: ChatAttachment | null;
+  createdAt: string;
+  readAt: string | null;
+  sender: { id: number; displayName: string };
+};
+
 export type Province = {
   id: number;
   nameTh: string;
@@ -87,6 +126,14 @@ export type AdminQueue = {
     id: number;
     bookingId: string;
     memberName: string;
+    trainerName: string;
+    startsAt: string;
+    endsAt: string;
+    location: string;
+    quotedPrice: number | null;
+    amount: number | null;
+    difference: number | null;
+    submittedAt: string;
     fileUrl: string;
     demo?: boolean;
   }>;
@@ -122,6 +169,11 @@ export type Booking = {
   location: string;
   status: BookingStatus;
   paymentStatus: "not_submitted" | "reviewing" | "approved" | "rejected";
+  quotedPrice: number | null;
+  chatRoomId: number | null;
+  payment: PaymentSummary | null;
+  review: ReviewSummary | null;
+  actions: BookingActions;
   createdAt: string;
   demo: boolean;
   member?: { displayName: string };
