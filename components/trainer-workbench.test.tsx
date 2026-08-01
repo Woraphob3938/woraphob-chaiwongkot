@@ -145,7 +145,7 @@ describe("TrainerWorkbench", () => {
     const confirmedSection = screen.getByRole("region", { name: "นัดหมายที่ยืนยันแล้ว" });
     const refreshError = await within(confirmedSection).findByRole("alert");
     expect(refreshError).toHaveTextContent("บันทึกว่าฝึกเสร็จแล้ว แต่โหลดรายการล่าสุดไม่สำเร็จ");
-    expect(refreshError).toHaveFocus();
+    await waitFor(() => expect(refreshError).toHaveFocus());
     expect(screen.queryByText("บันทึกว่าคำขอ BK-REFRESH ฝึกเสร็จแล้ว")).not.toBeInTheDocument();
     expect(within(confirmedSection).queryByRole("button", { name: "ฝึกเสร็จแล้ว BK-REFRESH" })).not.toBeInTheDocument();
     expect(vi.mocked(authenticatedRequest).mock.calls.filter(([path, options]) => (
@@ -178,14 +178,14 @@ describe("TrainerWorkbench", () => {
     fireEvent.click(retryButton);
 
     expect(refreshError).toBeInTheDocument();
-    expect(refreshError).toHaveFocus();
+    await waitFor(() => expect(refreshError).toHaveFocus());
     expect(within(refreshError).getByRole("button", { name: "กำลังโหลด…" })).toBeDisabled();
 
     await act(async () => { resolveRetry([]); });
 
     const successNotice = await screen.findByRole("status");
     expect(successNotice).toHaveTextContent("โหลดรายการนัดหมายล่าสุดแล้ว");
-    expect(successNotice).toHaveFocus();
+    await waitFor(() => expect(successNotice).toHaveFocus());
     expect(within(confirmedSection).queryByRole("alert")).not.toBeInTheDocument();
   });
 
@@ -212,13 +212,13 @@ describe("TrainerWorkbench", () => {
     fireEvent.click(within(refreshError).getByRole("button", { name: "ลองโหลดใหม่" }));
 
     expect(refreshError).toBeInTheDocument();
-    expect(refreshError).toHaveFocus();
+    await waitFor(() => expect(refreshError).toHaveFocus());
     expect(within(refreshError).getByRole("button", { name: "กำลังโหลด…" })).toBeDisabled();
 
     await act(async () => { rejectRetry(new Error("เครือข่ายขัดข้อง")); });
 
     expect(await within(confirmedSection).findByRole("alert")).toHaveTextContent("ยังโหลดรายการนัดหมายล่าสุดไม่สำเร็จ กรุณาลองใหม่");
-    expect(refreshError).toHaveFocus();
+    await waitFor(() => expect(refreshError).toHaveFocus());
     expect(within(refreshError).getByRole("button", { name: "ลองโหลดใหม่" })).toBeEnabled();
   });
 });
