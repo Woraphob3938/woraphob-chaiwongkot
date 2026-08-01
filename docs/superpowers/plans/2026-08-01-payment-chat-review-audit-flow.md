@@ -395,6 +395,8 @@ rtk git commit -m "feat: add trainer quotes and completion rules"
 - Produces: detailed `AdminQueue.payments`
 - Produces: atomic admin approve/reject transitions with slot booking on approval
 
+**Approved legacy-data rule (2026-08-01):** New payment uploads must always persist an amount greater than zero. Existing payment rows whose amount was never recorded remain `null`; booking payloads must expose that value honestly as `null`, and the UI must render `ไม่มียอดที่บันทึก` instead of coercing it to zero.
+
 - [ ] **Step 1: Create a failing live payment scenario**
 
 Create a script with `payment`, `chat`, `review`, and `all` scenarios. In the payment scenario, create a future slot and booking, accept it with `quotedPrice = 1200`, then upload a real repository image with `curl.exe`:
@@ -746,7 +748,7 @@ Expected: the request test passes, then typecheck FAILS because `quotedPrice`, `
 ```ts
 export type PaymentSummary = {
   id: number;
-  amount: number;
+  amount: number | null;
   status: "reviewing" | "approved" | "rejected";
   reviewNote: string | null;
   submittedAt: string;
