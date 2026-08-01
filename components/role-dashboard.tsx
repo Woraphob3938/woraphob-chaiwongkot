@@ -1,21 +1,22 @@
 "use client";
 
 import Link from "next/link";
-import { FormEvent, useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import {
   ArrowRight,
   CalendarDays,
-  CircleAlert,
   MessageSquareText,
+  RefreshCw,
   ShieldCheck,
-  Upload,
   UsersRound,
 } from "lucide-react";
 import { AdminReviewQueue } from "@/components/admin-review-queue";
 import { DemoNotice } from "@/components/demo-notice";
+import { PaymentPanel } from "@/components/payment-panel";
+import { ReviewForm } from "@/components/review-form";
 import { StatusBadge } from "@/components/status-badge";
 import { TrainerWorkbench } from "@/components/trainer-workbench";
-import { apiRequest } from "@/lib/api";
+import { authenticatedRequest } from "@/lib/api";
 import { formatDateTime } from "@/lib/format";
 import type { Booking, UserRole } from "@/lib/types";
 
@@ -27,37 +28,26 @@ const roleCopy = {
 
 const paymentCopy: Record<Booking["paymentStatus"], string> = {
   not_submitted: "ยังไม่ส่งหลักฐาน",
-  reviewing: "รอแอดมินตรวจสลิป",
-  approved: "ตรวจสลิปแล้ว",
-  rejected: "ต้องอัปโหลดหลักฐานใหม่",
+  reviewing: "รอผู้ดูแลตรวจสลิป",
+  approved: "ผู้ดูแลตรวจสลิปแล้ว",
+  rejected: "ผู้ดูแลขอหลักฐานใหม่",
 };
 
-function PaymentUpload({ booking }: { booking: Booking }) {
-  const [status, setStatus] = useState("");
-  const ready = booking.status === "awaiting_payment";
+function formatAmount(amount: number | null): string {
+  return amount === null
+    ? "ไม่มียอดที่บันทึก"
+    : `${new Intl.NumberFormat("th-TH", { minimumFractionDigits: 2, maximumFractionDigits: 2 }).format(amount)} บาท`;
+}
 
-  async function submit(event: FormEvent<HTMLFormElement>) {
-    event.preventDefault();
-    setStatus("");
-    const data = new FormData(event.currentTarget);
-    data.set("bookingId", booking.id);
-    const token = localStorage.getItem("fitconnect_token");
-    try {
-      await apiRequest("/v1/payments", { method: "POST", body: data, headers: token ? { Authorization: `Bearer ${token}` } : {} });
-      setStatus("อัปโหลดแล้ว และส่งให้แอดมินตรวจด้วยตนเอง");
-    } catch (error) {
-      setStatus(error instanceof Error ? error.message : "อัปโหลดไม่สำเร็จ");
-    }
-  }
-
-  return (
-    <form className="payment-upload" onSubmit={submit}>
-      <div><h3>หลักฐานการชำระ</h3><p>อัปโหลดสลิปหลังเทรนเนอร์ตอบรับ · ไฟล์ JPG, PNG หรือ WebP ไม่เกิน 5 MB · แอดมินเป็นผู้ตรวจ</p></div>
-      <label className="file-control" htmlFor="payment-slip"><Upload aria-hidden="true" size={19} /><span>{ready ? "เลือกสลิป" : "ยังไม่พร้อมอัปโหลด"}</span><input id="payment-slip" name="slip" type="file" accept="image/jpeg,image/png,image/webp" required disabled={!ready} /></label>
-      <button className="button button--dark" type="submit" disabled={!ready}>{ready ? "ส่งให้ตรวจ" : "รอตามสถานะ"}</button>
-      <p className="upload-status" role="status">{status && <><CircleAlert aria-hidden="true" size={16} /> {status}</>}</p>
-    </form>
-  );
+function nextStepCopy(booking: Booking): string {
+  if (booking.review) return "รีวิวนี้เผยแพร่แล้ว";
+  if (booking.actions.canPay) return "ส่งหลักฐานการโอนให้ผู้ดูแลตรวจ";
+  if (booking.actions.canReview) return "เขียนรีวิวหลังการฝึก";
+  if (booking.status === "pending_trainer") return "รอเทรนเนอร์ตอบรับคำขอ";
+  if (booking.status === "payment_review") return "รอผู้ดูแลตรวจหลักฐานด้วยตนเอง";
+  if (booking.status === "confirmed") return "เตรียมตัวตามวันและเวลานัด";
+  if (booking.status === "cancelled") return "คำขอนี้สิ้นสุดแล้ว";
+  return "ยังไม่มีขั้นตอนที่ต้องทำในขณะนี้";
 }
 
 export function RoleDashboard({ role }: { role: UserRole }) {
@@ -65,35 +55,50 @@ export function RoleDashboard({ role }: { role: UserRole }) {
   const [bookings, setBookings] = useState<Booking[]>([]);
   const [bookingError, setBookingError] = useState("");
   const [isDemoData, setIsDemoData] = useState(false);
+  const [loadingBookings, setLoadingBookings] = useState(role === "member");
 
   const loadMemberBookings = useCallback(async () => {
     if (role !== "member") return;
     const token = localStorage.getItem("fitconnect_token");
-    if (!token) return;
+    if (!token) {
+      setLoadingBookings(false);
+      return;
+    }
     try {
-      const items = await apiRequest<Booking[]>("/v1/bookings", { headers: { Authorization: `Bearer ${token}` } });
+      const items = await authenticatedRequest<Booking[]>("/v1/bookings");
       setBookings(items);
       setIsDemoData(items.some((item) => item.demo));
       setBookingError("");
     } catch (error) {
       setBookingError(error instanceof Error ? error.message : "โหลดรายการจองไม่สำเร็จ");
+    } finally {
+      setLoadingBookings(false);
     }
   }, [role]);
 
   useEffect(() => {
     if (role !== "member") return;
     const token = localStorage.getItem("fitconnect_token");
-    if (!token) return;
-    void apiRequest<Booking[]>("/v1/bookings", { headers: { Authorization: `Bearer ${token}` } })
+    if (!token) {
+      queueMicrotask(() => setLoadingBookings(false));
+      return;
+    }
+    let cancelled = false;
+    void authenticatedRequest<Booking[]>("/v1/bookings")
       .then((items) => {
+        if (cancelled) return;
         setBookings(items);
         setIsDemoData(items.some((item) => item.demo));
         setBookingError("");
       })
-      .catch((error: unknown) => setBookingError(error instanceof Error ? error.message : "โหลดรายการจองไม่สำเร็จ"));
+      .catch((error: unknown) => {
+        if (!cancelled) setBookingError(error instanceof Error ? error.message : "โหลดรายการจองไม่สำเร็จ");
+      })
+      .finally(() => {
+        if (!cancelled) setLoadingBookings(false);
+      });
+    return () => { cancelled = true; };
   }, [role]);
-
-  const booking = bookings[0] ?? null;
 
   return (
     <main className="page-shell dashboard-shell">
@@ -105,17 +110,61 @@ export function RoleDashboard({ role }: { role: UserRole }) {
 
       {role === "member" && (
         <>
-          {bookingError && <div className="workbench-error" role="alert"><span>{bookingError}</span><button type="button" onClick={() => void loadMemberBookings()}>ลองใหม่</button></div>}
-          {booking ? <>
-          <section className="dashboard-ledger" aria-label="สถานะการจอง">
-            <div className="ledger-heading"><div><h2>คำขอ {booking.id}</h2></div><StatusBadge status={booking.status} /></div>
-            <div className="ledger-row"><span><CalendarDays aria-hidden="true" size={17} /> วันและเวลา</span><strong>{formatDateTime(booking.startsAt)}</strong></div>
-            <div className="ledger-row"><span><UsersRound aria-hidden="true" size={17} /> เทรนเนอร์</span><strong>{booking.trainer.displayName}</strong></div>
-            <div className="ledger-row"><span><ShieldCheck aria-hidden="true" size={17} /> การชำระ</span><strong>{paymentCopy[booking.paymentStatus]}</strong></div>
-            <div className="ledger-actions"><Link href="/chat"><MessageSquareText aria-hidden="true" size={17} /> เปิดการสนทนา</Link><Link href={`/trainers/${booking.trainer.slug}`}>ดูโปรไฟล์ <ArrowRight aria-hidden="true" size={16} /></Link></div>
-          </section>
-          <PaymentUpload booking={booking} />
-          </> : !bookingError && <div className="selection-missing"><CalendarDays aria-hidden="true" size={28} /><h2>ยังไม่มีคำขอจอง</h2><p>เลือกเทรนเนอร์และช่วงเวลาว่างเพื่อสร้างคำขอแรกของคุณ</p><Link className="button button--dark" href="/trainers">ค้นหาเทรนเนอร์</Link></div>}
+          {loadingBookings && bookings.length === 0 && (
+            <section className="queue-loading" aria-live="polite">กำลังโหลดรายการจอง…</section>
+          )}
+          {bookingError && (
+            <div className="workbench-error" role="alert">
+              <span>{bookingError}</span>
+              <button type="button" disabled={loadingBookings} onClick={() => {
+                setLoadingBookings(true);
+                void loadMemberBookings();
+              }}>
+                <RefreshCw aria-hidden="true" size={15} /> {loadingBookings ? "กำลังโหลด…" : "ลองใหม่"}
+              </button>
+            </div>
+          )}
+          {bookings.map((booking) => (
+            <article className="dashboard-ledger" aria-labelledby={`booking-${booking.id}`} key={booking.id}>
+              <div className="ledger-heading">
+                <div><h2 id={`booking-${booking.id}`}>คำขอ {booking.id}</h2></div>
+                <StatusBadge status={booking.status} />
+              </div>
+              <div className="ledger-row"><span><CalendarDays aria-hidden="true" size={17} /> เริ่มฝึก</span><strong>{formatDateTime(booking.startsAt)}</strong></div>
+              <div className="ledger-row"><span><CalendarDays aria-hidden="true" size={17} /> สิ้นสุด</span><strong>{formatDateTime(booking.endsAt)}</strong></div>
+              <div className="ledger-row"><span>สถานที่</span><strong>{booking.location}</strong></div>
+              <div className="ledger-row"><span><UsersRound aria-hidden="true" size={17} /> เทรนเนอร์</span><strong>{booking.trainer.displayName}</strong></div>
+              <div className="ledger-row"><span>ค่าฝึกที่แจ้ง</span><strong>{formatAmount(booking.quotedPrice)}</strong></div>
+              <div className="ledger-row"><span><ShieldCheck aria-hidden="true" size={17} /> การชำระ</span><strong>{paymentCopy[booking.paymentStatus]}</strong></div>
+              <div className="ledger-row"><span>ยอดที่โอน</span><strong>{formatAmount(booking.payment?.amount ?? null)}</strong></div>
+              {booking.payment?.status === "rejected" && booking.payment.reviewNote && (
+                <div className="ledger-row"><span>หมายเหตุจากผู้ดูแล</span><strong>{booking.payment.reviewNote}</strong></div>
+              )}
+              <div className="ledger-row"><span>ขั้นตอนถัดไป</span><strong>{nextStepCopy(booking)}</strong></div>
+              {booking.actions.canPay && <PaymentPanel booking={booking} onUpdated={loadMemberBookings} />}
+              {booking.actions.canReview && <ReviewForm booking={booking} onUpdated={loadMemberBookings} />}
+              {booking.review && (
+                <div className="ledger-row">
+                  <span>รีวิวที่เผยแพร่</span>
+                  <strong>{booking.review.rating} จาก 5 ดาว: {booking.review.comment}</strong>
+                </div>
+              )}
+              <div className="ledger-actions">
+                {booking.actions.canReadChat && (
+                  <Link href={`/chat?booking=${encodeURIComponent(booking.id)}`}><MessageSquareText aria-hidden="true" size={17} /> เปิดการสนทนา</Link>
+                )}
+                <Link href={`/trainers/${booking.trainer.slug}`}>ดูโปรไฟล์ <ArrowRight aria-hidden="true" size={16} /></Link>
+              </div>
+            </article>
+          ))}
+          {!loadingBookings && !bookingError && bookings.length === 0 && (
+            <div className="selection-missing">
+              <CalendarDays aria-hidden="true" size={28} />
+              <h2>ยังไม่มีคำขอจอง</h2>
+              <p>เลือกเทรนเนอร์และช่วงเวลาว่างเพื่อสร้างคำขอแรกของคุณ</p>
+              <Link className="button button--dark" href="/trainers">ค้นหาเทรนเนอร์</Link>
+            </div>
+          )}
         </>
       )}
 
