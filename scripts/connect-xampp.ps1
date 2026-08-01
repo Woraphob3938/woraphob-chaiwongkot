@@ -68,6 +68,14 @@ if (-not $SkipDatabaseImport) {
         $schemaSource = $schemaPath.Replace('\', '/')
         & $mysqlExe --host=127.0.0.1 --port=3306 --user=$DatabaseUser --default-character-set=utf8mb4 --execute="SOURCE $schemaSource"
         if ($LASTEXITCODE -ne 0) { throw 'นำเข้าโครงสร้างฐานข้อมูลไม่สำเร็จ' }
+        $migrationRoot = Join-Path $backendFull 'database\migrations'
+        if (Test-Path -LiteralPath $migrationRoot) {
+            foreach ($migration in Get-ChildItem -LiteralPath $migrationRoot -Filter '*.sql' -File | Sort-Object Name) {
+                $migrationSource = $migration.FullName.Replace('\', '/')
+                & $mysqlExe --host=127.0.0.1 --port=3306 --user=$DatabaseUser --default-character-set=utf8mb4 --execute="SOURCE $migrationSource"
+                if ($LASTEXITCODE -ne 0) { throw "นำเข้า migration ไม่สำเร็จ: $($migration.Name)" }
+            }
+        }
         $seedSource = $seedPath.Replace('\', '/')
         & $mysqlExe --host=127.0.0.1 --port=3306 --user=$DatabaseUser --default-character-set=utf8mb4 --execute="SOURCE $seedSource"
         if ($LASTEXITCODE -ne 0) { throw 'นำเข้าข้อมูลสาธิตไม่สำเร็จ' }
