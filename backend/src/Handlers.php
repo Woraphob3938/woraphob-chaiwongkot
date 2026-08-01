@@ -707,7 +707,13 @@ final class Handlers
                 [$booking['id'], $user['id'], $booking['trainer_profile_id'], $rating, $comment]
             );
         } catch (PDOException $error) {
-            if ((string) $error->getCode() === '23000') {
+            $driverCode = (int) ($error->errorInfo[1] ?? 0);
+            $driverMessage = (string) ($error->errorInfo[2] ?? '');
+            if (
+                (string) $error->getCode() === '23000'
+                && $driverCode === 1062
+                && str_contains($driverMessage, 'uq_review_booking')
+            ) {
                 throw new HttpException(409, 'คำขอนี้ได้รับการรีวิวแล้ว', 'REVIEW_EXISTS');
             }
             throw $error;

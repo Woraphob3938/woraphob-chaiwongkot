@@ -489,13 +489,13 @@ VALUES
     }
 
     $trimmedComment = 'บริการดีและตรงต่อเวลา'
-    $createdReview = (
-        Invoke-RestMethod -Method Post -Uri "$ApiUrl/v1/reviews" -Headers $memberHeaders -ContentType 'application/json' -Body ([Text.Encoding]::UTF8.GetBytes((@{
+    $createReviewResponse = Invoke-WebRequest -UseBasicParsing -Method Post -Uri "$ApiUrl/v1/reviews" -Headers $memberHeaders -ContentType 'application/json' -Body ([Text.Encoding]::UTF8.GetBytes((@{
             bookingId = $completedBookingId
             rating = '5'
             comment = "  $trimmedComment  "
         } | ConvertTo-Json)))
-    ).data
+    Assert-True ($createReviewResponse.StatusCode -eq 201) "Created review must return HTTP 201, got $($createReviewResponse.StatusCode)"
+    $createdReview = ($createReviewResponse.Content | ConvertFrom-Json).data
     Assert-True ($createdReview.bookingId -eq $completedBookingId) 'Created review must return its booking ID'
     Assert-True ($createdReview.rating -is [int] -and $createdReview.rating -eq 5) 'Created review must return a normalized numeric rating'
     Assert-True ($createdReview.comment -eq $trimmedComment) 'Created review must return the trimmed comment'
