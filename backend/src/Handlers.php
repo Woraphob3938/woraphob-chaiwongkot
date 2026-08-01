@@ -663,9 +663,11 @@ final class Handlers
                 'startsAt' => $this->iso($row['starts_at']),
                 'endsAt' => $this->iso($row['ends_at']),
                 'location' => $row['location_text'],
-                'quotedPrice' => (float) $row['quoted_price'],
-                'amount' => (float) $row['amount'],
-                'difference' => (float) $row['amount'] - (float) $row['quoted_price'],
+                'quotedPrice' => $row['quoted_price'] === null ? null : (float) $row['quoted_price'],
+                'amount' => $row['amount'] === null ? null : (float) $row['amount'],
+                'difference' => $row['amount'] === null || $row['quoted_price'] === null
+                    ? null
+                    : (float) $row['amount'] - (float) $row['quoted_price'],
                 'submittedAt' => $this->iso($row['submitted_at']),
                 'fileUrl' => '/v1/admin/files/payment/' . $row['id'],
                 'demo' => (bool) $row['is_demo'],

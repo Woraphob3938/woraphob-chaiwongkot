@@ -44,6 +44,26 @@ if ($Scenario -in @('payment', 'all')) {
     $adminHeaders = Auth-Headers $admin.token
     $slipPath = (Resolve-Path (Join-Path $PSScriptRoot '..\public\demo\trainer-a.png')).Path
 
+    function New-LegacyPaymentFixture {
+        $publicId = "BK-LEGACY-$([Guid]::NewGuid().ToString('N').Substring(0, 10).ToUpperInvariant())"
+        $sql = @"
+INSERT INTO bookings
+    (public_id, member_user_id, trainer_profile_id, starts_at, ends_at, location_text, member_note, quoted_price, status, payment_status, is_demo)
+VALUES
+    ('$publicId', 1, 1, DATE_ADD(UTC_TIMESTAMP(), INTERVAL 7 DAY), DATE_ADD(UTC_TIMESTAMP(), INTERVAL 7 DAY) + INTERVAL 1 HOUR,
+     'legacy payment regression fixture', 'legacy payment regression fixture', NULL, 'payment_review', 'reviewing', 0);
+SET @legacy_booking_id = LAST_INSERT_ID();
+INSERT INTO payments
+    (booking_id, submitted_by_user_id, amount, slip_path, mime_type, status, submitted_at)
+VALUES
+    (@legacy_booking_id, 1, NULL, 'uploads/payments/legacy-regression-fixture.png', 'image/png', 'reviewing', UTC_TIMESTAMP());
+"@
+        $mysqlPath = 'C:\xampp\mysql\bin\mysql.exe'
+        $output = $sql | & $mysqlPath --default-character-set=utf8mb4 -u root fitconnect 2>&1
+        Assert-True ($LASTEXITCODE -eq 0) "Could not create legacy payment fixture: $output"
+        return $publicId
+    }
+
     function New-PaymentTestSlot {
         for ($attempt = 1; $attempt -le 30; $attempt++) {
             $start = (Get-Date).ToUniversalTime().Date.AddDays((Get-Random -Minimum 2 -Maximum 50)).AddMinutes((Get-Random -Minimum 0 -Maximum 1380))
@@ -115,6 +135,20 @@ if ($Scenario -in @('payment', 'all')) {
             ([DateTimeOffset]::Parse($QueuePayment.endsAt)).ToUniversalTime() -eq ([DateTimeOffset]::Parse($Case.slot.endsAt)).ToUniversalTime()
         ) 'Admin queue must show the appointment end'
         Assert-True ($QueuePayment.location -eq $Case.location) 'Admin queue must show the appointment location'
+    }
+
+    $legacyBookingId = New-LegacyPaymentFixture
+    $legacyQueuePayment = $null
+    try {
+        $legacyQueuePayment = Get-QueuePayment $legacyBookingId
+        Assert-True ($null -ne $legacyQueuePayment) 'Legacy reviewing payment must remain visible in the admin queue'
+        Assert-True ($null -eq $legacyQueuePayment.amount) 'Legacy unknown payment amount must remain null'
+        Assert-True ($null -eq $legacyQueuePayment.quotedPrice) 'Legacy unknown quote must remain null'
+        Assert-True ($null -eq $legacyQueuePayment.difference) 'Legacy unknown payment difference must remain null'
+    } finally {
+        if ($null -ne $legacyQueuePayment) {
+            Invoke-RestMethod -Method Post -Uri "$ApiUrl/v1/admin/payments/$($legacyQueuePayment.id)/reject" -Headers $adminHeaders -ContentType 'application/json' -Body (@{ note = 'legacy regression fixture complete' } | ConvertTo-Json) | Out-Null
+        }
     }
 
     $approvalCase = New-AcceptedPaymentBooking "approve-$([Guid]::NewGuid().ToString('N').Substring(0, 8))"
