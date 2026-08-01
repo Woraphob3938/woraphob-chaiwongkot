@@ -207,10 +207,13 @@ export function TrainerWorkbench() {
 
   async function retryBookingRefresh() {
     setBusy("bookings-refresh");
-    setCompletionError("");
+    setActionNotice("");
+    completionErrorRef.current?.focus();
     try {
       await refreshBookings();
       setBookingError("");
+      setCompletionError("");
+      setActionNotice("โหลดรายการนัดหมายล่าสุดแล้ว");
     } catch (error) {
       if (leaveExpiredSession(error)) return;
       setCompletionError("ยังโหลดรายการนัดหมายล่าสุดไม่สำเร็จ กรุณาลองใหม่");

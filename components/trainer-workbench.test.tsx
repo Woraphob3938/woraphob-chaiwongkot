@@ -1,4 +1,4 @@
-import { fireEvent, render, screen, waitFor, within } from "@testing-library/react";
+import { act, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { TrainerWorkbench } from "@/components/trainer-workbench";
 import { authenticatedRequest } from "@/lib/api";
@@ -151,5 +151,74 @@ describe("TrainerWorkbench", () => {
     expect(vi.mocked(authenticatedRequest).mock.calls.filter(([path, options]) => (
       path === "/v1/bookings/BK-REFRESH/status" && options?.method === "PATCH"
     ))).toHaveLength(1);
+  });
+
+  it("keeps retry feedback focused while loading and announces a successful refresh", async () => {
+    const booking = bookingFixture({
+      id: "BK-RETRY-OK",
+      status: "confirmed",
+      actions: { ...bookingFixture().actions, canComplete: true },
+    });
+    let resolveRetry!: (bookings: Booking[]) => void;
+    const pendingRetry = new Promise<Booking[]>((resolve) => { resolveRetry = resolve; });
+    vi.mocked(authenticatedRequest)
+      .mockResolvedValueOnce(approvedWorkspace)
+      .mockResolvedValueOnce([booking])
+      .mockResolvedValueOnce({ id: "BK-RETRY-OK", status: "completed" })
+      .mockRejectedValueOnce(new Error("โหลดรายการนัดล่าสุดไม่ได้"))
+      .mockImplementationOnce(() => pendingRetry);
+
+    render(<TrainerWorkbench />);
+    fireEvent.click(await screen.findByRole("button", { name: "ฝึกเสร็จแล้ว BK-RETRY-OK" }));
+
+    const confirmedSection = screen.getByRole("region", { name: "นัดหมายที่ยืนยันแล้ว" });
+    const refreshError = await within(confirmedSection).findByRole("alert");
+    const retryButton = within(refreshError).getByRole("button", { name: "ลองโหลดใหม่" });
+    retryButton.focus();
+    fireEvent.click(retryButton);
+
+    expect(refreshError).toBeInTheDocument();
+    expect(refreshError).toHaveFocus();
+    expect(within(refreshError).getByRole("button", { name: "กำลังโหลด…" })).toBeDisabled();
+
+    await act(async () => { resolveRetry([]); });
+
+    const successNotice = await screen.findByRole("status");
+    expect(successNotice).toHaveTextContent("โหลดรายการนัดหมายล่าสุดแล้ว");
+    expect(successNotice).toHaveFocus();
+    expect(within(confirmedSection).queryByRole("alert")).not.toBeInTheDocument();
+  });
+
+  it("keeps the retry alert focused and usable when refresh fails again", async () => {
+    const booking = bookingFixture({
+      id: "BK-RETRY-FAIL",
+      status: "confirmed",
+      actions: { ...bookingFixture().actions, canComplete: true },
+    });
+    let rejectRetry!: (reason: Error) => void;
+    const pendingRetry = new Promise<Booking[]>((_, reject) => { rejectRetry = reject; });
+    vi.mocked(authenticatedRequest)
+      .mockResolvedValueOnce(approvedWorkspace)
+      .mockResolvedValueOnce([booking])
+      .mockResolvedValueOnce({ id: "BK-RETRY-FAIL", status: "completed" })
+      .mockRejectedValueOnce(new Error("โหลดรายการนัดล่าสุดไม่ได้"))
+      .mockImplementationOnce(() => pendingRetry);
+
+    render(<TrainerWorkbench />);
+    fireEvent.click(await screen.findByRole("button", { name: "ฝึกเสร็จแล้ว BK-RETRY-FAIL" }));
+
+    const confirmedSection = screen.getByRole("region", { name: "นัดหมายที่ยืนยันแล้ว" });
+    const refreshError = await within(confirmedSection).findByRole("alert");
+    fireEvent.click(within(refreshError).getByRole("button", { name: "ลองโหลดใหม่" }));
+
+    expect(refreshError).toBeInTheDocument();
+    expect(refreshError).toHaveFocus();
+    expect(within(refreshError).getByRole("button", { name: "กำลังโหลด…" })).toBeDisabled();
+
+    await act(async () => { rejectRetry(new Error("เครือข่ายขัดข้อง")); });
+
+    expect(await within(confirmedSection).findByRole("alert")).toHaveTextContent("ยังโหลดรายการนัดหมายล่าสุดไม่สำเร็จ กรุณาลองใหม่");
+    expect(refreshError).toHaveFocus();
+    expect(within(refreshError).getByRole("button", { name: "ลองโหลดใหม่" })).toBeEnabled();
   });
 });
