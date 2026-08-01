@@ -1,5 +1,17 @@
-import { ChatDemo } from "@/components/chat-demo";
-import { DemoNotice } from "@/components/demo-notice";
+import { ChatWorkbench } from "@/components/chat-workbench";
 
 export const metadata = { title: "การสนทนา" };
-export default function ChatPage() { return <main className="page-shell chat-page"><section className="compact-page-heading"><h1>นัดหมายให้ชัดก่อนเริ่มฝึก</h1></section><DemoNotice /><ChatDemo /></main>; }
+
+export default async function ChatPage({
+  searchParams,
+}: {
+  searchParams: Promise<{ booking?: string }>;
+}) {
+  const { booking } = await searchParams;
+  return (
+    <main className="page-shell chat-page">
+      <section className="compact-page-heading"><h1>การสนทนาและรายละเอียดนัดหมาย</h1></section>
+      <ChatWorkbench initialBookingId={booking} />
+    </main>
+  );
+}
