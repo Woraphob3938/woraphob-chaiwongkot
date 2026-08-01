@@ -7,7 +7,7 @@ param(
 
 $ErrorActionPreference = 'Stop'
 
-if ($BookingId -notmatch '^BK-[A-Z0-9-]{3,32}$') {
+if ($BookingId -cnotmatch '^BK-[A-Z0-9-]{3,32}$') {
     throw 'BookingId ต้องอยู่ในรูปแบบ BK- ตามด้วย A-Z, 0-9 หรือขีดกลาง 3-32 ตัว'
 }
 
