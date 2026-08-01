@@ -37,6 +37,20 @@ function Expect-Status {
     throw "Expected HTTP $Status, request succeeded"
 }
 
+function Expect-ApiError {
+    param([int]$Status, [string]$Code, [scriptblock]$Action)
+    try {
+        & $Action | Out-Null
+    } catch {
+        $actual = [int]$_.Exception.Response.StatusCode
+        Assert-True ($actual -eq $Status) "Expected HTTP $Status, got $actual"
+        $payload = $_.ErrorDetails.Message | ConvertFrom-Json
+        Assert-True ($payload.error.code -eq $Code) "Expected API error $Code, got $($payload.error.code)"
+        return
+    }
+    throw "Expected HTTP $Status / $Code, request succeeded"
+}
+
 if ($Scenario -in @('payment', 'all')) {
     $trainer = Login 'trainer.a@fitconnect.local'
     $member = Login 'member.demo@fitconnect.local'
@@ -394,6 +408,130 @@ if ($Scenario -in @('chat', 'all')) {
     Expect-Status 409 {
         Invoke-RestMethod -Method Post -Uri "$ApiUrl/v1/chat-rooms/$roomId/messages" -Headers $memberHeaders -ContentType 'application/json' -Body (@{ message = 'ข้อความหลังยกเลิก' } | ConvertTo-Json)
     }
+}
+
+if ($Scenario -in @('review', 'all')) {
+    $member = Login 'member.demo@fitconnect.local'
+    $memberHeaders = Auth-Headers $member.token
+
+    function Get-OrCreate-ReviewOutsider {
+        $email = 'review.outsider@fitconnect.local'
+        try {
+            return Login $email
+        } catch {
+            if ([int]$_.Exception.Response.StatusCode -ne 401) { throw }
+        }
+
+        $body = @{
+            displayName = 'สมาชิกนอกการจองรีวิว'
+            email = $email
+            password = 'password'
+            role = 'member'
+        } | ConvertTo-Json
+        return (Invoke-RestMethod -Method Post -Uri "$ApiUrl/v1/auth/register" -ContentType 'application/json' -Body ([Text.Encoding]::UTF8.GetBytes($body))).data
+    }
+
+    function New-ReviewBookingFixture {
+        param([ValidateSet('completed', 'confirmed')][string]$Status)
+        $publicId = "BK-REVIEW-$([Guid]::NewGuid().ToString('N').Substring(0, 10).ToUpperInvariant())"
+        $sql = @"
+INSERT INTO bookings
+    (public_id, member_user_id, trainer_profile_id, starts_at, ends_at, location_text, member_note, quoted_price, status, payment_status, is_demo)
+VALUES
+    ('$publicId', 1, 1, DATE_SUB(UTC_TIMESTAMP(), INTERVAL 2 HOUR), DATE_SUB(UTC_TIMESTAMP(), INTERVAL 1 HOUR),
+     'review smoke fixture', 'review smoke $Status fixture', 1200, '$Status', 'approved', 0);
+"@
+        $mysqlPath = 'C:\xampp\mysql\bin\mysql.exe'
+        $output = $sql | & $mysqlPath --connect-timeout=5 --default-character-set=utf8mb4 -u root fitconnect 2>&1
+        Assert-True ($LASTEXITCODE -eq 0) "Could not create review fixture: $output"
+        return $publicId
+    }
+
+    $outsider = Get-OrCreate-ReviewOutsider
+    $outsiderHeaders = Auth-Headers $outsider.token
+    $completedBookingId = New-ReviewBookingFixture 'completed'
+    $confirmedBookingId = New-ReviewBookingFixture 'confirmed'
+
+    Expect-Status 422 {
+        Invoke-RestMethod -Method Post -Uri "$ApiUrl/v1/reviews" -Headers $memberHeaders -ContentType 'application/json' -Body (@{
+            bookingId = $completedBookingId
+            rating = 5
+            comment = '   '
+        } | ConvertTo-Json)
+    }
+    Expect-Status 422 {
+        Invoke-RestMethod -Method Post -Uri "$ApiUrl/v1/reviews" -Headers $memberHeaders -ContentType 'application/json' -Body (@{
+            bookingId = $completedBookingId
+            rating = 6
+            comment = 'คะแนนเกินช่วงที่กำหนด'
+        } | ConvertTo-Json)
+    }
+    Expect-Status 422 {
+        Invoke-RestMethod -Method Post -Uri "$ApiUrl/v1/reviews" -Headers $memberHeaders -ContentType 'application/json' -Body (@{
+            bookingId = $completedBookingId
+            rating = @(5)
+            comment = 'คะแนนต้องไม่เป็นอาร์เรย์'
+        } | ConvertTo-Json)
+    }
+    Expect-Status 422 {
+        Invoke-RestMethod -Method Post -Uri "$ApiUrl/v1/reviews" -Headers $memberHeaders -ContentType 'application/json' -Body (@{
+            bookingId = $completedBookingId
+            rating = 5
+            comment = @('ความคิดเห็น', 'หลายค่า')
+        } | ConvertTo-Json)
+    }
+    Expect-Status 422 {
+        Invoke-RestMethod -Method Post -Uri "$ApiUrl/v1/reviews" -Headers $memberHeaders -ContentType 'application/json' -Body (@{
+            bookingId = @($completedBookingId)
+            rating = 5
+            comment = 'รหัสการจองต้องไม่เป็นอาร์เรย์'
+        } | ConvertTo-Json)
+    }
+
+    $trimmedComment = 'บริการดีและตรงต่อเวลา'
+    $createdReview = (
+        Invoke-RestMethod -Method Post -Uri "$ApiUrl/v1/reviews" -Headers $memberHeaders -ContentType 'application/json' -Body ([Text.Encoding]::UTF8.GetBytes((@{
+            bookingId = $completedBookingId
+            rating = '5'
+            comment = "  $trimmedComment  "
+        } | ConvertTo-Json)))
+    ).data
+    Assert-True ($createdReview.bookingId -eq $completedBookingId) 'Created review must return its booking ID'
+    Assert-True ($createdReview.rating -is [int] -and $createdReview.rating -eq 5) 'Created review must return a normalized numeric rating'
+    Assert-True ($createdReview.comment -eq $trimmedComment) 'Created review must return the trimmed comment'
+    Assert-True ($createdReview.status -eq 'published') 'Created review must be published'
+
+    Expect-ApiError 409 'REVIEW_EXISTS' {
+        Invoke-RestMethod -Method Post -Uri "$ApiUrl/v1/reviews" -Headers $memberHeaders -ContentType 'application/json' -Body (@{
+            bookingId = $completedBookingId
+            rating = 4
+            comment = 'ไม่ควรรีวิวซ้ำได้'
+        } | ConvertTo-Json)
+    }
+    Expect-ApiError 404 'BOOKING_NOT_FOUND' {
+        Invoke-RestMethod -Method Post -Uri "$ApiUrl/v1/reviews" -Headers $outsiderHeaders -ContentType 'application/json' -Body (@{
+            bookingId = $completedBookingId
+            rating = 5
+            comment = 'ไม่ใช่เจ้าของการจอง'
+        } | ConvertTo-Json)
+    }
+    Expect-ApiError 409 'REVIEW_NOT_READY' {
+        Invoke-RestMethod -Method Post -Uri "$ApiUrl/v1/reviews" -Headers $memberHeaders -ContentType 'application/json' -Body (@{
+            bookingId = $confirmedBookingId
+            rating = 5
+            comment = 'ยังฝึกไม่เสร็จ'
+        } | ConvertTo-Json)
+    }
+
+    $memberBookings = (Invoke-RestMethod -Method Get -Uri "$ApiUrl/v1/bookings" -Headers $memberHeaders).data
+    $reviewedBooking = $memberBookings | Where-Object { $_.id -eq $completedBookingId } | Select-Object -First 1
+    Assert-True ($null -ne $reviewedBooking) 'Reviewed booking must remain in the member booking aggregate'
+    Assert-True ($reviewedBooking.review.rating -eq 5) 'Booking aggregate must expose the persisted review rating'
+    Assert-True ($reviewedBooking.review.comment -eq $trimmedComment) 'Booking aggregate must expose the persisted trimmed comment'
+    Assert-True ($reviewedBooking.review.status -eq 'published') 'Booking aggregate must expose the published review status'
+    Assert-True ($reviewedBooking.actions.canReview -eq $false) 'Member must not be able to review again after publication'
+
+    Write-Host "Review smoke fixtures: completed=$completedBookingId confirmed=$confirmedBookingId outsider=review.outsider@fitconnect.local"
 }
 
 Write-Host "PASS payment/chat/review API scenario: $Scenario"

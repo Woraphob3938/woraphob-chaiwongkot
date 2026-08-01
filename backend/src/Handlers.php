@@ -658,22 +658,53 @@ final class Handlers
     {
         $user = $this->auth->requireUser(['member']);
         $input = Http::body();
-        Http::requireFields($input, ['bookingId', 'rating', 'comment']);
-        $rating = (int) $input['rating'];
-        if ($rating < 1 || $rating > 5) {
-            throw new HttpException(422, 'คะแนนต้องอยู่ระหว่าง 1–5', 'VALIDATION_FAILED', ['rating' => 'เลือกคะแนน 1–5']);
+
+        $missingFields = [];
+        foreach (['bookingId', 'rating', 'comment'] as $field) {
+            if (!array_key_exists($field, $input)) {
+                $missingFields[$field] = 'จำเป็นต้องระบุข้อมูล';
+            }
         }
+        if ($missingFields !== []) {
+            throw new HttpException(422, 'กรอกข้อมูลที่จำเป็นให้ครบ', 'VALIDATION_FAILED', $missingFields);
+        }
+
+        if (!is_string($input['bookingId'])) {
+            throw new HttpException(422, 'รหัสการจองไม่ถูกต้อง', 'VALIDATION_FAILED', ['bookingId' => 'ต้องเป็นรหัสการจอง']);
+        }
+        $bookingId = trim($input['bookingId']);
+        if ($bookingId === '') {
+            throw new HttpException(422, 'รหัสการจองไม่ถูกต้อง', 'VALIDATION_FAILED', ['bookingId' => 'ต้องเป็นรหัสการจอง']);
+        }
+
+        $rawRating = $input['rating'];
+        if (is_int($rawRating)) {
+            $rating = $rawRating;
+        } elseif (is_string($rawRating) && preg_match('/^[1-5]$/', $rawRating) === 1) {
+            $rating = (int) $rawRating;
+        } else {
+            throw new HttpException(422, 'คะแนนต้องอยู่ระหว่าง 1 ถึง 5', 'VALIDATION_FAILED', ['rating' => 'เลือกคะแนน 1 ถึง 5']);
+        }
+
+        if (!is_string($input['comment'])) {
+            throw new HttpException(422, 'รูปแบบความคิดเห็นไม่ถูกต้อง', 'VALIDATION_FAILED', ['comment' => 'ต้องเป็นข้อความ']);
+        }
+        $comment = trim($input['comment']);
+
         $booking = $this->database->fetchOne(
-            'SELECT id, trainer_profile_id FROM bookings WHERE public_id = ? AND member_user_id = ? AND status = "completed"',
-            [(string) $input['bookingId'], $user['id']]
+            'SELECT id, trainer_profile_id, status FROM bookings WHERE public_id = ? AND member_user_id = ?',
+            [$bookingId, $user['id']]
         );
         if (!$booking) {
-            throw new HttpException(409, 'รีวิวได้หลังการฝึกเสร็จเท่านั้น', 'REVIEW_NOT_READY');
+            throw new HttpException(404, 'ไม่พบการจองนี้', 'BOOKING_NOT_FOUND');
         }
+
+        WorkflowRules::assertReviewSubmission((string) $booking['status'], $rating, $comment);
+
         try {
             $this->database->execute(
                 'INSERT INTO reviews (booking_id, member_user_id, trainer_profile_id, rating, comment, status) VALUES (?, ?, ?, ?, ?, "published")',
-                [$booking['id'], $user['id'], $booking['trainer_profile_id'], $rating, trim((string) $input['comment'])]
+                [$booking['id'], $user['id'], $booking['trainer_profile_id'], $rating, $comment]
             );
         } catch (PDOException $error) {
             if ((string) $error->getCode() === '23000') {
@@ -681,7 +712,12 @@ final class Handlers
             }
             throw $error;
         }
-        Http::json(['bookingId' => $input['bookingId'], 'status' => 'published'], 201);
+        Http::json([
+            'bookingId' => $bookingId,
+            'rating' => $rating,
+            'comment' => $comment,
+            'status' => 'published',
+        ], 201);
     }
 
     public function decideTrainer(string $trainerId, string $decision): never
