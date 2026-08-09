@@ -232,13 +232,12 @@ export function SiteHeader() {
           <form action="/trainers" method="get" className="dialog-search-form" onSubmit={submitSearch}>
             <Search aria-hidden="true" size={21} />
             <label className="sr-only" htmlFor="global-search">คำค้นหา</label>
-            <input id="global-search" name="q" autoFocus placeholder="เช่น เวทเทรนนิง, เชียงใหม่" />
+            <input id="global-search" name="q" autoFocus placeholder="เช่น เวทเทรนนิง หรือชื่อเทรนเนอร์" />
             <button className="button button--accent" type="submit">ค้นหา</button>
           </form>
           <div className="search-suggestions" aria-label="คำค้นหาแนะนำ">
               <span>ลองค้นหา</span>
               <Link href="/trainers?type=strength">เวทเทรนนิง</Link>
-              <Link href="/trainers">ทุกจังหวัด</Link>
               <Link href="/trainers?type=mobility">การเคลื่อนไหว</Link>
           </div>
         </div>

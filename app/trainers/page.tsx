@@ -2,7 +2,7 @@ import Link from "next/link";
 import { TrainerDiscovery } from "@/components/trainer-discovery";
 import { getLiveTrainerCatalog } from "@/lib/api";
 
-type Props = { searchParams: Promise<{ q?: string; province?: string; type?: string }> };
+type Props = { searchParams: Promise<{ q?: string; type?: string }> };
 
 export const metadata = { title: "ค้นหาเทรนเนอร์" };
 
@@ -21,11 +21,9 @@ export default async function TrainersPage({ searchParams }: Props) {
       <main className="page-shell home-shell">
         <TrainerDiscovery
           initialTrainers={catalog.trainers}
-          provinces={catalog.provinces}
           trainingTypes={catalog.trainingTypes}
           isDemo={catalog.trainers.some((trainer) => trainer.demo)}
           initialQuery={params.q}
-          initialProvince={params.province}
           initialType={params.type}
         />
       </main>

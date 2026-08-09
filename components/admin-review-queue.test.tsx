@@ -19,7 +19,6 @@ const trainerQueue: AdminQueue = {
     id: 9,
     slug: "trainer-nine",
     displayName: "ผู้สมัครทดสอบ",
-    province: "เชียงใหม่",
     submittedAt: "2026-08-01T00:00:00.000Z",
     certificates: [{ id: 12, name: "ใบรับรอง", issuer: "สถาบันทดสอบ", submittedAt: "2026-08-01T00:00:00.000Z", fileUrl: "/v1/admin/files/certificate/12" }],
   }],

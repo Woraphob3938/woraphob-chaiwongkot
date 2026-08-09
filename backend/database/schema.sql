@@ -7,14 +7,6 @@ CREATE DATABASE IF NOT EXISTS fitconnect
 
 USE fitconnect;
 
-CREATE TABLE IF NOT EXISTS provinces (
-  id SMALLINT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
-  name_th VARCHAR(100) NOT NULL,
-  region VARCHAR(50) NOT NULL,
-  active TINYINT(1) NOT NULL DEFAULT 1,
-  UNIQUE KEY uq_provinces_name (name_th)
-) ENGINE=InnoDB;
-
 CREATE TABLE IF NOT EXISTS users (
   id BIGINT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
   email VARCHAR(190) NOT NULL,
@@ -32,27 +24,23 @@ CREATE TABLE IF NOT EXISTS users (
 CREATE TABLE IF NOT EXISTS member_profiles (
   user_id BIGINT UNSIGNED PRIMARY KEY,
   phone VARCHAR(30) NULL,
-  home_province_id SMALLINT UNSIGNED NULL,
   goals TEXT NULL,
   medical_note TEXT NULL,
   created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
   updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
-  CONSTRAINT fk_member_user FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE,
-  CONSTRAINT fk_member_province FOREIGN KEY (home_province_id) REFERENCES provinces(id) ON DELETE SET NULL
+  CONSTRAINT fk_member_user FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
 ) ENGINE=InnoDB;
 
 CREATE TABLE IF NOT EXISTS gyms (
   id BIGINT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
   name VARCHAR(190) NOT NULL,
-  province_id SMALLINT UNSIGNED NOT NULL,
   address_text VARCHAR(500) NULL,
   latitude DECIMAL(10, 7) NULL,
   longitude DECIMAL(10, 7) NULL,
   status ENUM('active', 'inactive') NOT NULL DEFAULT 'active',
   created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
   updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
-  KEY idx_gyms_province (province_id, status),
-  CONSTRAINT fk_gyms_province FOREIGN KEY (province_id) REFERENCES provinces(id)
+  KEY idx_gyms_status (status)
 ) ENGINE=InnoDB;
 
 CREATE TABLE IF NOT EXISTS trainer_profiles (
@@ -64,7 +52,6 @@ CREATE TABLE IF NOT EXISTS trainer_profiles (
   headline VARCHAR(220) NULL,
   bio TEXT NULL,
   years_experience SMALLINT UNSIGNED NOT NULL DEFAULT 0,
-  primary_province_id SMALLINT UNSIGNED NOT NULL,
   service_mode ENUM('freelance', 'gym', 'both') NOT NULL DEFAULT 'freelance',
   gym_id BIGINT UNSIGNED NULL,
   gym_name VARCHAR(190) NULL,
@@ -79,21 +66,10 @@ CREATE TABLE IF NOT EXISTS trainer_profiles (
   updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
   UNIQUE KEY uq_trainer_user (user_id),
   UNIQUE KEY uq_trainer_slug (slug),
-  KEY idx_trainer_discovery (primary_province_id, approval_status),
+  KEY idx_trainer_discovery (approval_status, updated_at),
   CONSTRAINT fk_trainer_user FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE,
-  CONSTRAINT fk_trainer_province FOREIGN KEY (primary_province_id) REFERENCES provinces(id),
   CONSTRAINT fk_trainer_gym FOREIGN KEY (gym_id) REFERENCES gyms(id) ON DELETE SET NULL,
   CONSTRAINT fk_trainer_reviewer FOREIGN KEY (reviewed_by_user_id) REFERENCES users(id) ON DELETE SET NULL
-) ENGINE=InnoDB;
-
-CREATE TABLE IF NOT EXISTS trainer_service_areas (
-  trainer_profile_id BIGINT UNSIGNED NOT NULL,
-  province_id SMALLINT UNSIGNED NOT NULL,
-  area_label VARCHAR(190) NULL,
-  PRIMARY KEY (trainer_profile_id, province_id),
-  KEY idx_service_area_province (province_id),
-  CONSTRAINT fk_area_trainer FOREIGN KEY (trainer_profile_id) REFERENCES trainer_profiles(id) ON DELETE CASCADE,
-  CONSTRAINT fk_area_province FOREIGN KEY (province_id) REFERENCES provinces(id)
 ) ENGINE=InnoDB;
 
 CREATE TABLE IF NOT EXISTS training_types (

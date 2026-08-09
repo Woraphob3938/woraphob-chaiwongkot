@@ -1,15 +1,4 @@
-import type { Booking, Province, Trainer, TrainingType } from "@/lib/types";
-
-export const provinces: Province[] = [
-  { id: 1, nameTh: "สกลนคร", region: "ตะวันออกเฉียงเหนือ" },
-  { id: 2, nameTh: "นครพนม", region: "ตะวันออกเฉียงเหนือ" },
-  { id: 3, nameTh: "อุดรธานี", region: "ตะวันออกเฉียงเหนือ" },
-  { id: 4, nameTh: "ขอนแก่น", region: "ตะวันออกเฉียงเหนือ" },
-  { id: 5, nameTh: "กรุงเทพมหานคร", region: "กลาง" },
-  { id: 6, nameTh: "เชียงใหม่", region: "เหนือ" },
-  { id: 7, nameTh: "ชลบุรี", region: "ตะวันออก" },
-  { id: 8, nameTh: "ภูเก็ต", region: "ใต้" },
-];
+import type { Booking, Trainer, TrainingType } from "@/lib/types";
 
 export const trainingTypes: TrainingType[] = [
   { id: 1, slug: "strength", nameTh: "เวทเทรนนิง" },
@@ -39,8 +28,6 @@ export const trainers: Trainer[] = [
     headline: "วางรากฐานความแข็งแรงอย่างเป็นระบบ",
     bio: "โปรไฟล์สาธิตสำหรับทดสอบขั้นตอนค้นหา ตรวจคุณสมบัติ และจองเวลาในระบบ FitConnect",
     yearsExperience: 6,
-    province: provinces[0],
-    serviceAreas: ["อำเภอเมืองสกลนคร", "เดินทางนอกสถานที่"],
     trainingTypes: [trainingTypes[0], trainingTypes[3]],
     serviceMode: "both",
     gymName: "สถานที่ฝึกสาธิต",
@@ -62,8 +49,6 @@ export const trainers: Trainer[] = [
     headline: "ขยับดีขึ้นก่อนเพิ่มความหนัก",
     bio: "โปรไฟล์สาธิตที่เน้นการเคลื่อนไหวและการฟื้นฟู เพื่อสาธิตการเปรียบเทียบความเชี่ยวชาญ",
     yearsExperience: 4,
-    province: provinces[0],
-    serviceAreas: ["อำเภอเมืองสกลนคร", "สวนสาธารณะ"],
     trainingTypes: [trainingTypes[2], trainingTypes[5]],
     serviceMode: "freelance",
     priceFrom: 550,
@@ -81,10 +66,8 @@ export const trainers: Trainer[] = [
     slug: "demo-trainer-c",
     displayName: "เทรนเนอร์สาธิต ค.",
     headline: "แผนวิ่งและความฟิตที่เข้ากับชีวิตจริง",
-    bio: "โปรไฟล์สาธิตสำหรับการค้นหาเทรนเนอร์ตามจังหวัด ประเภทการฝึก และช่วงเวลาว่าง",
+    bio: "โปรไฟล์สาธิตสำหรับการค้นหาเทรนเนอร์ตามประเภทการฝึกและช่วงเวลาว่าง",
     yearsExperience: 5,
-    province: provinces[1],
-    serviceAreas: ["อำเภอเมืองนครพนม", "ริมโขง"],
     trainingTypes: [trainingTypes[1], trainingTypes[4]],
     serviceMode: "freelance",
     reviewCount: 0,

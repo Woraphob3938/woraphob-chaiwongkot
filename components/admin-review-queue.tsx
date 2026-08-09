@@ -265,7 +265,7 @@ export function AdminReviewQueue() {
               <div className="review-applicant">
                 <span>TR-{String(trainer.id).padStart(6, "0")}</span>
                 <strong>{trainer.displayName}</strong>
-                <small>{trainer.province} · ส่งเมื่อ {formatDateTime(trainer.submittedAt)}</small>
+                <small>ส่งเมื่อ {formatDateTime(trainer.submittedAt)}</small>
                 <ul className="certificate-list" aria-label={`เอกสารของ${trainer.displayName}`}>
                   {trainer.certificates.map((certificate) => (
                     <li key={certificate.id}>

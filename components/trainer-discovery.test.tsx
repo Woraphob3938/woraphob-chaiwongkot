@@ -1,13 +1,12 @@
 import { fireEvent, render, screen, within } from "@testing-library/react";
 import { describe, expect, it } from "vitest";
 import { TrainerDiscovery } from "@/components/trainer-discovery";
-import { provinces, trainers, trainingTypes } from "@/lib/demo-data";
+import { trainers, trainingTypes } from "@/lib/demo-data";
 
 function renderDiscovery() {
   return render(
     <TrainerDiscovery
       initialTrainers={trainers}
-      provinces={provinces}
       trainingTypes={trainingTypes}
       isDemo={false}
     />,
@@ -22,7 +21,7 @@ describe("TrainerDiscovery", () => {
     const filters = screen.getByText("ตัวกรองเพิ่มเติม").closest("details");
     expect(filters).not.toBeNull();
     expect(filters).not.toHaveAttribute("open");
-    expect(within(filters as HTMLElement).getByLabelText("จังหวัด")).toBeInTheDocument();
+    expect(within(filters as HTMLElement).queryByLabelText("จังหวัด")).not.toBeInTheDocument();
     expect(within(filters as HTMLElement).getByLabelText("ประเภทการฝึก")).toBeInTheDocument();
     expect(within(filters as HTMLElement).getByLabelText("แสดงเฉพาะโปรไฟล์ที่ตรวจแล้ว")).toBeInTheDocument();
   });
@@ -51,7 +50,7 @@ describe("TrainerDiscovery", () => {
   it("passes the selected trainer and slot to the booking strip, then clears the slot when trainer changes", () => {
     renderDiscovery();
 
-    fireEvent.click(screen.getByRole("button", { name: /เทรนเนอร์สาธิต ก\..*สกลนคร/ }));
+    fireEvent.click(screen.getByRole("button", { name: /เทรนเนอร์สาธิต ก\./ }));
     const schedule = screen.getByRole("region", { name: `ตารางว่างของ ${trainers[0].displayName}` });
     fireEvent.click(within(schedule).getAllByRole("button")[0]);
 
@@ -61,7 +60,7 @@ describe("TrainerDiscovery", () => {
       `/booking?trainer=${trainers[0].slug}&slot=${trainers[0].slots[0].id}`,
     );
 
-    fireEvent.click(screen.getByRole("button", { name: /เทรนเนอร์สาธิต ข\..*สกลนคร/ }));
+    fireEvent.click(screen.getByRole("button", { name: /เทรนเนอร์สาธิต ข\./ }));
     expect(screen.queryByRole("link", { name: "ส่งคำขอจอง" })).not.toBeInTheDocument();
     expect(screen.getByRole("button", { name: "เลือกเวลา" })).toBeDisabled();
   });

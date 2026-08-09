@@ -20,8 +20,6 @@ const liveTrainer = {
   headline: "ทดสอบ",
   bio: "",
   yearsExperience: 1,
-  province: { id: 57, nameTh: "สกลนคร", region: "ตะวันออกเฉียงเหนือ" },
-  serviceAreas: [],
   trainingTypes: [],
   serviceMode: "freelance" as const,
   priceFrom: 500,

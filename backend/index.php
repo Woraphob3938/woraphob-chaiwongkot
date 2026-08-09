@@ -27,7 +27,6 @@ try {
     $path = '/' . trim($path, '/');
 
     if ($method === 'GET' && $path === '/v1/health') $handlers->health();
-    if ($method === 'GET' && $path === '/v1/provinces') $handlers->provinces();
     if ($method === 'GET' && $path === '/v1/training-types') $handlers->trainingTypes();
     if ($method === 'GET' && $path === '/v1/trainers') $handlers->trainers();
     if ($method === 'POST' && $path === '/v1/auth/register') $handlers->register();

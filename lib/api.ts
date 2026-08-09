@@ -1,5 +1,5 @@
-import { provinces, trainers, trainingTypes } from "@/lib/demo-data";
-import type { ApiEnvelope, ApiErrorEnvelope, Province, Trainer, TrainingType } from "@/lib/types";
+import { trainers, trainingTypes } from "@/lib/demo-data";
+import type { ApiEnvelope, ApiErrorEnvelope, Trainer, TrainingType } from "@/lib/types";
 
 export const API_URL = process.env.NEXT_PUBLIC_FITCONNECT_API_URL ?? "http://localhost/fitconnect-api";
 
@@ -99,31 +99,25 @@ export async function getTrainer(slug: string): Promise<{ data: Trainer | null; 
 }
 
 export async function getReferenceData(): Promise<{
-  provinces: Province[];
   trainingTypes: TrainingType[];
   source: "api" | "demo";
 }> {
   try {
-    const [liveProvinces, liveTrainingTypes] = await Promise.all([
-      apiRequest<Province[]>("/v1/provinces"),
-      apiRequest<TrainingType[]>("/v1/training-types"),
-    ]);
-    return { provinces: liveProvinces, trainingTypes: liveTrainingTypes, source: "api" };
+    const liveTrainingTypes = await apiRequest<TrainingType[]>("/v1/training-types");
+    return { trainingTypes: liveTrainingTypes, source: "api" };
   } catch {
-    return { provinces, trainingTypes, source: "demo" };
+    return { trainingTypes, source: "demo" };
   }
 }
 
 export async function getLiveTrainerCatalog(): Promise<{
   trainers: Trainer[];
-  provinces: Province[];
   trainingTypes: TrainingType[];
 }> {
   const request: RequestInit = { cache: "no-store" };
-  const [liveTrainers, liveProvinces, liveTrainingTypes] = await Promise.all([
+  const [liveTrainers, liveTrainingTypes] = await Promise.all([
     apiRequest<Trainer[]>("/v1/trainers", request),
-    apiRequest<Province[]>("/v1/provinces", request),
     apiRequest<TrainingType[]>("/v1/training-types", request),
   ]);
-  return { trainers: liveTrainers, provinces: liveProvinces, trainingTypes: liveTrainingTypes };
+  return { trainers: liveTrainers, trainingTypes: liveTrainingTypes };
 }

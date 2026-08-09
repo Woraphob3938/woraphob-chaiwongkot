@@ -1,4 +1,4 @@
-import { Award, Building2, MapPin } from "lucide-react";
+import { Award, Building2 } from "lucide-react";
 import { StatusBadge } from "@/components/status-badge";
 import type { Trainer } from "@/lib/types";
 
@@ -31,10 +31,6 @@ export function CredentialCard({ trainer }: { trainer: Trainer }) {
       </div>
 
       <dl className="credential-specs">
-        <div>
-          <dt><MapPin aria-hidden="true" size={17} /> พื้นที่บริการ</dt>
-          <dd>{trainer.province.nameTh}</dd>
-        </div>
         <div>
           <dt><Award aria-hidden="true" size={17} /> ประสบการณ์</dt>
           <dd>{trainer.yearsExperience} ปี</dd>

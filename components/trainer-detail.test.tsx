@@ -28,6 +28,7 @@ describe("TrainerDetail", () => {
     expect(within(summary).getByRole("heading", { name: trainer.displayName })).toBeInTheDocument();
     expect(within(summary).getByText("ตรวจคุณสมบัติแล้ว")).toBeInTheDocument();
     expect(within(summary).getByText(/เริ่มต้น.*650/)).toBeInTheDocument();
+    expect(within(summary).queryByText(/สกลนคร|นครพนม|พื้นที่ให้บริการ/)).not.toBeInTheDocument();
     expect(screen.getAllByRole("button", { name: "เลือกเวลา" })).toHaveLength(1);
     expect(credentials).not.toHaveAttribute("open");
     expect(schedule).not.toHaveAttribute("open");

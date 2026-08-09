@@ -58,12 +58,6 @@ export type ChatMessage = {
   sender: { id: number; displayName: string };
 };
 
-export type Province = {
-  id: number;
-  nameTh: string;
-  region: string;
-};
-
 export type TrainingType = {
   id: number;
   slug: string;
@@ -117,7 +111,6 @@ export type AdminQueue = {
     id: number;
     slug: string;
     displayName: string;
-    province: string;
     submittedAt: string;
     certificates: AdminCertificate[];
     demo?: boolean;
@@ -146,8 +139,6 @@ export type Trainer = {
   headline: string;
   bio: string;
   yearsExperience: number;
-  province: Province;
-  serviceAreas: string[];
   trainingTypes: TrainingType[];
   serviceMode: "freelance" | "gym" | "both";
   gymName?: string;

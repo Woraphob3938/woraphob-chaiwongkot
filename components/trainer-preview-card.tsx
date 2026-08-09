@@ -1,6 +1,6 @@
 import Image from "next/image";
 import Link from "next/link";
-import { BadgeCheck, MapPin } from "lucide-react";
+import { BadgeCheck } from "lucide-react";
 import { formatMoney, initials } from "@/lib/format";
 import type { Trainer } from "@/lib/types";
 
@@ -41,7 +41,6 @@ export function TrainerPreviewCard({ trainer, priority = false }: TrainerPreview
           <h3>{trainer.displayName}</h3>
         </div>
         <div className="trainer-preview-card__facts">
-          <span><MapPin aria-hidden="true" size={16} />{trainer.province.nameTh}</span>
           {trainer.verification === "verified" && <span><BadgeCheck aria-hidden="true" size={16} />ตรวจคุณสมบัติแล้ว</span>}
         </div>
         <strong className="trainer-preview-card__price">{price}</strong>

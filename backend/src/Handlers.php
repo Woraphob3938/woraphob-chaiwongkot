@@ -23,16 +23,6 @@ final class Handlers
         ]);
     }
 
-    public function provinces(): never
-    {
-        $rows = $this->database->fetchAll('SELECT id, name_th, region FROM provinces WHERE active = 1 ORDER BY name_th');
-        Http::json(array_map(fn(array $row): array => [
-            'id' => (int) $row['id'],
-            'nameTh' => $row['name_th'],
-            'region' => $row['region'],
-        ], $rows));
-    }
-
     public function trainingTypes(): never
     {
         $rows = $this->database->fetchAll('SELECT id, slug, name_th FROM training_types WHERE active = 1 ORDER BY sort_order, name_th');
@@ -48,11 +38,10 @@ final class Handlers
         $rows = $this->database->fetchAll(
             'SELECT tp.id, tp.slug, tp.headline, tp.bio, tp.years_experience, tp.service_mode,
                     tp.gym_name, tp.price_from, tp.approval_status, tp.image_path, tp.is_demo,
-                    u.display_name, p.id AS province_id, p.name_th AS province_name, p.region,
+                    u.display_name,
                     AVG(r.rating) AS rating, COUNT(r.id) AS review_count
              FROM trainer_profiles tp
              JOIN users u ON u.id = tp.user_id
-             JOIN provinces p ON p.id = tp.primary_province_id
              LEFT JOIN reviews r ON r.trainer_profile_id = tp.id AND r.status = "published"
              WHERE tp.approval_status = "approved" AND u.status = "active"
              GROUP BY tp.id
@@ -241,50 +230,51 @@ final class Handlers
     {
         $user = $this->auth->requireUser(['trainer']);
         $input = Http::body();
-        Http::requireFields($input, ['legalName', 'phone', 'provinceId', 'serviceMode', 'trainingTypeId', 'experience']);
+        Http::requireFields($input, ['legalName', 'phone', 'serviceMode', 'trainingTypeId', 'experience']);
         if (!in_array($input['serviceMode'], ['freelance', 'gym', 'both'], true)) {
             throw new HttpException(422, 'รูปแบบการทำงานไม่ถูกต้อง', 'VALIDATION_FAILED', ['serviceMode' => 'เลือกค่าที่กำหนด']);
         }
-        $certificate = $this->saveUpload('certificate', ['application/pdf'], 8 * 1024 * 1024, 'certificates');
-        $province = $this->database->fetchOne('SELECT id FROM provinces WHERE id = ? AND active = 1', [(int) $input['provinceId']]);
         $type = $this->database->fetchOne('SELECT id FROM training_types WHERE id = ? AND active = 1', [(int) $input['trainingTypeId']]);
-        if (!$province || !$type) {
-            throw new HttpException(422, 'จังหวัดหรือประเภทการฝึกไม่ถูกต้อง', 'VALIDATION_FAILED');
+        if (!$type) {
+            throw new HttpException(422, 'ประเภทการฝึกไม่ถูกต้อง', 'VALIDATION_FAILED');
         }
+        $certificate = $this->saveUpload('certificate', ['application/pdf'], 8 * 1024 * 1024, 'certificates');
 
-        $profileId = $this->database->transaction(function (PDO $pdo) use ($user, $input, $certificate): int {
-            $existing = $this->database->fetchOne('SELECT id FROM trainer_profiles WHERE user_id = ?', [$user['id']]);
-            if ($existing) {
-                $profileId = (int) $existing['id'];
-                $statement = $pdo->prepare(
-                    'UPDATE trainer_profiles SET legal_name = ?, phone = ?, primary_province_id = ?, service_mode = ?, bio = ?, approval_status = "pending", updated_at = UTC_TIMESTAMP() WHERE id = ?'
-                );
-                $statement->execute([
-                    trim((string) $input['legalName']), trim((string) $input['phone']), (int) $input['provinceId'],
-                    $input['serviceMode'], trim((string) $input['experience']), $profileId,
-                ]);
-            } else {
-                $statement = $pdo->prepare(
-                    'INSERT INTO trainer_profiles (user_id, slug, legal_name, phone, primary_province_id, service_mode, bio, approval_status)
-                     VALUES (?, ?, ?, ?, ?, ?, ?, "pending")'
-                );
-                $statement->execute([
-                    $user['id'], 'trainer-' . $user['id'], trim((string) $input['legalName']), trim((string) $input['phone']),
-                    (int) $input['provinceId'], $input['serviceMode'], trim((string) $input['experience']),
-                ]);
-                $profileId = (int) $pdo->lastInsertId();
-            }
+        try {
+            $profileId = $this->database->transaction(function (PDO $pdo) use ($user, $input, $certificate): int {
+                $existing = $this->database->fetchOne('SELECT id FROM trainer_profiles WHERE user_id = ?', [$user['id']]);
+                if ($existing) {
+                    $profileId = (int) $existing['id'];
+                    $pdo->prepare(
+                        'UPDATE trainer_profiles SET legal_name = ?, phone = ?, service_mode = ?, bio = ?, approval_status = "pending", updated_at = UTC_TIMESTAMP() WHERE id = ?'
+                    )->execute([
+                        trim((string) $input['legalName']), trim((string) $input['phone']),
+                        $input['serviceMode'], trim((string) $input['experience']), $profileId,
+                    ]);
+                } else {
+                    $pdo->prepare(
+                        'INSERT INTO trainer_profiles (user_id, slug, legal_name, phone, service_mode, bio, approval_status)
+                         VALUES (?, ?, ?, ?, ?, ?, "pending")'
+                    )->execute([
+                        $user['id'], 'trainer-' . $user['id'], trim((string) $input['legalName']),
+                        trim((string) $input['phone']), $input['serviceMode'], trim((string) $input['experience']),
+                    ]);
+                    $profileId = (int) $pdo->lastInsertId();
+                }
 
-            $pdo->prepare('INSERT IGNORE INTO trainer_service_areas (trainer_profile_id, province_id, area_label) VALUES (?, ?, NULL)')
-                ->execute([$profileId, (int) $input['provinceId']]);
-            $pdo->prepare('INSERT IGNORE INTO trainer_training_types (trainer_profile_id, training_type_id) VALUES (?, ?)')
-                ->execute([$profileId, (int) $input['trainingTypeId']]);
-            $pdo->prepare(
-                'INSERT INTO trainer_certificates (trainer_profile_id, name, issuer, file_path, mime_type, status)
-                 VALUES (?, "เอกสารใบรับรองจากผู้สมัคร", "รอระบุ", ?, ?, "pending")'
-            )->execute([$profileId, $certificate['path'], $certificate['mime']]);
-            return $profileId;
-        });
+                $pdo->prepare('DELETE FROM trainer_training_types WHERE trainer_profile_id = ?')->execute([$profileId]);
+                $pdo->prepare('INSERT INTO trainer_training_types (trainer_profile_id, training_type_id) VALUES (?, ?)')
+                    ->execute([$profileId, (int) $input['trainingTypeId']]);
+                $pdo->prepare(
+                    'INSERT INTO trainer_certificates (trainer_profile_id, name, issuer, file_path, mime_type, status)
+                     VALUES (?, "เอกสารใบรับรองจากผู้สมัคร", "รอระบุ", ?, ?, "pending")'
+                )->execute([$profileId, $certificate['path'], $certificate['mime']]);
+                return $profileId;
+            });
+        } catch (Throwable $error) {
+            $this->removeUpload($certificate['path']);
+            throw $error;
+        }
 
         Http::json(['trainerProfileId' => $profileId, 'status' => 'pending', 'message' => 'ส่งใบสมัครให้แอดมินตรวจแล้ว'], 201);
     }
@@ -785,10 +775,9 @@ final class Handlers
     {
         $this->auth->requireUser(['admin']);
         $trainers = $this->database->fetchAll(
-            'SELECT tp.id, tp.slug, tp.created_at, tp.is_demo, u.display_name, p.name_th AS province_name, COUNT(tc.id) AS certificate_count
+            'SELECT tp.id, tp.slug, tp.created_at, tp.is_demo, u.display_name, COUNT(tc.id) AS certificate_count
              FROM trainer_profiles tp
              JOIN users u ON u.id = tp.user_id
-             JOIN provinces p ON p.id = tp.primary_province_id
              LEFT JOIN trainer_certificates tc ON tc.trainer_profile_id = tp.id
              WHERE tp.approval_status = "pending"
              GROUP BY tp.id ORDER BY tp.created_at ASC LIMIT 100'
@@ -833,7 +822,6 @@ final class Handlers
                 'id' => (int) $row['id'],
                 'slug' => $row['slug'],
                 'displayName' => $row['display_name'],
-                'province' => $row['province_name'],
                 'certificateCount' => (int) $row['certificate_count'],
                 'certificates' => $certificatesByTrainer[(int) $row['id']] ?? [],
                 'submittedAt' => $this->iso($row['created_at']),
@@ -931,11 +919,10 @@ final class Handlers
         return $this->database->fetchOne(
             'SELECT tp.id, tp.slug, tp.headline, tp.bio, tp.years_experience, tp.service_mode,
                     tp.gym_name, tp.price_from, tp.approval_status, tp.image_path, tp.is_demo,
-                    u.display_name, p.id AS province_id, p.name_th AS province_name, p.region,
+                    u.display_name,
                     AVG(r.rating) AS rating, COUNT(r.id) AS review_count
              FROM trainer_profiles tp
              JOIN users u ON u.id = tp.user_id
-             JOIN provinces p ON p.id = tp.primary_province_id
              LEFT JOIN reviews r ON r.trainer_profile_id = tp.id AND r.status = "published"
              WHERE ' . $where . ' GROUP BY tp.id LIMIT 1',
             $params
@@ -945,11 +932,6 @@ final class Handlers
     private function trainerPayload(array $row): array
     {
         $profileId = (int) $row['id'];
-        $areas = $this->database->fetchAll(
-            'SELECT COALESCE(tsa.area_label, p.name_th) AS area_name
-             FROM trainer_service_areas tsa JOIN provinces p ON p.id = tsa.province_id WHERE tsa.trainer_profile_id = ? ORDER BY area_name',
-            [$profileId]
-        );
         $types = $this->database->fetchAll(
             'SELECT tt.id, tt.slug, tt.name_th FROM trainer_training_types ttt JOIN training_types tt ON tt.id = ttt.training_type_id
              WHERE ttt.trainer_profile_id = ? ORDER BY tt.sort_order, tt.name_th',
@@ -975,8 +957,6 @@ final class Handlers
             'headline' => $row['headline'] ?? 'เทรนเนอร์ FitConnect',
             'bio' => $row['bio'] ?? '',
             'yearsExperience' => (int) $row['years_experience'],
-            'province' => ['id' => (int) $row['province_id'], 'nameTh' => $row['province_name'], 'region' => $row['region']],
-            'serviceAreas' => array_column($areas, 'area_name'),
             'trainingTypes' => array_map(fn(array $type): array => ['id' => (int) $type['id'], 'slug' => $type['slug'], 'nameTh' => $type['name_th']], $types),
             'serviceMode' => $row['service_mode'],
             'gymName' => $row['gym_name'],

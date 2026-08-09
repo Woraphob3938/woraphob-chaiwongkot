@@ -3,7 +3,7 @@
 import Image from "next/image";
 import Link from "next/link";
 import { useMemo, useState } from "react";
-import { ArrowUpRight, BadgeCheck, MapPin, Search } from "lucide-react";
+import { ArrowUpRight, BadgeCheck, Search } from "lucide-react";
 import { AvailabilityPanel } from "@/components/availability-panel";
 import { BookingStrip } from "@/components/booking-strip";
 import { CredentialCard } from "@/components/credential-card";
@@ -13,29 +13,24 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { NativeSelect, NativeSelectOption } from "@/components/ui/native-select";
 import { formatMoney, initials } from "@/lib/format";
-import type { AvailabilitySlot, Province, Trainer, TrainingType } from "@/lib/types";
+import type { AvailabilitySlot, Trainer, TrainingType } from "@/lib/types";
 
 type Props = {
   initialTrainers: Trainer[];
-  provinces: Province[];
   trainingTypes: TrainingType[];
   isDemo: boolean;
   initialQuery?: string;
-  initialProvince?: string;
   initialType?: string;
 };
 
 export function TrainerDiscovery({
   initialTrainers,
-  provinces,
   trainingTypes,
   isDemo,
   initialQuery = "",
-  initialProvince = "",
   initialType = "",
 }: Props) {
   const [query, setQuery] = useState(initialQuery);
-  const [province, setProvince] = useState(initialProvince);
   const [trainingType, setTrainingType] = useState(initialType);
   const [verifiedOnly, setVerifiedOnly] = useState(false);
   const [selectedId, setSelectedId] = useState(initialTrainers[0]?.id ?? 0);
@@ -47,16 +42,14 @@ export function TrainerDiscovery({
       const haystack = [
         trainer.displayName,
         trainer.headline,
-        trainer.province.nameTh,
         ...trainer.trainingTypes.map((type) => type.nameTh),
       ].join(" ").toLocaleLowerCase("th-TH");
       const matchesQuery = !normalized || haystack.includes(normalized);
-      const matchesProvince = !province || trainer.province.nameTh === province;
       const matchesType = !trainingType || trainer.trainingTypes.some((type) => type.slug === trainingType || type.nameTh === trainingType);
       const matchesVerified = !verifiedOnly || trainer.verification === "verified";
-      return matchesQuery && matchesProvince && matchesType && matchesVerified;
+      return matchesQuery && matchesType && matchesVerified;
     });
-  }, [initialTrainers, province, query, trainingType, verifiedOnly]);
+  }, [initialTrainers, query, trainingType, verifiedOnly]);
 
   const selectedTrainer = filtered.find((trainer) => trainer.id === selectedId) ?? filtered[0] ?? null;
 
@@ -77,8 +70,7 @@ export function TrainerDiscovery({
           <h1>หาเทรนเนอร์ที่<br />พร้อมฝึกจริง</h1>
         </div>
         <p>
-          เปรียบเทียบคุณสมบัติ พื้นที่บริการ และช่วงว่างก่อนส่งคำขอจอง
-          เริ่มต้นในสกลนครและออกแบบข้อมูลให้ขยายได้ทั่วประเทศ
+          เปรียบเทียบความเชี่ยวชาญ รูปแบบการให้บริการ ราคา และช่วงว่างก่อนส่งคำขอจอง
         </p>
       </section>
 
@@ -108,20 +100,10 @@ export function TrainerDiscovery({
           </div>
           <DisclosureSection
             title="ตัวกรองเพิ่มเติม"
-            summary={province || trainingType || verifiedOnly ? "กำลังใช้ตัวกรอง" : "จังหวัด ประเภท และสถานะการตรวจ"}
+            summary={trainingType || verifiedOnly ? "กำลังใช้ตัวกรอง" : "ประเภทการฝึกและสถานะการตรวจ"}
             className="discovery-filter-disclosure"
           >
             <div className="guided-filter-grid">
-              <div className="field">
-                <Label htmlFor="province-filter">จังหวัด</Label>
-                <NativeSelect id="province-filter" value={province} onChange={(event) => {
-                  setProvince(event.target.value);
-                  setSelectedSlot(null);
-                }}>
-                  <NativeSelectOption value="">ทุกจังหวัด</NativeSelectOption>
-                  {provinces.map((item) => <NativeSelectOption key={item.id} value={item.nameTh}>{item.nameTh}</NativeSelectOption>)}
-                </NativeSelect>
-              </div>
               <div className="field">
                 <Label htmlFor="type-filter">ประเภทการฝึก</Label>
                 <NativeSelect id="type-filter" value={trainingType} onChange={(event) => {
@@ -160,7 +142,7 @@ export function TrainerDiscovery({
                   type="button"
                   key={trainer.id}
                   aria-pressed={active}
-                  aria-label={`เลือก ${trainer.displayName} จังหวัด${trainer.province.nameTh}${trainer.verification === "verified" ? " ตรวจคุณสมบัติแล้ว" : ""}`}
+                  aria-label={`เลือก ${trainer.displayName}${trainer.verification === "verified" ? " ตรวจคุณสมบัติแล้ว" : ""}`}
                   onClick={() => selectTrainer(trainer)}
                 >
                   <span className="result-avatar">
@@ -178,7 +160,7 @@ export function TrainerDiscovery({
                   </span>
                   <span className="result-copy">
                     <strong>{trainer.displayName}</strong>
-                    <span><MapPin aria-hidden="true" size={14} /> {trainer.province.nameTh}</span>
+                    <span>{trainer.trainingTypes[0]?.nameTh ?? "การฝึกส่วนบุคคล"}</span>
                   </span>
                   {trainer.verification === "verified" && <BadgeCheck className="verified-icon" aria-label="ตรวจคุณสมบัติแล้ว" size={19} />}
                 </button>
@@ -187,7 +169,7 @@ export function TrainerDiscovery({
             {filtered.length === 0 && (
               <div className="empty-state">
                 <strong>ยังไม่พบเทรนเนอร์ที่ตรงครบทุกข้อ</strong>
-                <p>ลองเปลี่ยนจังหวัด ประเภทการฝึก หรือยกเลิกตัวกรองคุณสมบัติ</p>
+                <p>ลองเปลี่ยนคำค้น ประเภทการฝึก หรือยกเลิกตัวกรองคุณสมบัติ</p>
               </div>
             )}
           </div>
@@ -218,7 +200,7 @@ export function TrainerDiscovery({
                   <h2>{selectedTrainer.displayName}</h2>
                   <p>{selectedTrainer.headline}</p>
                   <div className="selected-trainer-facts">
-                    <span><MapPin aria-hidden="true" size={15} /> {selectedTrainer.province.nameTh}</span>
+                    <span>{selectedTrainer.trainingTypes.map((type) => type.nameTh).join(" · ")}</span>
                     {selectedTrainer.verification === "verified" && <span><BadgeCheck aria-hidden="true" size={16} /> ตรวจคุณสมบัติแล้ว</span>}
                   </div>
                   <div className="evidence-actions">

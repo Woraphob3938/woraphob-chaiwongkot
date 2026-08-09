@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { API_URL, apiRequest, authHeaders, authenticatedRequest, openProtectedFile } from "@/lib/api";
+import { API_URL, apiRequest, authHeaders, authenticatedRequest, getLiveTrainerCatalog, getReferenceData, openProtectedFile } from "@/lib/api";
 import type { Booking } from "@/lib/types";
 
 const expandedBooking: Booking = {
@@ -146,5 +146,38 @@ describe("Booking contract", () => {
   it("keeps unknown legacy payment amounts nullable", () => {
     expect(expandedBooking.payment?.amount).toBeNull();
     expect(expandedBooking.actions.canReadChat).toBe(true);
+  });
+});
+
+describe("trainer catalog reference data", () => {
+  it("loads only training types for shared reference data", async () => {
+    const fetchMock = vi.fn().mockResolvedValue({
+      ok: true,
+      status: 200,
+      json: vi.fn().mockResolvedValue({ data: [] }),
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    await getReferenceData();
+
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    expect(fetchMock.mock.calls[0]?.[0]).toBe(`${API_URL}/v1/training-types`);
+  });
+
+  it("loads trainers and training types without requesting provinces", async () => {
+    const fetchMock = vi.fn().mockResolvedValue({
+      ok: true,
+      status: 200,
+      json: vi.fn().mockResolvedValue({ data: [] }),
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    await getLiveTrainerCatalog();
+
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+    expect(fetchMock.mock.calls.map((call) => call[0])).toEqual([
+      `${API_URL}/v1/trainers`,
+      `${API_URL}/v1/training-types`,
+    ]);
   });
 });

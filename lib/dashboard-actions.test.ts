@@ -14,7 +14,6 @@ const trainerQueueItem: AdminQueue["trainers"][number] = {
   id: 7,
   slug: "trainer-test",
   displayName: "เทรนเนอร์ทดสอบ",
-  province: "สกลนคร",
   submittedAt: "2026-08-09T09:00:00+07:00",
   certificates: [],
 };
