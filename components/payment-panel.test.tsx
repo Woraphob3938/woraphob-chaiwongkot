@@ -1,4 +1,4 @@
-import { act, fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { act, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { PaymentPanel } from "@/components/payment-panel";
 import { RoleDashboard } from "@/components/role-dashboard";
@@ -196,7 +196,7 @@ describe("member booking ledger", () => {
     localStorage.setItem("fitconnect_token", "member-token");
   });
 
-  it("renders every booking in API order and exposes chat only when allowed", async () => {
+  it("renders booking summaries in API order and exposes chat only when allowed", async () => {
     const first = bookingFixture({
       id: "BK-FIRST",
       actions: { ...bookingFixture().actions, canPay: false, canReadChat: true },
@@ -213,10 +213,9 @@ describe("member booking ledger", () => {
 
     render(<RoleDashboard role="member" />);
 
-    expect(await screen.findByRole("heading", { name: "คำขอ BK-FIRST" })).toBeInTheDocument();
-    expect(screen.getByRole("heading", { name: "คำขอ BK-SECOND" })).toBeInTheDocument();
-    const bookingHeadings = screen.getAllByRole("heading", { level: 2 }).map((heading) => heading.textContent);
-    expect(bookingHeadings).toEqual(["คำขอ BK-FIRST", "คำขอ BK-SECOND"]);
+    const summaries = await screen.findAllByTestId("booking-summary");
+    expect(summaries.map((summary) => summary.id)).toEqual(["booking-BK-FIRST", "booking-BK-SECOND"]);
+    summaries.forEach((summary) => fireEvent.click(within(summary).getByText("ดูรายละเอียด")));
     const chatLinks = screen.getAllByRole("link", { name: "เปิดการสนทนา" });
     expect(chatLinks).toHaveLength(1);
     expect(chatLinks[0]).toHaveAttribute("href", "/chat?booking=BK-FIRST");
