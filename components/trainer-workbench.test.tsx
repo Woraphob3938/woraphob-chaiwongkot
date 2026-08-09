@@ -91,6 +91,48 @@ describe("TrainerWorkbench", () => {
     expect(screen.getByRole("link", { name: "สมัครเป็นเทรนเนอร์" })).toHaveAttribute("href", "/trainer/apply");
   });
 
+  it("withholds advice and booking controls when workspace loading fails", async () => {
+    vi.mocked(authenticatedRequest)
+      .mockRejectedValueOnce(new Error("โหลดสถานะเทรนเนอร์ไม่ได้"))
+      .mockResolvedValueOnce([bookingFixture()])
+      .mockResolvedValueOnce(approvedWorkspace);
+
+    render(<TrainerWorkbench />);
+
+    const alert = await screen.findByRole("alert");
+    expect(alert).toHaveTextContent("โหลดสถานะเทรนเนอร์ไม่ได้");
+    expect(screen.queryByTestId("next-action")).not.toBeInTheDocument();
+    expect(screen.queryByRole("link", { name: /สมัครเป็นเทรนเนอร์|เพิ่มช่วงเวลาว่าง|ตรวจคำขอ/ })).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: /ตอบรับคำขอ|ปฏิเสธคำขอ|ฝึกเสร็จแล้ว/ })).not.toBeInTheDocument();
+
+    fireEvent.click(within(alert).getByRole("button", { name: "ลองใหม่" }));
+
+    expect(await screen.findByRole("heading", { name: "ตอบรับคำขอจอง" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "ตอบรับคำขอ BK-TEST" })).toBeInTheDocument();
+  });
+
+  it("withholds combined advice and booking controls when bookings loading fails", async () => {
+    vi.mocked(authenticatedRequest)
+      .mockResolvedValueOnce(approvedWorkspace)
+      .mockRejectedValueOnce(new Error("โหลดคำขอจองไม่ได้"))
+      .mockResolvedValueOnce([bookingFixture()]);
+
+    render(<TrainerWorkbench />);
+
+    expect(await screen.findByRole("heading", { name: "โปรไฟล์พร้อมเปิดตาราง" })).toBeInTheDocument();
+    const alert = screen.getByRole("alert");
+    expect(alert).toHaveTextContent("โหลดคำขอจองไม่ได้");
+    expect(screen.queryByTestId("next-action")).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: /ตอบรับคำขอ|ปฏิเสธคำขอ|ฝึกเสร็จแล้ว/ })).not.toBeInTheDocument();
+    expect(screen.queryByText("ไม่มีคำขอที่รอคำตอบ")).not.toBeInTheDocument();
+    expect(screen.queryByText("ยังไม่มีนัดที่ยืนยันแล้ว")).not.toBeInTheDocument();
+
+    fireEvent.click(within(alert).getByRole("button", { name: "ลองใหม่" }));
+
+    expect(await screen.findByRole("heading", { name: "ตอบรับคำขอจอง" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "ตอบรับคำขอ BK-TEST" })).toBeInTheDocument();
+  });
+
   it("keeps a pending application CTA on the visible approval status", async () => {
     vi.mocked(authenticatedRequest)
       .mockResolvedValueOnce(pendingWorkspace)

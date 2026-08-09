@@ -34,6 +34,8 @@ export function TrainerWorkbench() {
   const [quotedPrices, setQuotedPrices] = useState<Record<string, string>>({});
   const [busy, setBusy] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
+  const [workspaceReady, setWorkspaceReady] = useState(false);
+  const [bookingsReady, setBookingsReady] = useState(false);
   const [showAllPending, setShowAllPending] = useState(false);
   const actionNoticeRef = useRef<HTMLParagraphElement>(null);
   const completionErrorRef = useRef<HTMLDivElement>(null);
@@ -43,15 +45,23 @@ export function TrainerWorkbench() {
       const data = await authenticatedRequest<TrainerWorkspace>("/v1/trainer/me");
       setWorkspace(data);
       setWorkspaceError("");
+      setWorkspaceReady(true);
     } catch (error) {
       if (leaveExpiredSession(error)) return;
+      setWorkspaceReady(false);
       setWorkspaceError(error instanceof Error ? error.message : "โหลดข้อมูลเทรนเนอร์ไม่สำเร็จ");
     }
   }, []);
 
   const refreshBookings = useCallback(async () => {
-    const data = await authenticatedRequest<Booking[]>("/v1/bookings");
-    setBookings(data);
+    try {
+      const data = await authenticatedRequest<Booking[]>("/v1/bookings");
+      setBookings(data);
+      setBookingsReady(true);
+    } catch (error) {
+      setBookingsReady(false);
+      throw error;
+    }
   }, []);
 
   const loadBookings = useCallback(async () => {
@@ -73,14 +83,18 @@ export function TrainerWorkbench() {
       if (workspaceResult.status === "fulfilled") {
         setWorkspace(workspaceResult.value);
         setWorkspaceError("");
+        setWorkspaceReady(true);
       } else if (!leaveExpiredSession(workspaceResult.reason)) {
+        setWorkspaceReady(false);
         setWorkspaceError(workspaceResult.reason instanceof Error ? workspaceResult.reason.message : "โหลดข้อมูลเทรนเนอร์ไม่สำเร็จ");
       }
 
       if (bookingResult.status === "fulfilled") {
         setBookings(bookingResult.value);
         setBookingError("");
+        setBookingsReady(true);
       } else if (!leaveExpiredSession(bookingResult.reason)) {
+        setBookingsReady(false);
         setBookingError(bookingResult.reason instanceof Error ? bookingResult.reason.message : "โหลดคำขอจองไม่สำเร็จ");
       }
       setLoading(false);
@@ -107,10 +121,10 @@ export function TrainerWorkbench() {
     return value;
   }, [now]);
   const approved = workspace?.profile?.approvalStatus === "approved";
-  const pendingBookings = bookings.filter((booking) => booking.status === "pending_trainer");
-  const confirmedBookings = bookings.filter((booking) => booking.status === "confirmed");
-  const nextAction = getTrainerNextAction(workspace, bookings);
-  const actionBookingId = nextAction.href.match(/#booking-(.+)$/)?.[1];
+  const pendingBookings = bookingsReady ? bookings.filter((booking) => booking.status === "pending_trainer") : [];
+  const confirmedBookings = bookingsReady ? bookings.filter((booking) => booking.status === "confirmed") : [];
+  const nextAction = workspaceReady && bookingsReady ? getTrainerNextAction(workspace, bookings) : null;
+  const actionBookingId = nextAction?.href.match(/#booking-(.+)$/)?.[1];
   const prioritizedPendingBookings = actionBookingId
     ? [
         ...pendingBookings.filter((booking) => booking.id === actionBookingId),
@@ -316,6 +330,18 @@ export function TrainerWorkbench() {
     return <section className="queue-loading" aria-live="polite">กำลังเตรียมโต๊ะทำงานเทรนเนอร์…</section>;
   }
 
+  if (!workspaceReady) {
+    return (
+      <div className="trainer-workbench">
+        <section className="queue-retry" role="alert">
+          <h2>ยังแสดงโต๊ะทำงานเทรนเนอร์ไม่ได้</h2>
+          <p>{workspaceError || "โหลดสถานะเทรนเนอร์ไม่สำเร็จ"}</p>
+          <button type="button" onClick={() => void loadWorkspace()}>ลองใหม่</button>
+        </section>
+      </div>
+    );
+  }
+
   if (workspace?.profile === null) {
     return (
       <div className="trainer-workbench">
@@ -323,7 +349,8 @@ export function TrainerWorkbench() {
           <div><h2>ยังไม่มีโปรไฟล์เทรนเนอร์</h2><p>ส่งข้อมูลและใบรับรองก่อนเปิดตารางให้สมาชิกจอง</p></div>
           {workspaceError && <div className="workbench-error" role="alert"><span>{workspaceError}</span><button type="button" onClick={() => void loadWorkspace()}>ลองใหม่</button></div>}
         </section>
-        <NextActionCard action={nextAction} />
+        {bookingError && <div className="workbench-error" role="alert"><span>{bookingError}</span><button type="button" onClick={() => void loadBookings()}><RefreshCw aria-hidden="true" size={15} /> ลองใหม่</button></div>}
+        {nextAction && <NextActionCard action={nextAction} />}
       </div>
     );
   }
@@ -339,7 +366,7 @@ export function TrainerWorkbench() {
         {workspaceError && <div className="workbench-error" role="alert"><span>{workspaceError}</span><button type="button" onClick={() => void loadWorkspace()}>ลองใหม่</button></div>}
       </section>
 
-      <NextActionCard action={nextAction} />
+      {nextAction && <NextActionCard action={nextAction} />}
       {actionNotice && <p ref={actionNoticeRef} className="queue-notice workbench-success" role="status" tabIndex={-1}>{actionNotice}</p>}
 
       <section className="trainer-overview" id="schedule" aria-labelledby="trainer-overview-title">
@@ -347,13 +374,13 @@ export function TrainerWorkbench() {
         <dl>
           <div><dt>ช่วงเวลาวันนี้</dt><dd>{todaySlotCount}</dd></div>
           <div><dt>ช่วงเวลาข้างหน้า</dt><dd>{upcomingSlots.length}</dd></div>
-          <div><dt>นัดยืนยันแล้ว</dt><dd>{confirmedBookings.length}</dd></div>
+          <div><dt>นัดยืนยันแล้ว</dt><dd>{bookingsReady ? confirmedBookings.length : "—"}</dd></div>
         </dl>
         <p>{upcomingSlots[0] ? `ช่วงเวลาถัดไป ${formatDateTime(upcomingSlots[0].startsAt)}` : "ยังไม่มีช่วงเวลาข้างหน้า"}</p>
       </section>
 
       <section className="trainer-booking-list" aria-labelledby="trainer-requests-title">
-        <div className="section-line-heading"><div><h2 id="trainer-requests-title">คำขอที่รอคำตอบ</h2><p>เปิดรายละเอียดเฉพาะรายการที่ต้องตัดสินใจ</p></div><span className="queue-count">{String(pendingBookings.length).padStart(2, "0")}</span></div>
+        <div className="section-line-heading"><div><h2 id="trainer-requests-title">คำขอที่รอคำตอบ</h2><p>เปิดรายละเอียดเฉพาะรายการที่ต้องตัดสินใจ</p></div><span className="queue-count">{bookingsReady ? String(pendingBookings.length).padStart(2, "0") : "—"}</span></div>
         {bookingError && <div className="workbench-error" role="alert"><span>{bookingError}</span><button type="button" onClick={() => void loadBookings()}><RefreshCw aria-hidden="true" size={15} /> ลองใหม่</button></div>}
         {visiblePendingBookings.slice(0, 3).map(renderPendingBooking)}
         {pendingBookings.length > 3 && (
@@ -362,14 +389,14 @@ export function TrainerWorkbench() {
             {showAllPending && visiblePendingBookings.slice(3).map(renderPendingBooking)}
           </details>
         )}
-        {pendingBookings.length === 0 && <div className="empty-state"><strong>ไม่มีคำขอที่รอคำตอบ</strong><p>เมื่อสมาชิกส่งคำขอ รายละเอียดจะปรากฏที่นี่</p></div>}
+        {bookingsReady && pendingBookings.length === 0 && <div className="empty-state"><strong>ไม่มีคำขอที่รอคำตอบ</strong><p>เมื่อสมาชิกส่งคำขอ รายละเอียดจะปรากฏที่นี่</p></div>}
       </section>
 
       <details
         className="trainer-disclosure trainer-availability"
         id="availability"
-        key={nextAction.href === "/trainer#availability" ? "availability-action" : "availability-idle"}
-        open={nextAction.href === "/trainer#availability" || undefined}
+        key={nextAction?.href === "/trainer#availability" ? "availability-action" : "availability-idle"}
+        open={nextAction?.href === "/trainer#availability" || undefined}
       >
         <summary><span><CalendarPlus aria-hidden="true" size={20} /><strong>จัดการช่วงเวลาว่าง</strong></span><small>{slots.length} ช่วงเวลา</small></summary>
         <form className="availability-form" onSubmit={createSlot}>
@@ -402,7 +429,7 @@ export function TrainerWorkbench() {
 
       <section className="trainer-booking-list" aria-labelledby="trainer-confirmed-title">
         <details className="trainer-disclosure">
-          <summary><span><strong id="trainer-confirmed-title">นัดหมายที่ยืนยันแล้ว</strong><small>เปิดเพื่อจัดการและบันทึกผลหลังเวลานัด</small></span><span className="queue-count">{String(confirmedBookings.length).padStart(2, "0")}</span></summary>
+          <summary><span><strong id="trainer-confirmed-title">นัดหมายที่ยืนยันแล้ว</strong><small>เปิดเพื่อจัดการและบันทึกผลหลังเวลานัด</small></span><span className="queue-count">{bookingsReady ? String(confirmedBookings.length).padStart(2, "0") : "—"}</span></summary>
           {completionError && (
             <div ref={completionErrorRef} className="workbench-error" role="alert" tabIndex={-1}>
               <span>{completionError}</span>
@@ -412,7 +439,7 @@ export function TrainerWorkbench() {
             </div>
           )}
           {confirmedBookings.map(renderConfirmedBooking)}
-          {confirmedBookings.length === 0 && <div className="empty-state"><strong>ยังไม่มีนัดที่ยืนยันแล้ว</strong><p>นัดหมายจะย้ายมาที่นี่หลังผู้ดูแลอนุมัติการชำระเงิน</p></div>}
+          {bookingsReady && confirmedBookings.length === 0 && <div className="empty-state"><strong>ยังไม่มีนัดที่ยืนยันแล้ว</strong><p>นัดหมายจะย้ายมาที่นี่หลังผู้ดูแลอนุมัติการชำระเงิน</p></div>}
         </details>
       </section>
     </div>
