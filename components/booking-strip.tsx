@@ -10,20 +10,28 @@ type Props = {
 
 export function BookingStrip({ trainer, slot }: Props) {
   const ready = Boolean(trainer && slot && trainer.verification === "verified");
+  const verificationLabel = trainer?.verification === "verified"
+    ? "ตรวจคุณสมบัติแล้ว"
+    : "ยังไม่ยืนยันคุณสมบัติ";
+  const slotLabel = slot ? `${formatDay(slot.startsAt)} ${formatTime(slot.startsAt)}` : "ยังไม่เลือกเวลา";
+  const compactSummary = trainer
+    ? `${trainer.displayName} · ${verificationLabel} · ${slotLabel}`
+    : "ยังไม่เลือกเทรนเนอร์";
   const params = new URLSearchParams();
   if (trainer) params.set("trainer", trainer.slug);
   if (slot) params.set("slot", String(slot.id));
 
   return (
-    <aside className="booking-strip" aria-label="สรุปการจอง">
+    <aside className={`booking-strip booking-strip--${ready ? "ready" : "unready"}`} aria-label="สรุปการจอง">
       <div className="booking-strip__inner">
+        {!ready && <span className="booking-strip__compact-summary">{compactSummary}</span>}
         <div className="booking-state">
           <span className="booking-state__icon"><CalendarCheck2 aria-hidden="true" size={21} /></span>
           <div>
             <p className="label">แถบจองของคุณ</p>
             <strong>{trainer ? trainer.displayName : "เลือกเทรนเนอร์เพื่อเริ่มต้น"}</strong>
             <span className="booking-mobile-meta">
-              {trainer?.verification === "verified" ? "ตรวจคุณสมบัติแล้ว" : "ยังไม่ยืนยันคุณสมบัติ"}
+              {verificationLabel}
               {" · "}
               {slot ? `${formatDay(slot.startsAt)} ${formatTime(slot.startsAt)}` : "ยังไม่เลือกเวลา"}
             </span>
@@ -35,7 +43,7 @@ export function BookingStrip({ trainer, slot }: Props) {
         </div>
         <div className="booking-detail">
           <span>ราคาเริ่มต้น</span>
-          <strong>{trainer ? formatMoney(trainer.priceFrom) : "—"}</strong>
+          <strong>{trainer ? (trainer.priceFrom == null ? "รอยืนยันราคา" : formatMoney(trainer.priceFrom)) : "—"}</strong>
         </div>
         <div className="booking-trust">
           <ShieldCheck aria-hidden="true" size={18} />

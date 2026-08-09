@@ -151,7 +151,7 @@ export type Trainer = {
   trainingTypes: TrainingType[];
   serviceMode: "freelance" | "gym" | "both";
   gymName?: string;
-  priceFrom?: number;
+  priceFrom?: number | null;
   rating?: number;
   reviewCount: number;
   verification: VerificationStatus;

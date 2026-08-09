@@ -30,7 +30,7 @@ export function TrainerDetail({ trainer, isDemo }: { trainer: Trainer; isDemo: b
             <div className="detail-meta">
               <span><MapPin aria-hidden="true" size={17} /> {trainer.province.nameTh}</span>
               <span><MessageSquareText aria-hidden="true" size={17} /> ยังไม่มีรีวิวจริง</span>
-              <strong>เริ่มต้น {formatMoney(trainer.priceFrom)}</strong>
+              <strong>{trainer.priceFrom == null ? "รอยืนยันราคา" : `เริ่มต้น ${formatMoney(trainer.priceFrom)}`}</strong>
             </div>
           </div>
         </section>

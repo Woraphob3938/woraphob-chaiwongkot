@@ -113,7 +113,7 @@ export function BookingForm({ trainerSlug, slotId }: { trainerSlug?: string; slo
         <dl>
           <div><dt>วันและเวลา</dt><dd>{formatDateTime(slot.startsAt)}</dd></div>
           <div><dt>จังหวัด</dt><dd>{trainer.province.nameTh}</dd></div>
-          <div><dt>ราคาเริ่มต้น</dt><dd>{formatMoney(trainer.priceFrom)}</dd></div>
+          <div><dt>ราคาเริ่มต้น</dt><dd>{trainer.priceFrom == null ? "รอยืนยันราคา" : formatMoney(trainer.priceFrom)}</dd></div>
         </dl>
         <p>ราคาสุดท้ายต้องได้รับการยืนยันจากเทรนเนอร์ก่อนเข้าสู่ขั้นตอนอัปโหลดสลิป</p>
       </div>

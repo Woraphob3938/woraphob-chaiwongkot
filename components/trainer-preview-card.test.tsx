@@ -15,4 +15,24 @@ describe("TrainerPreviewCard", () => {
     expect(screen.getByRole("link", { name: "ดูโปรไฟล์" })).toHaveAttribute("href", `/trainers/${trainer.slug}`);
     expect(screen.queryByText(trainer.bio)).not.toBeInTheDocument();
   });
+
+  it("asks visitors to enquire when the live price is null", () => {
+    render(<TrainerPreviewCard trainer={{ ...trainers[0], priceFrom: null }} />);
+
+    expect(screen.getByText("สอบถามราคา")).toBeInTheDocument();
+    expect(screen.queryByText(/฿0/)).not.toBeInTheDocument();
+  });
+
+  it("uses synthetic portrait wording only for demonstration trainers", () => {
+    const demoTrainer = trainers[0];
+    const liveTrainer = { ...trainers[1], demo: false };
+
+    const { rerender } = render(<TrainerPreviewCard trainer={demoTrainer} />);
+    expect(screen.getByRole("img", { name: `ภาพสังเคราะห์ของ${demoTrainer.displayName} ใช้เพื่อสาธิต` })).toBeInTheDocument();
+    expect(screen.getByText("ภาพสังเคราะห์ · สาธิต")).toBeInTheDocument();
+
+    rerender(<TrainerPreviewCard trainer={liveTrainer} />);
+    expect(screen.getByRole("img", { name: `ภาพบุคคลของ${liveTrainer.displayName}` })).toBeInTheDocument();
+    expect(screen.queryByText("ภาพสังเคราะห์ · สาธิต")).not.toBeInTheDocument();
+  });
 });

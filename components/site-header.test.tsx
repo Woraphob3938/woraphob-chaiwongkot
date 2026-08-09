@@ -28,6 +28,11 @@ function user(role: UserRole): AuthenticatedUser {
   };
 }
 
+function expectIconAndText(link: HTMLElement, label: string) {
+  expect(within(link).getByText(label)).toBeInTheDocument();
+  expect(link.querySelector('.mobile-role-nav__icon[aria-hidden="true"]')).not.toBeNull();
+}
+
 describe("MobileRoleNav", () => {
   beforeEach(() => {
     mockedPathname.mockReturnValue("/");
@@ -44,6 +49,7 @@ describe("MobileRoleNav", () => {
     expect(within(nav).getByRole("link", { name: "ค้นหาเทรนเนอร์" })).toHaveAttribute("href", "/trainers");
     expect(within(nav).getByRole("link", { name: "เข้าสู่ระบบ" })).toHaveAttribute("href", "/login");
     expect(within(nav).getByRole("link", { name: "สมัครสมาชิก" })).toHaveAttribute("href", "/register");
+    for (const link of links) expectIconAndText(link, link.textContent ?? "");
   });
 
   it.each([
@@ -64,6 +70,7 @@ describe("MobileRoleNav", () => {
     expect(within(nav).getByRole("link", { name: "แชต" })).toHaveAttribute("href", "/chat");
     expect(within(nav).queryByRole("link", { name: "สมัครเป็นเทรนเนอร์" })).not.toBeInTheDocument();
     expect(links.length).toBeLessThanOrEqual(4);
+    for (const link of links) expectIconAndText(link, link.textContent ?? "");
   });
 
   it("marks a nested role route as part of its current destination", () => {

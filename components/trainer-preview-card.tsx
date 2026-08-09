@@ -11,7 +11,7 @@ type TrainerPreviewCardProps = {
 
 export function TrainerPreviewCard({ trainer, priority = false }: TrainerPreviewCardProps) {
   const specialty = trainer.trainingTypes[0]?.nameTh ?? "การฝึกส่วนบุคคล";
-  const price = trainer.priceFrom === undefined
+  const price = trainer.priceFrom == null
     ? "สอบถามราคา"
     : `เริ่มต้น ${formatMoney(trainer.priceFrom)} / ครั้ง`;
 
@@ -21,7 +21,9 @@ export function TrainerPreviewCard({ trainer, priority = false }: TrainerPreview
         {trainer.image ? (
           <Image
             src={trainer.image}
-            alt={`ภาพสังเคราะห์ของ${trainer.displayName} ใช้เพื่อสาธิต`}
+            alt={trainer.demo
+              ? `ภาพสังเคราะห์ของ${trainer.displayName} ใช้เพื่อสาธิต`
+              : `ภาพบุคคลของ${trainer.displayName}`}
             width={320}
             height={240}
             priority={priority}

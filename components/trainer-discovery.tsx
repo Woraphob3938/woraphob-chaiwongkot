@@ -200,7 +200,9 @@ export function TrainerDiscovery({
                 <Link href={`/trainers/${selectedTrainer.slug}`}>
                   ดูโปรไฟล์เต็ม <ArrowUpRight aria-hidden="true" size={17} />
                 </Link>
-                <span>เริ่มต้น {formatMoney(selectedTrainer.priceFrom)} / ครั้ง</span>
+                <span>{selectedTrainer.priceFrom == null
+                  ? "รอยืนยันราคา"
+                  : `เริ่มต้น ${formatMoney(selectedTrainer.priceFrom)} / ครั้ง`}</span>
               </div>
             </>
           ) : (
