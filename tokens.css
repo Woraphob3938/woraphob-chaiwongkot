@@ -28,6 +28,10 @@
   --color-overlay: oklch(18% 0.035 155 / 0.68);
   --color-shadow: oklch(18% 0.035 155 / 0.12);
 
+  --color-canvas: var(--color-paper-2);
+  --color-surface: var(--color-paper);
+  --color-surface-muted: var(--color-paper-3);
+
   --font-display: var(--font-chakra), "Chakra Petch", sans-serif;
   --font-body: var(--font-bai), "Bai Jamjuree", sans-serif;
   --font-mono: var(--font-jetbrains), "JetBrains Mono", monospace;
@@ -58,6 +62,10 @@
   --radius-md: 0.75rem;
   --radius-lg: 1rem;
   --radius-pill: 999px;
+  --radius-card: var(--radius-lg);
+  --radius-panel: 1.25rem;
+
+  --shadow-surface: 0 1px 2px var(--color-shadow);
 
   --size-control: 2.75rem;
   --size-control-lg: 3rem;

@@ -15,7 +15,7 @@
 html {
   scroll-behavior: smooth;
   overflow-x: clip;
-  background: var(--color-paper);
+  background: var(--color-canvas);
 }
 
 body {
@@ -23,7 +23,7 @@ body {
   margin: 0;
   overflow-x: clip;
   color: var(--color-ink);
-  background: var(--color-paper);
+  background: var(--color-surface);
   font-family: var(--font-body);
   font-size: var(--text-base);
   line-height: 1.55;
@@ -105,6 +105,11 @@ h2 {
 
 h3 {
   font-size: var(--text-md);
+}
+
+h2,
+h3 {
+  font-family: var(--font-body);
 }
 
 ::selection {
@@ -3347,17 +3352,17 @@ h3 {
 }
 
 :root {
-  --background: var(--color-paper);
+  --background: var(--color-canvas);
   --foreground: var(--color-ink);
-  --card: var(--color-paper);
+  --card: var(--color-surface);
   --card-foreground: var(--color-ink);
-  --popover: var(--color-paper);
+  --popover: var(--color-surface);
   --popover-foreground: var(--color-ink);
   --primary: var(--color-accent);
   --primary-foreground: var(--color-accent-ink);
-  --secondary: var(--color-paper-2);
+  --secondary: var(--color-canvas);
   --secondary-foreground: var(--color-ink);
-  --muted: var(--color-paper-3);
+  --muted: var(--color-surface-muted);
   --muted-foreground: var(--color-muted);
   --accent: var(--color-accent-soft);
   --accent-foreground: var(--color-accent-ink);
