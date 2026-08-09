@@ -179,6 +179,28 @@ describe("ChatWorkbench", () => {
     expect(container.querySelector("details")).toHaveAttribute("open");
   });
 
+  it("announces the active conversation before secondary facts and keeps the composer after the message log", async () => {
+    stubDesktopFacts(false);
+    const booking = bookingFixture();
+    vi.mocked(authenticatedRequest)
+      .mockResolvedValueOnce([booking])
+      .mockResolvedValueOnce([messageFixture(1, "พร้อมเริ่มฝึกครับ")]);
+
+    render(<ChatWorkbench />);
+    await flushPromises();
+
+    const heading = screen.getByRole("heading", { name: "สนทนากับ เทรนเนอร์ ค." });
+    const facts = screen.getByText("รายละเอียดนัดหมาย", { selector: "summary" }).closest("details");
+    const log = screen.getByRole("log", { name: "ข้อความกับ เทรนเนอร์ ค." });
+    const composer = screen.getByRole("form", { name: "เขียนข้อความถึง เทรนเนอร์ ค." });
+
+    expect(heading.compareDocumentPosition(facts as Node) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    expect(log.compareDocumentPosition(composer) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    expect(facts).not.toHaveAttribute("open");
+    expect(within(composer).getByRole("button", { name: "ส่งข้อความ" })).toBeEnabled();
+    expect(screen.getAllByRole("form", { name: /เขียนข้อความถึง/ })).toHaveLength(1);
+  });
+
   it("polls the latest cursor every five seconds only on a visible tab and cleans up", async () => {
     const booking = bookingFixture();
     vi.mocked(authenticatedRequest)

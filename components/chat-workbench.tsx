@@ -86,7 +86,7 @@ export function ChatWorkbench({ initialBookingId }: ChatWorkbenchProps) {
   const [sending, setSending] = useState(false);
   const [retrying, setRetrying] = useState(false);
   const [openingAttachment, setOpeningAttachment] = useState<number | null>(null);
-  const [factsOpen, setFactsOpen] = useState(true);
+  const [factsOpen, setFactsOpen] = useState(false);
 
   const mountedRef = useRef(true);
   const generationRef = useRef(0);
@@ -413,8 +413,8 @@ export function ChatWorkbench({ initialBookingId }: ChatWorkbenchProps) {
     : "สถานะการจองนี้ยังไม่เปิดให้ส่งข้อความเพิ่ม";
 
   return (
-    <div className="chat-layout">
-      <aside className="chat-sidebar" aria-labelledby="chat-room-list-title">
+    <div className="chat-guided-layout">
+      <aside className="chat-room-list" aria-labelledby="chat-room-list-title">
         <h2 id="chat-room-list-title">ห้องตามคำขอจอง</h2>
         {rooms.map((booking) => (
           <button
@@ -433,17 +433,22 @@ export function ChatWorkbench({ initialBookingId }: ChatWorkbenchProps) {
         ))}
       </aside>
 
-      <div className="dashboard-columns">
-        <section className="chat-thread" aria-labelledby="chat-thread-title">
+      <section className="chat-conversation chat-thread" aria-labelledby="chat-thread-title">
           <header>
             <div>
-              <h2 id="chat-thread-title">{selectedBooking.trainer.displayName}</h2>
+              <h2 id="chat-thread-title">สนทนากับ {selectedBooking.trainer.displayName}</h2>
               <p>{selectedBooking.id}</p>
             </div>
             <strong className="status-dot">{bookingStatusCopy[selectedBooking.status]}</strong>
           </header>
 
-          <div className="messages" aria-live="polite" aria-busy={threadLoading}>
+          <div
+            className="messages"
+            role="log"
+            aria-label={`ข้อความกับ ${selectedBooking.trainer.displayName}`}
+            aria-live="polite"
+            aria-busy={threadLoading}
+          >
             {threadLoading && messages.length === 0 && <p className="queue-loading">กำลังโหลดข้อความ…</p>}
             {!threadLoading && !threadError && messages.length === 0 && (
               <div className="empty-state">
@@ -457,14 +462,14 @@ export function ChatWorkbench({ initialBookingId }: ChatWorkbenchProps) {
                   <strong>{message.sender.displayName}</strong>
                   <small>{formatDateTime(message.createdAt)} · {message.readAt ? "อ่านแล้ว" : "ยังไม่อ่าน"}</small>
                 </span>
-                <div style={{ minWidth: 0, overflowWrap: "anywhere" }}>
+                <div className="chat-message-content">
                   {message.message && <p>{message.message}</p>}
                   {message.attachment && (
                     <ul className="certificate-list">
                       <li>
                         <div>
                           <FileText aria-hidden="true" size={18} />
-                          <span style={{ minWidth: 0, overflowWrap: "anywhere" }}>
+                          <span className="chat-breakable">
                             <strong>{message.attachment.name}</strong>
                             <small>{readableMime(message.attachment.mime)} · {readableSize(message.attachment.size)}</small>
                           </span>
@@ -498,7 +503,13 @@ export function ChatWorkbench({ initialBookingId }: ChatWorkbenchProps) {
           {notice && <p className="queue-notice" role="status">{notice}</p>}
 
           {selectedBooking.actions.canSendChat ? (
-            <form className="booking-fields" onSubmit={sendMessage} aria-busy={sending} noValidate>
+            <form
+              className="chat-composer booking-fields"
+              aria-label={`เขียนข้อความถึง ${selectedBooking.trainer.displayName}`}
+              onSubmit={sendMessage}
+              aria-busy={sending}
+              noValidate
+            >
               <div className="field">
                 <label htmlFor="chat-message">ข้อความ</label>
                 <textarea
@@ -533,8 +544,8 @@ export function ChatWorkbench({ initialBookingId }: ChatWorkbenchProps) {
               {attachment && (
                 <div className="ledger-row">
                   <span>ไฟล์ที่เลือก</span>
-                  <div className="queue-actions" style={{ minWidth: 0 }}>
-                    <strong style={{ minWidth: 0, overflowWrap: "anywhere" }}>{attachment.name}</strong>
+                  <div className="queue-actions chat-selected-file">
+                    <strong className="chat-breakable">{attachment.name}</strong>
                     <small>{readableMime(attachment.type)} · {readableSize(attachment.size)}</small>
                     <button type="button" disabled={sending} aria-label={`เอาไฟล์ ${attachment.name} ออก`} onClick={removeAttachment}>
                       <X aria-hidden="true" size={15} /> เอาไฟล์ออก
@@ -556,25 +567,24 @@ export function ChatWorkbench({ initialBookingId }: ChatWorkbenchProps) {
               <strong>{readOnlyCopy}</strong>
             </div>
           )}
-        </section>
+      </section>
 
-        <details
-          className="trainer-booking-list chat-booking-facts"
-          open={factsOpen}
-          onToggle={(event) => setFactsOpen(event.currentTarget.open)}
-        >
-          <summary className="chat-booking-facts__summary">รายละเอียดนัดหมาย</summary>
-          <div className="section-line-heading chat-booking-facts__heading"><h2>รายละเอียดนัดหมาย</h2></div>
-          <div className="ledger-row"><span>รหัสคำขอ</span><strong>{selectedBooking.id}</strong></div>
-          <div className="ledger-row"><span>วันและเวลา</span><strong>{formatDateTime(selectedBooking.startsAt)}</strong></div>
-          <div className="ledger-row"><span>สิ้นสุด</span><strong>{formatDateTime(selectedBooking.endsAt)}</strong></div>
-          <div className="ledger-row"><span>สถานที่</span><strong style={{ overflowWrap: "anywhere" }}>{selectedBooking.location}</strong></div>
-          <div className="ledger-row"><span>สถานะการจอง</span><strong>{bookingStatusCopy[selectedBooking.status]}</strong></div>
-          <div className="ledger-row"><span>สถานะหลักฐาน</span><strong>{paymentStatusCopy[selectedBooking.paymentStatus]}</strong></div>
-          <div className="ledger-row"><span>ค่าฝึกที่แจ้ง</span><strong>{formatAmount(selectedBooking.quotedPrice)}</strong></div>
-          <div className="ledger-row"><span>หมายเหตุ</span><strong style={{ overflowWrap: "anywhere" }}>{selectedBooking.note || "ไม่มีหมายเหตุ"}</strong></div>
-        </details>
-      </div>
+      <details
+        className="trainer-booking-list chat-booking-facts"
+        open={factsOpen}
+        onToggle={(event) => setFactsOpen(event.currentTarget.open)}
+      >
+        <summary className="chat-booking-facts__summary">รายละเอียดนัดหมาย</summary>
+        <div className="section-line-heading chat-booking-facts__heading"><h2>รายละเอียดนัดหมาย</h2></div>
+        <div className="ledger-row"><span>รหัสคำขอ</span><strong className="chat-breakable">{selectedBooking.id}</strong></div>
+        <div className="ledger-row"><span>วันและเวลา</span><strong>{formatDateTime(selectedBooking.startsAt)}</strong></div>
+        <div className="ledger-row"><span>สิ้นสุด</span><strong>{formatDateTime(selectedBooking.endsAt)}</strong></div>
+        <div className="ledger-row"><span>สถานที่</span><strong className="chat-breakable">{selectedBooking.location}</strong></div>
+        <div className="ledger-row"><span>สถานะการจอง</span><strong>{bookingStatusCopy[selectedBooking.status]}</strong></div>
+        <div className="ledger-row"><span>สถานะหลักฐาน</span><strong>{paymentStatusCopy[selectedBooking.paymentStatus]}</strong></div>
+        <div className="ledger-row"><span>ค่าฝึกที่แจ้ง</span><strong>{formatAmount(selectedBooking.quotedPrice)}</strong></div>
+        <div className="ledger-row"><span>หมายเหตุ</span><strong className="chat-breakable">{selectedBooking.note || "ไม่มีหมายเหตุ"}</strong></div>
+      </details>
     </div>
   );
 }

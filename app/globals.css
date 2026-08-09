@@ -2990,7 +2990,7 @@ body {
 }
 
 .chat-workbench,
-.chat-layout {
+.chat-guided-layout {
   display: grid;
   grid-template-columns: minmax(14rem, 0.72fr) minmax(22rem, 1.65fr) minmax(15rem, 0.78fr);
   min-height: 38rem;
@@ -2999,12 +2999,7 @@ body {
   background: var(--color-paper);
 }
 
-.chat-layout > .dashboard-columns {
-  display: contents;
-}
-
-.chat-room-list,
-.chat-sidebar {
+.chat-room-list {
   min-width: 0;
   padding: var(--space-lg);
   background: var(--color-paper-2);
@@ -3012,12 +3007,12 @@ body {
 
 .chat-thread,
 .chat-booking-facts,
-.chat-layout .trainer-booking-list {
+.chat-guided-layout .trainer-booking-list {
   border-inline-start: 1px solid var(--color-rule);
 }
 
 .chat-booking-facts,
-.chat-layout .trainer-booking-list {
+.chat-guided-layout .trainer-booking-list {
   min-width: 0;
   border-top: 0;
   border-right: 0;
@@ -3121,7 +3116,15 @@ body {
 .chat-thread .certificate-list strong,
 .chat-thread .ledger-row strong,
 .chat-booking-facts .ledger-row strong,
-.chat-layout .trainer-booking-list .ledger-row strong {
+.chat-guided-layout .trainer-booking-list .ledger-row strong {
+  overflow-wrap: anywhere;
+}
+
+.chat-message-content,
+.chat-breakable,
+.chat-selected-file {
+  min-width: 0;
+  max-width: 100%;
   overflow-wrap: anywhere;
 }
 
@@ -3504,19 +3507,17 @@ body {
     text-align: left;
   }
 
-  .chat-room-list,
-  .chat-sidebar {
+  .chat-room-list {
     padding: var(--space-md);
   }
 
   .chat-workbench,
-  .chat-layout {
+  .chat-guided-layout {
     grid-template-columns: minmax(14rem, 0.72fr) minmax(0, 1.28fr);
     align-items: start;
   }
 
-  .chat-room-list,
-  .chat-sidebar {
+  .chat-room-list {
     grid-column: 1;
     grid-row: 1 / span 2;
     border-right: 0;
@@ -3529,7 +3530,7 @@ body {
   }
 
   .chat-booking-facts,
-  .chat-layout .trainer-booking-list {
+  .chat-guided-layout .trainer-booking-list {
     grid-column: 2;
     grid-row: 2;
     border-top: 1px solid var(--color-rule);
@@ -3937,12 +3938,11 @@ body {
   }
 
   .chat-workbench,
-  .chat-layout {
+  .chat-guided-layout {
     grid-template-columns: minmax(0, 1fr);
   }
 
-  .chat-room-list,
-  .chat-sidebar {
+  .chat-room-list {
     grid-column: 1;
     grid-row: 1;
     border-bottom: 1px solid var(--color-rule);
@@ -3955,7 +3955,7 @@ body {
   }
 
   .chat-booking-facts,
-  .chat-layout .trainer-booking-list {
+  .chat-guided-layout .trainer-booking-list {
     grid-column: 1;
     grid-row: 3;
     border-inline-start: 0;
