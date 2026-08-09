@@ -57,6 +57,17 @@ const bookings = [
   }),
 ];
 
+const fourthActionBookings = bookings.map((booking, index) => ({
+  ...booking,
+  status: index === 3 ? "awaiting_payment" as const : booking.status,
+  quotedPrice: index === 3 ? 1_500 : booking.quotedPrice,
+  actions: {
+    ...booking.actions,
+    canPay: index === 3,
+    canReview: false,
+  },
+}));
+
 describe("member role dashboard", () => {
   beforeEach(() => {
     vi.mocked(authenticatedRequest).mockReset();
@@ -75,6 +86,7 @@ describe("member role dashboard", () => {
     expect(screen.getAllByTestId("booking-summary")).toHaveLength(3);
     expect(screen.getAllByText("ดูรายละเอียด")).toHaveLength(3);
     expect(screen.getByText("ดูการจองทั้งหมด")).toBeInTheDocument();
+    expect(screen.queryByRole("link", { name: "ดูทั้งหมด: การจองล่าสุด" })).not.toBeInTheDocument();
   });
 
   it("reveals all facts and allowed actions without duplicating them", async () => {
@@ -99,16 +111,36 @@ describe("member role dashboard", () => {
     expect(within(reviewSummary).getAllByRole("button", { name: "ส่งรีวิว" })).toHaveLength(1);
   });
 
-  it("keeps older bookings reachable through the same-page view-all disclosure", async () => {
-    vi.mocked(authenticatedRequest).mockResolvedValue(bookings);
+  it("mounts the next-action booking first and reveals every booking once through view-all", async () => {
+    vi.mocked(authenticatedRequest).mockResolvedValue(fourthActionBookings);
     render(<RoleDashboard role="member" />);
 
-    await screen.findByTestId("next-action");
-    expect(screen.getAllByTestId("booking-summary")).toHaveLength(3);
-    fireEvent.click(screen.getByText("ดูการจองทั้งหมด"));
-
-    await waitFor(() => expect(screen.getAllByTestId("booking-summary")).toHaveLength(4));
-    expect(screen.getAllByText("เทรนเนอร์ ฉ.").length).toBeGreaterThan(0);
+    const actionLink = await screen.findByRole("link", { name: "อัปโหลดสลิป" });
+    expect(actionLink).toHaveAttribute("href", "/member#booking-BK-OLDER");
     expect(document.querySelector("#booking-BK-OLDER")).toBeInTheDocument();
+    expect(screen.getAllByTestId("booking-summary").map((summary) => summary.id)).toEqual([
+      "booking-BK-OLDER",
+      "booking-BK-PAY",
+      "booking-BK-REVIEW",
+    ]);
+
+    const archive = document.querySelector("#all-bookings");
+    const archiveSummary = document.querySelector("#all-bookings > summary");
+    expect(archiveSummary).toHaveTextContent("ดูการจองทั้งหมด");
+    if (!(archive instanceof HTMLDetailsElement) || !(archiveSummary instanceof HTMLElement)) {
+      throw new Error("archive disclosure is missing");
+    }
+    fireEvent.click(archiveSummary);
+
+    expect(archive).toHaveAttribute("open");
+    await waitFor(() => expect(screen.getAllByTestId("booking-summary")).toHaveLength(4));
+    const allSummaryIds = screen.getAllByTestId("booking-summary").map((summary) => summary.id);
+    expect(allSummaryIds).toEqual([
+      "booking-BK-OLDER",
+      "booking-BK-PAY",
+      "booking-BK-REVIEW",
+      "booking-BK-CONFIRMED",
+    ]);
+    expect(new Set(allSummaryIds).size).toBe(fourthActionBookings.length);
   });
 });

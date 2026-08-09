@@ -196,7 +196,7 @@ describe("member booking ledger", () => {
     localStorage.setItem("fitconnect_token", "member-token");
   });
 
-  it("renders booking summaries in API order and exposes chat only when allowed", async () => {
+  it("renders the next-action booking first and exposes chat only when allowed", async () => {
     const first = bookingFixture({
       id: "BK-FIRST",
       actions: { ...bookingFixture().actions, canPay: false, canReadChat: true },
@@ -214,7 +214,7 @@ describe("member booking ledger", () => {
     render(<RoleDashboard role="member" />);
 
     const summaries = await screen.findAllByTestId("booking-summary");
-    expect(summaries.map((summary) => summary.id)).toEqual(["booking-BK-FIRST", "booking-BK-SECOND"]);
+    expect(summaries.map((summary) => summary.id)).toEqual(["booking-BK-SECOND", "booking-BK-FIRST"]);
     summaries.forEach((summary) => fireEvent.click(within(summary).getByText("ดูรายละเอียด")));
     const chatLinks = screen.getAllByRole("link", { name: "เปิดการสนทนา" });
     expect(chatLinks).toHaveLength(1);

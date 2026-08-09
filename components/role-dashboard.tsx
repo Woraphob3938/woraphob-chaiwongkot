@@ -52,6 +52,12 @@ function nextStepCopy(booking: Booking): string {
   return "ยังไม่มีขั้นตอนที่ต้องทำในขณะนี้";
 }
 
+function bookingIdFromActionHref(href: string): string | null {
+  const marker = "#booking-";
+  const markerIndex = href.indexOf(marker);
+  return markerIndex === -1 ? null : href.slice(markerIndex + marker.length);
+}
+
 export function RoleDashboard({ role }: { role: UserRole }) {
   const copy = roleCopy[role];
   const [bookings, setBookings] = useState<Booking[]>([]);
@@ -151,6 +157,15 @@ export function RoleDashboard({ role }: { role: UserRole }) {
     </details>
   );
 
+  const memberNextAction = getMemberNextAction(bookings);
+  const actionBookingId = bookingIdFromActionHref(memberNextAction.href);
+  const actionBooking = bookings.find((booking) => booking.id === actionBookingId);
+  const visibleBookings = actionBooking
+    ? [actionBooking, ...bookings.filter((booking) => booking.id !== actionBooking.id)].slice(0, 3)
+    : bookings.slice(0, 3);
+  const visibleBookingIds = new Set(visibleBookings.map((booking) => booking.id));
+  const archiveBookings = bookings.filter((booking) => !visibleBookingIds.has(booking.id));
+
   return (
     <main className="page-shell dashboard-shell">
       <section className="dashboard-heading">
@@ -176,18 +191,17 @@ export function RoleDashboard({ role }: { role: UserRole }) {
             </div>
           )}
           {(!loadingBookings || bookings.length > 0) && (!bookingError || bookings.length > 0) && (
-            <NextActionCard action={getMemberNextAction(bookings)} />
+            <NextActionCard action={memberNextAction} />
           )}
           {bookings.length > 0 && (
             <DashboardSection
               title="การจองล่าสุด"
               description="เปิดเฉพาะคำขอที่ต้องการเมื่อต้องชำระ รีวิว หรือสนทนา"
-              action={bookings.length > 3 ? { href: "/member#all-bookings", label: "ดูทั้งหมด" } : undefined}
             >
               <div className="member-booking-list">
-                {bookings.slice(0, 3).map(renderBookingSummary)}
+                {visibleBookings.map(renderBookingSummary)}
               </div>
-              {bookings.length > 3 && (
+              {archiveBookings.length > 0 && (
                 <details
                   className="all-bookings-disclosure"
                   id="all-bookings"
@@ -195,11 +209,11 @@ export function RoleDashboard({ role }: { role: UserRole }) {
                 >
                   <summary>
                     <strong>ดูการจองทั้งหมด</strong>
-                    <span>แสดงอีก {bookings.length - 3} รายการ จากทั้งหมด {bookings.length}</span>
+                    <span>แสดงอีก {archiveBookings.length} รายการ จากทั้งหมด {bookings.length}</span>
                   </summary>
                   {showAllBookings && (
                     <div className="member-booking-list member-booking-list--archive">
-                      {bookings.slice(3).map(renderBookingSummary)}
+                      {archiveBookings.map(renderBookingSummary)}
                     </div>
                   )}
                 </details>
