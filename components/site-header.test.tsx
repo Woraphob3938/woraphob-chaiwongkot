@@ -38,36 +38,37 @@ describe("MobileRoleNav", () => {
     mockedPathname.mockReturnValue("/");
   });
 
-  it("gives guests four direct destinations", () => {
+  it("keeps member-only discovery out of guest navigation", () => {
     render(<MobileRoleNav user={null} />);
-
-    const nav = screen.getByRole("navigation", { name: "เมนูหลักบนมือถือ" });
-    const links = within(nav).getAllByRole("link");
-
-    expect(links).toHaveLength(4);
-    expect(within(nav).getByRole("link", { name: "หน้าแรก" })).toHaveAttribute("href", "/");
-    expect(within(nav).getByRole("link", { name: "ค้นหาเทรนเนอร์" })).toHaveAttribute("href", "/trainers");
-    expect(within(nav).getByRole("link", { name: "เข้าสู่ระบบ" })).toHaveAttribute("href", "/login");
-    expect(within(nav).getByRole("link", { name: "สมัครสมาชิก" })).toHaveAttribute("href", "/register");
-    for (const link of links) expectIconAndText(link, link.textContent ?? "");
-  });
-
-  it.each([
-    ["member", "/member", "การจอง"],
-    ["trainer", "/trainer", "งานของฉัน"],
-    ["admin", "/admin", "คิวตรวจ"],
-  ] as const)("routes %s users to their role workspace", (role, workspaceHref, workspaceLabel) => {
-    mockedPathname.mockReturnValue(workspaceHref);
-    render(<MobileRoleNav user={user(role)} />);
 
     const nav = screen.getByRole("navigation", { name: "เมนูหลักบนมือถือ" });
     const links = within(nav).getAllByRole("link");
 
     expect(links).toHaveLength(3);
     expect(within(nav).getByRole("link", { name: "หน้าแรก" })).toHaveAttribute("href", "/");
+    expect(within(nav).queryByRole("link", { name: "ค้นหาเทรนเนอร์" })).not.toBeInTheDocument();
+    expect(within(nav).getByRole("link", { name: "เข้าสู่ระบบ" })).toHaveAttribute("href", "/login");
+    expect(within(nav).getByRole("link", { name: "สมัครสมาชิก" })).toHaveAttribute("href", "/register");
+    for (const link of links) expectIconAndText(link, link.textContent ?? "");
+  });
+
+  it.each([
+    ["member", "/member", "การจองของฉัน", ["หน้าแรก", "ค้นหาเทรนเนอร์", "การจองของฉัน", "แชต"]],
+    ["trainer", "/trainer", "พื้นที่เทรนเนอร์", ["หน้าแรก", "พื้นที่เทรนเนอร์", "แชต"]],
+    ["admin", "/admin", "พื้นที่แอดมิน", ["หน้าแรก", "พื้นที่แอดมิน"]],
+  ] as const)("routes %s users to their role workspace", (role, workspaceHref, workspaceLabel, expectedLabels) => {
+    mockedPathname.mockReturnValue(workspaceHref);
+    render(<MobileRoleNav user={user(role)} />);
+
+    const nav = screen.getByRole("navigation", { name: "เมนูหลักบนมือถือ" });
+    const links = within(nav).getAllByRole("link");
+
+    expect(links).toHaveLength(expectedLabels.length);
+    expect(links.map((link) => link.textContent)).toEqual(expectedLabels);
+    expect(within(nav).getByRole("link", { name: "หน้าแรก" })).toHaveAttribute("href", "/");
     expect(within(nav).getByRole("link", { name: workspaceLabel })).toHaveAttribute("href", workspaceHref);
     expect(within(nav).getByRole("link", { name: workspaceLabel })).toHaveAttribute("aria-current", "page");
-    expect(within(nav).getByRole("link", { name: "แชต" })).toHaveAttribute("href", "/chat");
+    if (role !== "admin") expect(within(nav).getByRole("link", { name: "แชต" })).toHaveAttribute("href", "/chat");
     expect(within(nav).queryByRole("link", { name: "สมัครเป็นเทรนเนอร์" })).not.toBeInTheDocument();
     expect(links.length).toBeLessThanOrEqual(4);
     for (const link of links) expectIconAndText(link, link.textContent ?? "");
@@ -77,7 +78,7 @@ describe("MobileRoleNav", () => {
     mockedPathname.mockReturnValue("/trainer/apply");
     render(<MobileRoleNav user={user("trainer")} />);
 
-    expect(screen.getByRole("link", { name: "งานของฉัน" })).toHaveAttribute("aria-current", "page");
+    expect(screen.getByRole("link", { name: "พื้นที่เทรนเนอร์" })).toHaveAttribute("aria-current", "page");
     expect(screen.getByRole("link", { name: "หน้าแรก" })).not.toHaveAttribute("aria-current");
   });
 });
@@ -106,7 +107,32 @@ describe("SiteHeader", () => {
     await waitFor(() => expect(mockedApiRequest).toHaveBeenCalled());
   });
 
-  it("opens the global search dialog from the responsive header control", () => {
+  it.each(["trainer", "admin"] as const)("hides member-only navigation from %s", async (role) => {
+    const signedInUser = user(role);
+    localStorage.setItem("fitconnect_token", "test-token");
+    localStorage.setItem("fitconnect_user", JSON.stringify(signedInUser));
+    mockedApiRequest.mockResolvedValue(signedInUser);
+
+    render(<SiteHeader />);
+
+    await screen.findByRole("button", { name: `เปิดเมนูบัญชีของ ${signedInUser.displayName}` });
+    expect(screen.queryByRole("link", { name: "ค้นหาเทรนเนอร์" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("link", { name: "การจองของฉัน" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "เปิดค้นหาเทรนเนอร์" })).not.toBeInTheDocument();
+  });
+
+  it("hides trainer discovery controls from guests", () => {
+    render(<SiteHeader />);
+
+    expect(screen.queryByRole("link", { name: "ค้นหาเทรนเนอร์" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "เปิดค้นหาเทรนเนอร์" })).not.toBeInTheDocument();
+  });
+
+  it("opens the global search dialog from the member header control", async () => {
+    const member = user("member");
+    localStorage.setItem("fitconnect_token", "test-token");
+    localStorage.setItem("fitconnect_user", JSON.stringify(member));
+    mockedApiRequest.mockResolvedValue(member);
     const showModal = vi.fn(function (this: HTMLDialogElement) {
       this.setAttribute("open", "");
     });
@@ -116,14 +142,18 @@ describe("SiteHeader", () => {
     });
 
     render(<SiteHeader />);
-    fireEvent.click(screen.getByRole("button", { name: "เปิดค้นหาเทรนเนอร์" }));
+    fireEvent.click(await screen.findByRole("button", { name: "เปิดค้นหาเทรนเนอร์" }));
 
     expect(showModal).toHaveBeenCalledOnce();
     expect(screen.getByRole("dialog")).toHaveAttribute("open");
     delete (HTMLDialogElement.prototype as Partial<HTMLDialogElement>).showModal;
   });
 
-  it("keeps the global search dialog available from the desktop keyboard shortcut", () => {
+  it("keeps the global search dialog available to members from the desktop keyboard shortcut", async () => {
+    const member = user("member");
+    localStorage.setItem("fitconnect_token", "test-token");
+    localStorage.setItem("fitconnect_user", JSON.stringify(member));
+    mockedApiRequest.mockResolvedValue(member);
     const showModal = vi.fn(function (this: HTMLDialogElement) {
         this.setAttribute("open", "");
       });
@@ -133,6 +163,7 @@ describe("SiteHeader", () => {
     });
 
     render(<SiteHeader />);
+    await screen.findByRole("button", { name: "เปิดค้นหาเทรนเนอร์" });
     fireEvent.keyDown(window, { key: "k", ctrlKey: true });
 
     expect(showModal).toHaveBeenCalledOnce();

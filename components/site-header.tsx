@@ -5,13 +5,8 @@ import { FormEvent, useEffect, useRef, useState } from "react";
 import { ChevronDown, Dumbbell, LayoutDashboard, LogOut, Search, X } from "lucide-react";
 import { MobileRoleNav } from "@/components/mobile-role-nav";
 import { ApiError, apiRequest } from "@/lib/api";
+import { navigationFor } from "@/lib/role-navigation";
 import type { AuthenticatedUser, UserRole } from "@/lib/types";
-
-const navItems = [
-  { href: "/trainers", label: "ค้นหาเทรนเนอร์" },
-  { href: "/trainer/apply", label: "สมัครเป็นเทรนเนอร์" },
-  { href: "/member", label: "การจองของฉัน" },
-];
 
 const dashboardByRole: Record<UserRole, string> = {
   member: "/member",
@@ -96,10 +91,6 @@ export function SiteHeader() {
     }
 
     function onKeyDown(event: KeyboardEvent) {
-      if ((event.metaKey || event.ctrlKey) && event.key.toLowerCase() === "k") {
-        event.preventDefault();
-        dialogRef.current?.showModal();
-      }
       if (event.key === "Escape") setProfileOpen(false);
     }
 
@@ -123,6 +114,20 @@ export function SiteHeader() {
     };
   }, []);
 
+  useEffect(() => {
+    if (user?.role !== "member") return;
+
+    function openMemberSearch(event: KeyboardEvent) {
+      if ((event.metaKey || event.ctrlKey) && event.key.toLowerCase() === "k") {
+        event.preventDefault();
+        dialogRef.current?.showModal();
+      }
+    }
+
+    window.addEventListener("keydown", openMemberSearch);
+    return () => window.removeEventListener("keydown", openMemberSearch);
+  }, [user?.role]);
+
   function signOut() {
     localStorage.removeItem("fitconnect_token");
     localStorage.removeItem("fitconnect_user");
@@ -138,10 +143,8 @@ export function SiteHeader() {
     if (!query) event.preventDefault();
   }
 
-  const activeNavItems = navItems.filter((item) => {
-    if (item.href === "/trainer/apply" && user) return false;
-    return true;
-  });
+  const memberSearchEnabled = user?.role === "member";
+  const desktopNavItems = navigationFor(user?.role ?? null).filter((item) => item.desktop);
 
   return (
     <header className="site-header">
@@ -151,24 +154,28 @@ export function SiteHeader() {
           <span>FITCONNECT</span>
         </Link>
 
-        <button className="command-pill" type="button" onClick={() => dialogRef.current?.showModal()}>
-          <Search aria-hidden="true" size={17} />
-          <span>ค้นหาพื้นที่ ความเชี่ยวชาญ หรือชื่อเทรนเนอร์</span>
-        </button>
+        {memberSearchEnabled && (
+          <button className="command-pill" type="button" onClick={() => dialogRef.current?.showModal()}>
+            <Search aria-hidden="true" size={17} />
+            <span>ค้นหาความเชี่ยวชาญหรือชื่อเทรนเนอร์</span>
+          </button>
+        )}
 
         <nav className="desktop-nav" aria-label="เมนูหลัก">
-          {activeNavItems.map((item) => <Link href={item.href} key={item.href}>{item.label}</Link>)}
+          {desktopNavItems.map((item) => <Link href={item.href} key={item.href}>{item.label}</Link>)}
         </nav>
 
         <div className="header-actions">
-          <button
-            className="icon-button responsive-search-button"
-            type="button"
-            aria-label="เปิดค้นหาเทรนเนอร์"
-            onClick={() => dialogRef.current?.showModal()}
-          >
-            <Search aria-hidden="true" size={18} />
-          </button>
+          {memberSearchEnabled && (
+            <button
+              className="icon-button responsive-search-button"
+              type="button"
+              aria-label="เปิดค้นหาเทรนเนอร์"
+              onClick={() => dialogRef.current?.showModal()}
+            >
+              <Search aria-hidden="true" size={18} />
+            </button>
+          )}
           {!sessionReady ? (
             <span className="session-placeholder" aria-hidden="true" />
           ) : user ? (
@@ -209,7 +216,7 @@ export function SiteHeader() {
         </div>
       </div>
 
-      <dialog className="search-dialog" ref={dialogRef} onClick={(event) => {
+      {memberSearchEnabled && <dialog className="search-dialog" ref={dialogRef} onClick={(event) => {
         if (event.target === event.currentTarget) event.currentTarget.close();
       }}>
         <div className="search-dialog__panel">
@@ -235,7 +242,7 @@ export function SiteHeader() {
               <Link href="/trainers?type=mobility">การเคลื่อนไหว</Link>
           </div>
         </div>
-      </dialog>
+      </dialog>}
       {sessionReady && <MobileRoleNav user={user} />}
     </header>
   );
