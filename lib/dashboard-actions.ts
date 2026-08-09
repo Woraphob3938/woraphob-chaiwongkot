@@ -32,6 +32,26 @@ export function getTrainerNextAction(workspace: TrainerWorkspace | null, booking
     return { title: "เริ่มต้นเป็นเทรนเนอร์", description: "ส่งข้อมูลและใบรับรองก่อนเปิดตาราง", href: "/trainer/apply", cta: "สมัครเป็นเทรนเนอร์", state: "action" };
   }
 
+  if (workspace.profile.approvalStatus === "pending") {
+    return {
+      title: "รอผู้ดูแลตรวจใบสมัคร",
+      description: "ยังไม่สามารถเปิดตารางได้จนกว่าจะได้รับอนุมัติ",
+      href: "/trainer#approval-status",
+      cta: "ดูสถานะการสมัคร",
+      state: "waiting",
+    };
+  }
+
+  if (workspace.profile.approvalStatus === "rejected") {
+    return {
+      title: "แก้ไขใบสมัครเทรนเนอร์",
+      description: "ตรวจข้อมูลและส่งใบสมัครอีกครั้ง",
+      href: "/trainer/apply",
+      cta: "แก้ไขใบสมัคร",
+      state: "action",
+    };
+  }
+
   const pending = bookings.find((booking) => booking.status === "pending_trainer");
   if (pending) return { title: "ตอบรับคำขอจอง", description: `คำขอ ${pending.id}`, href: `/trainer#booking-${pending.id}`, cta: "ตรวจคำขอ", state: "action" };
 

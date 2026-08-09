@@ -330,7 +330,7 @@ export function TrainerWorkbench() {
 
   return (
     <div className="trainer-workbench">
-      <section className="approval-panel">
+      <section className="approval-panel" id="approval-status">
         <div>
           <h2>{approved ? "โปรไฟล์พร้อมเปิดตาราง" : "โปรไฟล์ยังเปิดตารางไม่ได้"}</h2>
           <p>{workspace?.profile?.approvalNote ?? (approved ? "สร้างช่วงเวลาว่างล่วงหน้าได้ไม่เกิน 2 เดือน" : "รอผู้ดูแลตรวจใบรับรองก่อนสร้างช่วงเวลาว่าง")}</p>

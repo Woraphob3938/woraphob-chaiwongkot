@@ -2,6 +2,7 @@ import { act, fireEvent, render, screen, waitFor, within } from "@testing-librar
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { TrainerWorkbench } from "@/components/trainer-workbench";
 import { authenticatedRequest } from "@/lib/api";
+import * as dashboardActions from "@/lib/dashboard-actions";
 import type { Booking } from "@/lib/types";
 
 vi.mock("@/lib/api", () => ({
@@ -18,6 +19,11 @@ const rejectedWorkspace = {
 const approvedWorkspace = {
   ...rejectedWorkspace,
   profile: { ...rejectedWorkspace.profile, approvalStatus: "approved" as const, approvalNote: null },
+};
+
+const pendingWorkspace = {
+  ...rejectedWorkspace,
+  profile: { ...rejectedWorkspace.profile, approvalStatus: "pending" as const, approvalNote: null },
 };
 
 function bookingFixture(overrides: Partial<Booking> = {}): Booking {
@@ -49,7 +55,10 @@ function bookingFixture(overrides: Partial<Booking> = {}): Booking {
 }
 
 describe("TrainerWorkbench", () => {
-  beforeEach(() => vi.mocked(authenticatedRequest).mockReset());
+  beforeEach(() => {
+    vi.restoreAllMocks();
+    vi.mocked(authenticatedRequest).mockReset();
+  });
 
   it("puts the pending booking action before the workspace summaries", async () => {
     const bookings = [
@@ -82,6 +91,19 @@ describe("TrainerWorkbench", () => {
     expect(screen.getByRole("link", { name: "สมัครเป็นเทรนเนอร์" })).toHaveAttribute("href", "/trainer/apply");
   });
 
+  it("keeps a pending application CTA on the visible approval status", async () => {
+    vi.mocked(authenticatedRequest)
+      .mockResolvedValueOnce(pendingWorkspace)
+      .mockResolvedValueOnce([]);
+
+    render(<TrainerWorkbench />);
+
+    expect(await screen.findByTestId("next-action")).toHaveAttribute("data-state", "waiting");
+    expect(screen.getByRole("link", { name: "ดูสถานะการสมัคร" })).toHaveAttribute("href", "/trainer#approval-status");
+    expect(document.getElementById("approval-status")).toBeInTheDocument();
+    expect(screen.queryByRole("link", { name: "เพิ่มช่วงเวลาว่าง" })).not.toBeInTheDocument();
+  });
+
   it("keeps only three pending summaries mounted until the archive is opened", async () => {
     const bookings = Array.from({ length: 4 }, (_, index) => bookingFixture({
       id: `BK-${index + 1}`,
@@ -107,11 +129,47 @@ describe("TrainerWorkbench", () => {
     }
   });
 
+  it("mounts a selector target from source position four before the sole archive disclosure", async () => {
+    const bookings = Array.from({ length: 4 }, (_, index) => bookingFixture({ id: `BK-${index + 1}` }));
+    vi.spyOn(dashboardActions, "getTrainerNextAction").mockReturnValue({
+      title: "ตอบรับคำขอจอง",
+      description: "คำขอ BK-4",
+      href: "/trainer#booking-BK-4",
+      cta: "ตรวจคำขอ",
+      state: "action",
+    });
+    vi.mocked(authenticatedRequest)
+      .mockResolvedValueOnce(approvedWorkspace)
+      .mockResolvedValueOnce(bookings);
+
+    render(<TrainerWorkbench />);
+
+    await screen.findByRole("link", { name: "ตรวจคำขอ" });
+    expect(screen.getAllByTestId("trainer-booking-summary").map((summary) => summary.id)).toEqual([
+      "booking-BK-4",
+      "booking-BK-1",
+      "booking-BK-2",
+    ]);
+    const archive = document.querySelector<HTMLElement>(".trainer-list-disclosure");
+    const archiveSummary = archive?.querySelector<HTMLElement>(":scope > summary");
+    expect(document.querySelectorAll(".trainer-list-disclosure > summary")).toHaveLength(1);
+    expect(archiveSummary).toHaveAccessibleName("ดูคำขอทั้งหมด");
+
+    fireEvent.click(archiveSummary!);
+
+    await waitFor(() => expect(within(archive!).getByTestId("trainer-booking-summary")).toHaveAttribute("id", "booking-BK-3"));
+    for (const booking of bookings) {
+      expect(document.querySelectorAll(`#booking-${booking.id}`)).toHaveLength(1);
+    }
+  });
+
   it("shows the rejection reason and blocks slot creation", async () => {
     vi.mocked(authenticatedRequest).mockImplementation((path) => Promise.resolve(path === "/v1/trainer/me" ? rejectedWorkspace : []));
     render(<TrainerWorkbench />);
     expect(await screen.findByText("กรุณาส่งเอกสารใหม่")).toBeInTheDocument();
     expect(screen.getByTestId("next-action")).toBeInTheDocument();
+    expect(screen.getByRole("link", { name: "แก้ไขใบสมัคร" })).toHaveAttribute("href", "/trainer/apply");
+    expect(screen.queryByRole("link", { name: "เพิ่มช่วงเวลาว่าง" })).not.toBeInTheDocument();
     expect(screen.getByRole("button", { name: "เพิ่มช่วงเวลาว่าง" })).toBeDisabled();
   });
 

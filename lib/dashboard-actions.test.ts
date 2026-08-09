@@ -87,6 +87,32 @@ describe("getTrainerNextAction", () => {
     expect(getTrainerNextAction({ ...workspace, slots: [] }, [pendingBooking])).toMatchObject({ href: "/trainer#booking-BK-PENDING", state: "action" });
   });
 
+  it("keeps a pending application in a reachable waiting state", () => {
+    expect(getTrainerNextAction({
+      ...workspace,
+      profile: { ...workspace.profile!, approvalStatus: "pending" },
+      slots: [],
+    }, [])).toMatchObject({
+      title: "รอผู้ดูแลตรวจใบสมัคร",
+      href: "/trainer#approval-status",
+      cta: "ดูสถานะการสมัคร",
+      state: "waiting",
+    });
+  });
+
+  it("returns rejected applications to correction instead of a disabled slot form", () => {
+    expect(getTrainerNextAction({
+      ...workspace,
+      profile: { ...workspace.profile!, approvalStatus: "rejected", approvalNote: "กรุณาส่งเอกสารใหม่" },
+      slots: [],
+    }, [])).toMatchObject({
+      title: "แก้ไขใบสมัครเทรนเนอร์",
+      href: "/trainer/apply",
+      cta: "แก้ไขใบสมัคร",
+      state: "action",
+    });
+  });
+
   it("prompts trainers with no slots to add availability", () => {
     expect(getTrainerNextAction({ ...workspace, slots: [] }, [])).toMatchObject({ href: "/trainer#availability", state: "action" });
   });
