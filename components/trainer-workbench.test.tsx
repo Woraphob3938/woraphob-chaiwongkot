@@ -51,10 +51,67 @@ function bookingFixture(overrides: Partial<Booking> = {}): Booking {
 describe("TrainerWorkbench", () => {
   beforeEach(() => vi.mocked(authenticatedRequest).mockReset());
 
+  it("puts the pending booking action before the workspace summaries", async () => {
+    const bookings = [
+      bookingFixture({ id: "BK-OLD-1", status: "cancelled" }),
+      bookingFixture({ id: "BK-OLD-2", status: "completed" }),
+      bookingFixture({ id: "BK-OLD-3", status: "awaiting_payment" }),
+      bookingFixture(),
+    ];
+    vi.mocked(authenticatedRequest)
+      .mockResolvedValueOnce(approvedWorkspace)
+      .mockResolvedValueOnce(bookings);
+
+    render(<TrainerWorkbench />);
+
+    const actionTitle = await screen.findByRole("heading", { name: "ตอบรับคำขอจอง" });
+    const bookingHeading = screen.getByRole("heading", { name: "คำขอที่รอคำตอบ" });
+    expect(screen.getByTestId("next-action")).toHaveAttribute("data-state", "action");
+    expect(screen.getByRole("link", { name: "ตรวจคำขอ" })).toHaveAttribute("href", "/trainer#booking-BK-TEST");
+    expect(actionTitle.compareDocumentPosition(bookingHeading) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+  });
+
+  it("shows the application next action when the trainer has no profile", async () => {
+    vi.mocked(authenticatedRequest)
+      .mockResolvedValueOnce({ profile: null, certificates: [], slots: [] })
+      .mockResolvedValueOnce([]);
+
+    render(<TrainerWorkbench />);
+
+    expect(await screen.findByRole("heading", { name: "เริ่มต้นเป็นเทรนเนอร์" })).toBeInTheDocument();
+    expect(screen.getByRole("link", { name: "สมัครเป็นเทรนเนอร์" })).toHaveAttribute("href", "/trainer/apply");
+  });
+
+  it("keeps only three pending summaries mounted until the archive is opened", async () => {
+    const bookings = Array.from({ length: 4 }, (_, index) => bookingFixture({
+      id: `BK-${index + 1}`,
+      member: { displayName: `สมาชิก ${index + 1}` },
+    }));
+    vi.mocked(authenticatedRequest)
+      .mockResolvedValueOnce(approvedWorkspace)
+      .mockResolvedValueOnce(bookings);
+
+    render(<TrainerWorkbench />);
+
+    expect(await screen.findByRole("link", { name: "ตรวจคำขอ" })).toHaveAttribute("href", "/trainer#booking-BK-1");
+    expect(screen.getAllByTestId("trainer-booking-summary")).toHaveLength(3);
+    expect(document.getElementById("booking-BK-1")).toBeInTheDocument();
+    expect(document.getElementById("booking-BK-4")).not.toBeInTheDocument();
+
+    fireEvent.click(screen.getByText("ดูคำขอทั้งหมด"));
+
+    await waitFor(() => expect(screen.getAllByTestId("trainer-booking-summary")).toHaveLength(4));
+    for (const booking of bookings) {
+      expect(document.querySelectorAll(`#booking-${booking.id}`)).toHaveLength(1);
+      expect(document.querySelectorAll(`[aria-label="ตอบรับคำขอ ${booking.id}"]`)).toHaveLength(1);
+    }
+  });
+
   it("shows the rejection reason and blocks slot creation", async () => {
     vi.mocked(authenticatedRequest).mockImplementation((path) => Promise.resolve(path === "/v1/trainer/me" ? rejectedWorkspace : []));
     render(<TrainerWorkbench />);
     expect(await screen.findByText("กรุณาส่งเอกสารใหม่")).toBeInTheDocument();
+    expect(screen.getByTestId("next-action")).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "เพิ่มช่วงเวลาว่าง" })).toBeDisabled();
   });
 

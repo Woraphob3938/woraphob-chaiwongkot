@@ -1,10 +1,11 @@
 "use client";
 
-import Link from "next/link";
 import { FormEvent, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { CalendarPlus, RefreshCw, Trash2 } from "lucide-react";
+import { NextActionCard } from "@/components/dashboard-primitives";
 import { StatusBadge } from "@/components/status-badge";
 import { ApiError, authenticatedRequest } from "@/lib/api";
+import { getTrainerNextAction } from "@/lib/dashboard-actions";
 import { formatDateTime } from "@/lib/format";
 import type { Booking, TrainerAvailabilitySlot, TrainerWorkspace } from "@/lib/types";
 
@@ -33,6 +34,7 @@ export function TrainerWorkbench() {
   const [quotedPrices, setQuotedPrices] = useState<Record<string, string>>({});
   const [busy, setBusy] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
+  const [showAllPending, setShowAllPending] = useState(false);
   const actionNoticeRef = useRef<HTMLParagraphElement>(null);
   const completionErrorRef = useRef<HTMLDivElement>(null);
 
@@ -107,6 +109,25 @@ export function TrainerWorkbench() {
   const approved = workspace?.profile?.approvalStatus === "approved";
   const pendingBookings = bookings.filter((booking) => booking.status === "pending_trainer");
   const confirmedBookings = bookings.filter((booking) => booking.status === "confirmed");
+  const nextAction = getTrainerNextAction(workspace, bookings);
+  const actionBookingId = nextAction.href.match(/#booking-(.+)$/)?.[1];
+  const prioritizedPendingBookings = actionBookingId
+    ? [
+        ...pendingBookings.filter((booking) => booking.id === actionBookingId),
+        ...pendingBookings.filter((booking) => booking.id !== actionBookingId),
+      ]
+    : pendingBookings;
+  const visiblePendingBookings = showAllPending ? prioritizedPendingBookings : prioritizedPendingBookings.slice(0, 3);
+  const slots = workspace?.slots ?? [];
+  const todaySlotCount = slots.filter((slot) => {
+    const startsAt = new Date(slot.startsAt);
+    return startsAt.getFullYear() === now.getFullYear()
+      && startsAt.getMonth() === now.getMonth()
+      && startsAt.getDate() === now.getDate();
+  }).length;
+  const upcomingSlots = slots
+    .filter((slot) => new Date(slot.startsAt).getTime() >= now.getTime())
+    .sort((left, right) => new Date(left.startsAt).getTime() - new Date(right.startsAt).getTime());
 
   async function createSlot(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -222,16 +243,88 @@ export function TrainerWorkbench() {
     }
   }
 
+  function renderPendingBooking(booking: Booking) {
+    const isBusy = busy === `booking-${booking.id}`;
+    const rawQuote = quotedPrices[booking.id] ?? "";
+    const quoteAmount = Number(rawQuote);
+    const hasValidQuote = rawQuote.trim() !== "" && Number.isFinite(quoteAmount) && quoteAmount > 0;
+
+    return (
+      <details
+        className="trainer-booking-summary"
+        data-testid="trainer-booking-summary"
+        open={booking.id === actionBookingId || undefined}
+        id={`booking-${booking.id}`}
+        key={booking.id}
+      >
+        <summary>
+          <span><strong>{booking.member?.displayName ?? "สมาชิก FitConnect"}</strong><small>{booking.id}</small></span>
+          <span>{formatDateTime(booking.startsAt)}</span>
+          <span className="trainer-disclosure-label">ดูรายละเอียด</span>
+        </summary>
+        <article className="trainer-booking-card" aria-busy={isBusy}>
+          <dl>
+            <div><dt>วันและเวลา</dt><dd>{formatDateTime(booking.startsAt)}</dd></div>
+            <div><dt>สถานที่</dt><dd>{booking.location}</dd></div>
+            <div><dt>หมายเหตุ</dt><dd>{booking.note || "ไม่มีหมายเหตุ"}</dd></div>
+          </dl>
+          <div>
+            <div className="field">
+              <label htmlFor={`quote-${booking.id}`}>ค่าฝึกสำหรับคำขอ {booking.id}</label>
+              <input
+                id={`quote-${booking.id}`}
+                type="number"
+                min="0.01"
+                step="0.01"
+                inputMode="decimal"
+                value={rawQuote}
+                disabled={isBusy}
+                onChange={(event) => setQuotedPrices((current) => ({ ...current, [booking.id]: event.target.value }))}
+              />
+            </div>
+            <div className="queue-actions">
+              <button type="button" disabled={isBusy || !hasValidQuote} aria-label={`ตอบรับคำขอ ${booking.id}`} onClick={() => void decideBooking(booking.id, "accept")}>{isBusy ? "กำลังบันทึก…" : "ตอบรับ"}</button>
+              <button type="button" disabled={isBusy} aria-label={`ปฏิเสธคำขอ ${booking.id}`} onClick={() => void decideBooking(booking.id, "reject")}>ปฏิเสธ</button>
+            </div>
+          </div>
+        </article>
+      </details>
+    );
+  }
+
+  function renderConfirmedBooking(booking: Booking) {
+    const isBusy = busy === `booking-${booking.id}`;
+    return (
+      <article className="trainer-booking-card" key={booking.id} aria-busy={isBusy}>
+        <div className="trainer-booking-card__identity"><span>{booking.id}</span><h3>{booking.member?.displayName ?? "สมาชิก FitConnect"}</h3></div>
+        <dl>
+          <div><dt>เริ่มฝึก</dt><dd>{formatDateTime(booking.startsAt)}</dd></div>
+          <div><dt>สิ้นสุด</dt><dd>{formatDateTime(booking.endsAt)}</dd></div>
+          <div><dt>สถานที่</dt><dd>{booking.location}</dd></div>
+        </dl>
+        <div className="queue-actions">
+          {!booking.actions.canComplete && <span>ฝึกเสร็จได้หลัง {formatDateTime(booking.endsAt)}</span>}
+          <button type="button" disabled={!booking.actions.canComplete || isBusy} aria-label={`ฝึกเสร็จแล้ว ${booking.id}`} onClick={() => void completeBooking(booking.id)}>
+            {isBusy ? "กำลังบันทึก…" : "ฝึกเสร็จแล้ว"}
+          </button>
+        </div>
+      </article>
+    );
+  }
+
   if (loading && !workspace) {
     return <section className="queue-loading" aria-live="polite">กำลังเตรียมโต๊ะทำงานเทรนเนอร์…</section>;
   }
 
   if (workspace?.profile === null) {
     return (
-      <section className="approval-panel approval-panel--empty">
-        <div><h2>ยังไม่มีโปรไฟล์เทรนเนอร์</h2><p>ส่งข้อมูลและใบรับรองก่อนเปิดตารางให้สมาชิกจอง</p></div>
-        <Link className="button button--dark" href="/trainer/apply">เริ่มสมัครเป็นเทรนเนอร์</Link>
-      </section>
+      <div className="trainer-workbench">
+        <section className="approval-panel approval-panel--empty">
+          <div><h2>ยังไม่มีโปรไฟล์เทรนเนอร์</h2><p>ส่งข้อมูลและใบรับรองก่อนเปิดตารางให้สมาชิกจอง</p></div>
+          {workspaceError && <div className="workbench-error" role="alert"><span>{workspaceError}</span><button type="button" onClick={() => void loadWorkspace()}>ลองใหม่</button></div>}
+        </section>
+        <NextActionCard action={nextAction} />
+      </div>
     );
   }
 
@@ -245,10 +338,40 @@ export function TrainerWorkbench() {
         {workspace?.profile && <StatusBadge status={workspace.profile.approvalStatus} />}
         {workspaceError && <div className="workbench-error" role="alert"><span>{workspaceError}</span><button type="button" onClick={() => void loadWorkspace()}>ลองใหม่</button></div>}
       </section>
+
+      <NextActionCard action={nextAction} />
       {actionNotice && <p ref={actionNoticeRef} className="queue-notice workbench-success" role="status" tabIndex={-1}>{actionNotice}</p>}
 
-      <section className="availability-panel trainer-availability" aria-labelledby="availability-title">
-        <div className="section-line-heading"><div><h2 id="availability-title">ตารางว่างของฉัน</h2><p>ช่วงเวลาที่สมาชิกมองเห็นและส่งคำขอได้</p></div><CalendarPlus aria-hidden="true" size={22} /></div>
+      <section className="trainer-overview" id="schedule" aria-labelledby="trainer-overview-title">
+        <div><h2 id="trainer-overview-title">ภาพรวมตารางว่าง</h2><p>ข้อมูลจากตารางและนัดหมายปัจจุบัน</p></div>
+        <dl>
+          <div><dt>ช่วงเวลาวันนี้</dt><dd>{todaySlotCount}</dd></div>
+          <div><dt>ช่วงเวลาข้างหน้า</dt><dd>{upcomingSlots.length}</dd></div>
+          <div><dt>นัดยืนยันแล้ว</dt><dd>{confirmedBookings.length}</dd></div>
+        </dl>
+        <p>{upcomingSlots[0] ? `ช่วงเวลาถัดไป ${formatDateTime(upcomingSlots[0].startsAt)}` : "ยังไม่มีช่วงเวลาข้างหน้า"}</p>
+      </section>
+
+      <section className="trainer-booking-list" aria-labelledby="trainer-requests-title">
+        <div className="section-line-heading"><div><h2 id="trainer-requests-title">คำขอที่รอคำตอบ</h2><p>เปิดรายละเอียดเฉพาะรายการที่ต้องตัดสินใจ</p></div><span className="queue-count">{String(pendingBookings.length).padStart(2, "0")}</span></div>
+        {bookingError && <div className="workbench-error" role="alert"><span>{bookingError}</span><button type="button" onClick={() => void loadBookings()}><RefreshCw aria-hidden="true" size={15} /> ลองใหม่</button></div>}
+        {visiblePendingBookings.slice(0, 3).map(renderPendingBooking)}
+        {pendingBookings.length > 3 && (
+          <details className="trainer-list-disclosure" onToggle={(event) => setShowAllPending(event.currentTarget.open)}>
+            <summary>ดูคำขอทั้งหมด</summary>
+            {showAllPending && visiblePendingBookings.slice(3).map(renderPendingBooking)}
+          </details>
+        )}
+        {pendingBookings.length === 0 && <div className="empty-state"><strong>ไม่มีคำขอที่รอคำตอบ</strong><p>เมื่อสมาชิกส่งคำขอ รายละเอียดจะปรากฏที่นี่</p></div>}
+      </section>
+
+      <details
+        className="trainer-disclosure trainer-availability"
+        id="availability"
+        key={nextAction.href === "/trainer#availability" ? "availability-action" : "availability-idle"}
+        open={nextAction.href === "/trainer#availability" || undefined}
+      >
+        <summary><span><CalendarPlus aria-hidden="true" size={20} /><strong>จัดการช่วงเวลาว่าง</strong></span><small>{slots.length} ช่วงเวลา</small></summary>
         <form className="availability-form" onSubmit={createSlot}>
           <label>
             <span>เริ่มต้น</span>
@@ -264,7 +387,7 @@ export function TrainerWorkbench() {
         </form>
         {availabilityError && <p className="row-error" role="alert">{availabilityError}</p>}
         <div className="trainer-slot-list">
-          {workspace?.slots.map((slot) => {
+          {slots.map((slot) => {
             const canDelete = slot.state === "available" && new Date(slot.startsAt).getTime() > now.getTime();
             return (
               <div className="trainer-slot-row" key={slot.id} aria-busy={busy === `slot-${slot.id}`}>
@@ -273,86 +396,24 @@ export function TrainerWorkbench() {
               </div>
             );
           })}
-          {workspace?.slots.length === 0 && <div className="empty-state"><strong>ยังไม่มีช่วงเวลาว่าง</strong><p>เพิ่มช่วงเวลาแรกเมื่อโปรไฟล์ได้รับการอนุมัติ</p></div>}
+          {slots.length === 0 && <div className="empty-state"><strong>ยังไม่มีช่วงเวลาว่าง</strong><p>เพิ่มช่วงเวลาแรกเมื่อโปรไฟล์ได้รับการอนุมัติ</p></div>}
         </div>
-      </section>
-
-      <section className="trainer-booking-list" aria-labelledby="trainer-requests-title">
-        <div className="section-line-heading"><div><h2 id="trainer-requests-title">คำขอที่รอคำตอบ</h2><p>ตรวจวัน เวลา สถานที่ และข้อมูลจากสมาชิกก่อนตัดสินใจ</p></div><span className="queue-count">{String(pendingBookings.length).padStart(2, "0")}</span></div>
-        {bookingError && <div className="workbench-error" role="alert"><span>{bookingError}</span><button type="button" onClick={() => void loadBookings()}><RefreshCw aria-hidden="true" size={15} /> ลองใหม่</button></div>}
-        {pendingBookings.map((booking) => {
-          const isBusy = busy === `booking-${booking.id}`;
-          const rawQuote = quotedPrices[booking.id] ?? "";
-          const quoteAmount = Number(rawQuote);
-          const hasValidQuote = rawQuote.trim() !== "" && Number.isFinite(quoteAmount) && quoteAmount > 0;
-          return (
-            <article className="trainer-booking-card" key={booking.id} aria-busy={isBusy}>
-              <div className="trainer-booking-card__identity"><span>{booking.id}</span><h3>{booking.member?.displayName ?? "สมาชิก FitConnect"}</h3></div>
-              <dl>
-                <div><dt>วันและเวลา</dt><dd>{formatDateTime(booking.startsAt)}</dd></div>
-                <div><dt>สถานที่</dt><dd>{booking.location}</dd></div>
-                <div><dt>หมายเหตุ</dt><dd>{booking.note || "ไม่มีหมายเหตุ"}</dd></div>
-              </dl>
-              <div>
-                <div className="field">
-                  <label htmlFor={`quote-${booking.id}`}>ค่าฝึกสำหรับคำขอ {booking.id}</label>
-                  <input
-                    id={`quote-${booking.id}`}
-                    type="number"
-                    min="0.01"
-                    step="0.01"
-                    inputMode="decimal"
-                    value={rawQuote}
-                    disabled={isBusy}
-                    onChange={(event) => setQuotedPrices((current) => ({ ...current, [booking.id]: event.target.value }))}
-                  />
-                </div>
-                <div className="queue-actions">
-                  <button type="button" disabled={isBusy || !hasValidQuote} aria-label={`ตอบรับคำขอ ${booking.id}`} onClick={() => void decideBooking(booking.id, "accept")}>{isBusy ? "กำลังบันทึก…" : "ตอบรับ"}</button>
-                  <button type="button" disabled={isBusy} aria-label={`ปฏิเสธคำขอ ${booking.id}`} onClick={() => void decideBooking(booking.id, "reject")}>ปฏิเสธ</button>
-                </div>
-              </div>
-            </article>
-          );
-        })}
-        {pendingBookings.length === 0 && <div className="empty-state"><strong>ไม่มีคำขอที่รอคำตอบ</strong><p>เมื่อสมาชิกส่งคำขอ รายละเอียดจะปรากฏที่นี่</p></div>}
-      </section>
+      </details>
 
       <section className="trainer-booking-list" aria-labelledby="trainer-confirmed-title">
-        <div className="section-line-heading"><div><h2 id="trainer-confirmed-title">นัดหมายที่ยืนยันแล้ว</h2><p>บันทึกว่าฝึกเสร็จเมื่อระบบเปิดให้ดำเนินการหลังเวลานัด</p></div><span className="queue-count">{String(confirmedBookings.length).padStart(2, "0")}</span></div>
-        {completionError && (
-          <div ref={completionErrorRef} className="workbench-error" role="alert" tabIndex={-1}>
-            <span>{completionError}</span>
-            <button type="button" disabled={busy === "bookings-refresh"} onClick={() => void retryBookingRefresh()}>
-              <RefreshCw aria-hidden="true" size={15} /> {busy === "bookings-refresh" ? "กำลังโหลด…" : "ลองโหลดใหม่"}
-            </button>
-          </div>
-        )}
-        {confirmedBookings.map((booking) => {
-          const isBusy = busy === `booking-${booking.id}`;
-          return (
-            <article className="trainer-booking-card" key={booking.id} aria-busy={isBusy}>
-              <div className="trainer-booking-card__identity"><span>{booking.id}</span><h3>{booking.member?.displayName ?? "สมาชิก FitConnect"}</h3></div>
-              <dl>
-                <div><dt>เริ่มฝึก</dt><dd>{formatDateTime(booking.startsAt)}</dd></div>
-                <div><dt>สิ้นสุด</dt><dd>{formatDateTime(booking.endsAt)}</dd></div>
-                <div><dt>สถานที่</dt><dd>{booking.location}</dd></div>
-              </dl>
-              <div className="queue-actions">
-                {!booking.actions.canComplete && <span>ฝึกเสร็จได้หลัง {formatDateTime(booking.endsAt)}</span>}
-                <button
-                  type="button"
-                  disabled={!booking.actions.canComplete || isBusy}
-                  aria-label={`ฝึกเสร็จแล้ว ${booking.id}`}
-                  onClick={() => void completeBooking(booking.id)}
-                >
-                  {isBusy ? "กำลังบันทึก…" : "ฝึกเสร็จแล้ว"}
-                </button>
-              </div>
-            </article>
-          );
-        })}
-        {confirmedBookings.length === 0 && <div className="empty-state"><strong>ยังไม่มีนัดที่ยืนยันแล้ว</strong><p>นัดหมายจะย้ายมาที่นี่หลังผู้ดูแลอนุมัติการชำระเงิน</p></div>}
+        <details className="trainer-disclosure">
+          <summary><span><strong id="trainer-confirmed-title">นัดหมายที่ยืนยันแล้ว</strong><small>เปิดเพื่อจัดการและบันทึกผลหลังเวลานัด</small></span><span className="queue-count">{String(confirmedBookings.length).padStart(2, "0")}</span></summary>
+          {completionError && (
+            <div ref={completionErrorRef} className="workbench-error" role="alert" tabIndex={-1}>
+              <span>{completionError}</span>
+              <button type="button" disabled={busy === "bookings-refresh"} onClick={() => void retryBookingRefresh()}>
+                <RefreshCw aria-hidden="true" size={15} /> {busy === "bookings-refresh" ? "กำลังโหลด…" : "ลองโหลดใหม่"}
+              </button>
+            </div>
+          )}
+          {confirmedBookings.map(renderConfirmedBooking)}
+          {confirmedBookings.length === 0 && <div className="empty-state"><strong>ยังไม่มีนัดที่ยืนยันแล้ว</strong><p>นัดหมายจะย้ายมาที่นี่หลังผู้ดูแลอนุมัติการชำระเงิน</p></div>}
+        </details>
       </section>
     </div>
   );

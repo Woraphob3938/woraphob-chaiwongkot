@@ -2786,6 +2786,130 @@ body {
   background: var(--color-paper-2);
 }
 
+.trainer-overview {
+  display: grid;
+  grid-template-columns: minmax(12rem, 0.7fr) minmax(0, 1.3fr);
+  gap: var(--space-lg);
+  padding: var(--space-lg);
+  background: var(--color-paper-2);
+  border-block: 1px solid var(--color-rule);
+}
+
+.trainer-overview > div p,
+.trainer-overview > p {
+  margin-top: var(--space-xs);
+  color: var(--color-muted);
+  font-size: var(--text-sm);
+}
+
+.trainer-overview > dl {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: var(--space-sm);
+}
+
+.trainer-overview > dl > div {
+  display: grid;
+  gap: var(--space-2xs);
+  padding-inline-start: var(--space-md);
+  border-inline-start: 1px solid var(--color-rule);
+}
+
+.trainer-overview dt {
+  color: var(--color-muted);
+  font-size: var(--text-xs);
+}
+
+.trainer-overview dd {
+  font-family: var(--font-mono);
+  font-size: var(--text-xl);
+  font-weight: 800;
+}
+
+.trainer-overview > p {
+  grid-column: 1 / -1;
+  margin: 0;
+}
+
+.trainer-booking-summary,
+.trainer-disclosure,
+.trainer-list-disclosure {
+  border-bottom: 1px solid var(--color-rule);
+}
+
+.trainer-booking-summary > summary,
+.trainer-disclosure > summary,
+.trainer-list-disclosure > summary {
+  min-height: var(--size-control);
+  cursor: pointer;
+}
+
+.trainer-booking-summary > summary,
+.trainer-disclosure > summary {
+  display: grid;
+  grid-template-columns: minmax(10rem, 0.65fr) minmax(0, 1fr) auto;
+  align-items: center;
+  gap: var(--space-md);
+  padding: var(--space-md) var(--space-lg);
+  list-style-position: inside;
+}
+
+.trainer-booking-summary > summary:hover,
+.trainer-disclosure > summary:hover,
+.trainer-list-disclosure > summary:hover {
+  background: var(--color-paper-2);
+}
+
+.trainer-booking-summary > summary:focus-visible,
+.trainer-disclosure > summary:focus-visible,
+.trainer-list-disclosure > summary:focus-visible {
+  outline: 3px solid var(--color-focus);
+  outline-offset: -3px;
+}
+
+.trainer-booking-summary > summary > span:first-child,
+.trainer-disclosure > summary > span:first-child {
+  display: grid;
+  min-width: 0;
+  gap: var(--space-2xs);
+}
+
+.trainer-booking-summary > summary small,
+.trainer-disclosure > summary small {
+  color: var(--color-muted);
+  font-size: var(--text-xs);
+}
+
+.trainer-disclosure > summary > span:first-child:has(svg) {
+  grid-template-columns: auto minmax(0, 1fr);
+  align-items: center;
+}
+
+.trainer-disclosure-label {
+  color: var(--color-ink-2);
+  font-size: var(--text-sm);
+  font-weight: 700;
+}
+
+.trainer-booking-summary[open] .trainer-disclosure-label::after {
+  content: "แล้ว";
+}
+
+.trainer-booking-summary .trainer-booking-card {
+  grid-template-columns: minmax(0, 1fr) minmax(12rem, 0.55fr);
+  background: var(--color-paper-2);
+}
+
+.trainer-list-disclosure > summary {
+  padding: var(--space-md) var(--space-lg);
+  color: var(--color-ink-2);
+  font-weight: 800;
+}
+
+.trainer-list-disclosure[open] > summary {
+  border-bottom: 1px solid var(--color-rule);
+}
+
 /* Post-booking chat workbench */
 .chat-page {
   padding-block: var(--space-xl) var(--space-3xl);
@@ -4074,6 +4198,54 @@ body {
 
   .member-booking-summary__appointment,
   .member-booking-summary__action {
+    grid-column: 1;
+    grid-row: auto;
+  }
+}
+
+@media (max-width: 47.99rem) {
+  .trainer-overview {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .trainer-overview > dl {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+  }
+
+  .trainer-booking-summary > summary,
+  .trainer-disclosure > summary {
+    grid-template-columns: minmax(0, 1fr) auto;
+    gap: var(--space-xs) var(--space-sm);
+    padding-inline: var(--space-md);
+  }
+
+  .trainer-booking-summary > summary > span:nth-child(2) {
+    grid-column: 1;
+  }
+
+  .trainer-disclosure-label {
+    grid-column: 2;
+    grid-row: 1 / span 2;
+  }
+}
+
+@media (max-width: 24rem) {
+  .trainer-overview > dl {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .trainer-overview > dl > div {
+    grid-template-columns: minmax(0, 1fr) auto;
+    align-items: baseline;
+  }
+
+  .trainer-booking-summary > summary,
+  .trainer-disclosure > summary {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .trainer-booking-summary > summary > span:nth-child(2),
+  .trainer-disclosure-label {
     grid-column: 1;
     grid-row: auto;
   }
