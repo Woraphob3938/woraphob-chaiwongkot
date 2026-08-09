@@ -157,6 +157,14 @@ export function SiteHeader() {
         </nav>
 
         <div className="header-actions">
+          <button
+            className="icon-button responsive-search-button"
+            type="button"
+            aria-label="เปิดค้นหาเทรนเนอร์"
+            onClick={() => dialogRef.current?.showModal()}
+          >
+            <Search aria-hidden="true" size={18} />
+          </button>
           {!sessionReady ? (
             <span className="session-placeholder" aria-hidden="true" />
           ) : user ? (

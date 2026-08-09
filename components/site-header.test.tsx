@@ -99,6 +99,23 @@ describe("SiteHeader", () => {
     await waitFor(() => expect(mockedApiRequest).toHaveBeenCalled());
   });
 
+  it("opens the global search dialog from the responsive header control", () => {
+    const showModal = vi.fn(function (this: HTMLDialogElement) {
+      this.setAttribute("open", "");
+    });
+    Object.defineProperty(HTMLDialogElement.prototype, "showModal", {
+      configurable: true,
+      value: showModal,
+    });
+
+    render(<SiteHeader />);
+    fireEvent.click(screen.getByRole("button", { name: "เปิดค้นหาเทรนเนอร์" }));
+
+    expect(showModal).toHaveBeenCalledOnce();
+    expect(screen.getByRole("dialog")).toHaveAttribute("open");
+    delete (HTMLDialogElement.prototype as Partial<HTMLDialogElement>).showModal;
+  });
+
   it("keeps the global search dialog available from the desktop keyboard shortcut", () => {
     const showModal = vi.fn(function (this: HTMLDialogElement) {
         this.setAttribute("open", "");

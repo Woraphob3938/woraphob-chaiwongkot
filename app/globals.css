@@ -479,6 +479,7 @@ h3 {
   background: var(--color-paper-2);
 }
 
+.responsive-search-button,
 .mobile-role-nav {
   display: none;
 }
@@ -3044,6 +3045,11 @@ h3 {
 @media (max-width: 76rem) {
   .command-pill {
     display: none;
+  }
+
+  .responsive-search-button {
+    display: inline-grid;
+    flex: 0 0 auto;
   }
 
   .discovery-workbench {
