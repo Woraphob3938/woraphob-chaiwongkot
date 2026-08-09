@@ -19,6 +19,7 @@ describe("dashboard primitives", () => {
     expect(screen.getByRole("heading", { name: "อัปโหลดสลิป" })).toBeInTheDocument();
     expect(screen.getByText("คำขอ BK-TEST")).toBeInTheDocument();
     expect(screen.getByRole("link", { name: "ดำเนินการ" })).toHaveAttribute("href", "/member#booking-BK-TEST");
+    expect(screen.getByRole("region", { name: "อัปโหลดสลิป" })).toBeInTheDocument();
     expect(screen.getByTestId("next-action")).toHaveAttribute("data-state", "action");
   });
 

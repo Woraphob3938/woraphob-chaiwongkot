@@ -4,11 +4,13 @@ import { Button } from "@/components/ui/button";
 import type { DashboardAction } from "@/lib/dashboard-actions";
 
 export function NextActionCard({ action }: { action: DashboardAction }) {
+  const titleId = useId();
+
   return (
-    <section className="next-action-card" data-state={action.state} data-testid="next-action">
+    <section className="next-action-card" aria-labelledby={titleId} data-state={action.state} data-testid="next-action">
       <div>
         <p className="next-action-card__eyebrow">สิ่งที่ต้องทำต่อ</p>
-        <h2>{action.title}</h2>
+        <h2 id={titleId}>{action.title}</h2>
         <p className="next-action-card__description">{action.description}</p>
       </div>
       <Button asChild>
