@@ -42,4 +42,13 @@ describe("HomeOverview", () => {
 
     expect(screen.getByRole("img")).not.toHaveAttribute("loading", "lazy");
   });
+
+  it("describes the journey through observable member actions", () => {
+    render(<HomeOverview trainers={trainers} trainingTypes={trainingTypes} isDemo />);
+
+    expect(
+      screen.getByText("ดูเส้นทางตั้งแต่เลือกเทรนเนอร์ ส่งคำขอ อัปโหลดสลิป จนถึงเขียนรีวิวหลังการฝึก"),
+    ).toBeInTheDocument();
+    expect(screen.queryByText(/ข้อมูลการจองชุดเดียวกัน/)).not.toBeInTheDocument();
+  });
 });

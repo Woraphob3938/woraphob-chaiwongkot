@@ -98,7 +98,7 @@ export function HomeOverview({ trainers, trainingTypes, isDemo }: HomeOverviewPr
       <section className="home-journey" aria-labelledby="journey-title">
         <div className="home-journey__intro">
           <h2 id="journey-title">ตั้งแต่ค้นหาจนจบการฝึก</h2>
-          <p>ทุกขั้นตอนใช้ข้อมูลการจองชุดเดียวกัน เพื่อให้สมาชิกและเทรนเนอร์เห็นสถานะตรงกัน</p>
+          <p>ดูเส้นทางตั้งแต่เลือกเทรนเนอร์ ส่งคำขอ อัปโหลดสลิป จนถึงเขียนรีวิวหลังการฝึก</p>
         </div>
         <ol className="home-journey__steps">
           {journeySteps.map((step, index) => (

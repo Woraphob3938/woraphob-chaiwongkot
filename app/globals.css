@@ -984,7 +984,7 @@ h3 {
 }
 
 .home-featured__grid .trainer-preview-card__action:hover {
-  color: var(--color-accent);
+  color: var(--color-paper);
   background: var(--color-ink-2);
   border-color: var(--color-ink-2);
 }
