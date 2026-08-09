@@ -29,8 +29,8 @@ No disclosure may hide a fact required to confirm a destructive or irreversible 
 | Discovery | Query, result count, trainer choices, verification, starting price, selected availability | Detailed filters; credentials/evidence | Select an available time |
 | Trainer profile | Identity, verification, specialty, price | Credentials; full schedule | Continue with one selected time |
 | Booking | Trainer, date, time, estimated price, trainer-response notice | No required fact is hidden; note is optional | Send booking request |
-| Payment | Current payment state, administrator note when present, actionable upload form | Previously submitted amount, quoted fee, and prior evidence metadata | Send evidence for administrator review |
-| Review | Current state, published rating/comment when present, or actionable rating/comment form | No review-history disclosure exists; only the current review returned by the system is shown directly in the summary | Submit review |
+| Payment | Current payment state, administrator note when present, actionable upload form | Booking ID, trainer, quoted fee, and prior submitted amount when present | Send evidence for administrator review |
+| Review | Current review returned by the API (rating, comment, and status), which may be `published`, `hidden`, or `reported`; or an actionable rating/comment form | No review-history disclosure exists; only the current API review is shown directly in the summary | Submit review |
 | Chat | Room list, active heading, messages, composer | Booking ID, date, time, price, appointment state | Send message |
 
 ## Manual-review truthfulness
