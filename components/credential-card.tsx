@@ -4,11 +4,11 @@ import type { Trainer } from "@/lib/types";
 
 export function CredentialCard({ trainer }: { trainer: Trainer }) {
   return (
-    <section className="credential-card" aria-labelledby={`credential-${trainer.id}`}>
+    <section className="credential-card" aria-label={`หลักฐานคุณสมบัติของ ${trainer.displayName}`}>
       <div className="credential-heading">
         <div>
           <p className="label">บัตรคุณสมบัติเทรนเนอร์</p>
-          <h2 id={`credential-${trainer.id}`}>{trainer.displayName}</h2>
+          <h3>คุณสมบัติและประสบการณ์</h3>
           <p>{trainer.headline}</p>
         </div>
         <StatusBadge status={trainer.verification} />

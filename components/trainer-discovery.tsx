@@ -3,11 +3,15 @@
 import Image from "next/image";
 import Link from "next/link";
 import { useMemo, useState } from "react";
-import { ArrowUpRight, BadgeCheck, ChevronDown, MapPin, Search, SlidersHorizontal } from "lucide-react";
+import { ArrowUpRight, BadgeCheck, MapPin, Search } from "lucide-react";
 import { AvailabilityPanel } from "@/components/availability-panel";
 import { BookingStrip } from "@/components/booking-strip";
 import { CredentialCard } from "@/components/credential-card";
 import { DemoNotice } from "@/components/demo-notice";
+import { DisclosureSection } from "@/components/disclosure-section";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
+import { NativeSelect, NativeSelectOption } from "@/components/ui/native-select";
 import { formatMoney, initials } from "@/lib/format";
 import type { AvailabilitySlot, Province, Trainer, TrainingType } from "@/lib/types";
 
@@ -34,7 +38,6 @@ export function TrainerDiscovery({
   const [province, setProvince] = useState(initialProvince);
   const [trainingType, setTrainingType] = useState(initialType);
   const [verifiedOnly, setVerifiedOnly] = useState(false);
-  const [filtersOpen, setFiltersOpen] = useState(false);
   const [selectedId, setSelectedId] = useState(initialTrainers[0]?.id ?? 0);
   const [selectedSlot, setSelectedSlot] = useState<AvailabilitySlot | null>(null);
 
@@ -81,62 +84,73 @@ export function TrainerDiscovery({
 
       {isDemo && <DemoNotice />}
 
-      <div className="discovery-workbench">
-        <aside className="discovery-controls" aria-labelledby="filter-title">
-          <div className="workbench-title desktop-filter-title">
-            <SlidersHorizontal aria-hidden="true" size={19} />
-            <h2 id="filter-title">กรองเทรนเนอร์</h2>
+      <div className="discovery-guided-layout">
+        <section className="discovery-search" aria-labelledby="discovery-search-title">
+          <div className="workbench-title">
+            <Search aria-hidden="true" size={19} />
+            <h2 id="discovery-search-title">ค้นหาเทรนเนอร์</h2>
           </div>
-          <button
-            className="mobile-filter-toggle"
-            type="button"
-            aria-expanded={filtersOpen}
-            aria-controls="trainer-filter-fields"
-            onClick={() => setFiltersOpen((open) => !open)}
+          <div className="field discovery-query-field">
+            <Label htmlFor="trainer-query">ชื่อหรือความเชี่ยวชาญ</Label>
+            <div className="input-with-icon">
+              <Search aria-hidden="true" size={17} />
+              <Input
+                id="trainer-query"
+                type="search"
+                value={query}
+                onChange={(event) => {
+                  setQuery(event.target.value);
+                  setSelectedSlot(null);
+                }}
+                placeholder="เช่น เวทเทรนนิง"
+              />
+            </div>
+          </div>
+          <DisclosureSection
+            title="ตัวกรองเพิ่มเติม"
+            summary={province || trainingType || verifiedOnly ? "กำลังใช้ตัวกรอง" : "จังหวัด ประเภท และสถานะการตรวจ"}
+            className="discovery-filter-disclosure"
           >
-            <span><SlidersHorizontal aria-hidden="true" size={19} /> ตัวกรอง</span>
-            <ChevronDown aria-hidden="true" className={filtersOpen ? "is-open" : ""} size={18} />
-          </button>
-
-          <div id="trainer-filter-fields" className={`filter-fields${filtersOpen ? " is-open" : ""}`}>
-            <div className="field">
-              <label htmlFor="trainer-query">ชื่อหรือความเชี่ยวชาญ</label>
-              <div className="input-with-icon">
-                <Search aria-hidden="true" size={17} />
-                <input
-                  id="trainer-query"
-                  type="search"
-                  value={query}
-                  onChange={(event) => setQuery(event.target.value)}
-                  placeholder="เช่น เวทเทรนนิง"
-                />
+            <div className="guided-filter-grid">
+              <div className="field">
+                <Label htmlFor="province-filter">จังหวัด</Label>
+                <NativeSelect id="province-filter" value={province} onChange={(event) => {
+                  setProvince(event.target.value);
+                  setSelectedSlot(null);
+                }}>
+                  <NativeSelectOption value="">ทุกจังหวัด</NativeSelectOption>
+                  {provinces.map((item) => <NativeSelectOption key={item.id} value={item.nameTh}>{item.nameTh}</NativeSelectOption>)}
+                </NativeSelect>
+              </div>
+              <div className="field">
+                <Label htmlFor="type-filter">ประเภทการฝึก</Label>
+                <NativeSelect id="type-filter" value={trainingType} onChange={(event) => {
+                  setTrainingType(event.target.value);
+                  setSelectedSlot(null);
+                }}>
+                  <NativeSelectOption value="">ทุกประเภท</NativeSelectOption>
+                  {trainingTypes.map((type) => <NativeSelectOption key={type.id} value={type.slug}>{type.nameTh}</NativeSelectOption>)}
+                </NativeSelect>
               </div>
             </div>
-            <div className="field">
-              <label htmlFor="province-filter">จังหวัด</label>
-              <select id="province-filter" value={province} onChange={(event) => setProvince(event.target.value)}>
-                <option value="">ทุกจังหวัด</option>
-                {provinces.map((item) => <option key={item.id} value={item.nameTh}>{item.nameTh}</option>)}
-              </select>
-            </div>
-            <div className="field">
-              <label htmlFor="type-filter">ประเภทการฝึก</label>
-              <select id="type-filter" value={trainingType} onChange={(event) => setTrainingType(event.target.value)}>
-                <option value="">ทุกประเภท</option>
-                {trainingTypes.map((type) => <option key={type.id} value={type.slug}>{type.nameTh}</option>)}
-              </select>
-            </div>
             <label className="check-row">
-              <input type="checkbox" checked={verifiedOnly} onChange={(event) => setVerifiedOnly(event.target.checked)} />
+              <input type="checkbox" checked={verifiedOnly} onChange={(event) => {
+                setVerifiedOnly(event.target.checked);
+                setSelectedSlot(null);
+              }} />
               <span>แสดงเฉพาะโปรไฟล์ที่ตรวจแล้ว</span>
             </label>
-          </div>
+          </DisclosureSection>
+        </section>
 
-          <div className="result-heading">
+        <section
+          className="trainer-results"
+          aria-label={`ผลการค้นหาเทรนเนอร์ ${filtered.length} รายการ`}
+        >
+          <div className="result-heading" aria-live="polite">
             <strong>{filtered.length} ผลลัพธ์</strong>
-            <span>เลือกเพื่อดูหลักฐาน</span>
+            <span>เลือกเพื่อดูข้อมูลและตารางว่าง</span>
           </div>
-
           <div className="trainer-result-list">
             {filtered.map((trainer) => {
               const active = trainer.id === selectedTrainer?.id;
@@ -146,6 +160,7 @@ export function TrainerDiscovery({
                   type="button"
                   key={trainer.id}
                   aria-pressed={active}
+                  aria-label={`เลือก ${trainer.displayName} จังหวัด${trainer.province.nameTh}${trainer.verification === "verified" ? " ตรวจคุณสมบัติแล้ว" : ""}`}
                   onClick={() => selectTrainer(trainer)}
                 >
                   <span className="result-avatar">
@@ -176,34 +191,54 @@ export function TrainerDiscovery({
               </div>
             )}
           </div>
-        </aside>
+        </section>
 
-        <div className="trainer-evidence">
+        <section className="selected-trainer-summary" aria-label="ข้อมูลเทรนเนอร์ที่เลือก">
           {selectedTrainer ? (
             <>
-              <div className="trainer-portrait">
-                {selectedTrainer.image ? (
-                  <Image
-                    src={selectedTrainer.image}
-                    alt={`ภาพบุคคลสังเคราะห์ของ${selectedTrainer.displayName} ใช้เพื่อสาธิต`}
-                    fill
-                    priority
-                    loading="eager"
-                    fetchPriority="high"
-                    sizes="(max-width: 900px) 100vw, 45vw"
-                  />
-                ) : <span>{initials(selectedTrainer.displayName)}</span>}
-                <div className="portrait-stamp">ภาพสังเคราะห์ · สาธิต</div>
+              <div className="selected-trainer-overview">
+                <div className="trainer-portrait">
+                  {selectedTrainer.image ? (
+                    <Image
+                      src={selectedTrainer.image}
+                      alt={selectedTrainer.demo
+                        ? `ภาพสังเคราะห์ของ${selectedTrainer.displayName} ใช้เพื่อสาธิต`
+                        : `ภาพบุคคลของ${selectedTrainer.displayName}`}
+                      fill
+                      priority
+                      loading="eager"
+                      fetchPriority="high"
+                      sizes="(max-width: 900px) 100vw, 40vw"
+                    />
+                  ) : <span>{initials(selectedTrainer.displayName)}</span>}
+                  {selectedTrainer.demo && <div className="portrait-stamp">ภาพสังเคราะห์ · สาธิต</div>}
+                </div>
+                <div className="selected-trainer-copy">
+                  <p className="label">เทรนเนอร์ที่เลือก</p>
+                  <h2>{selectedTrainer.displayName}</h2>
+                  <p>{selectedTrainer.headline}</p>
+                  <div className="selected-trainer-facts">
+                    <span><MapPin aria-hidden="true" size={15} /> {selectedTrainer.province.nameTh}</span>
+                    {selectedTrainer.verification === "verified" && <span><BadgeCheck aria-hidden="true" size={16} /> ตรวจคุณสมบัติแล้ว</span>}
+                  </div>
+                  <div className="evidence-actions">
+                    <Link href={`/trainers/${selectedTrainer.slug}`}>
+                      ดูโปรไฟล์เต็ม <ArrowUpRight aria-hidden="true" size={17} />
+                    </Link>
+                    <span>{selectedTrainer.priceFrom == null
+                      ? "รอยืนยันราคา"
+                      : `เริ่มต้น ${formatMoney(selectedTrainer.priceFrom)} / ครั้ง`}</span>
+                  </div>
+                </div>
               </div>
-              <CredentialCard trainer={selectedTrainer} />
-              <div className="evidence-actions">
-                <Link href={`/trainers/${selectedTrainer.slug}`}>
-                  ดูโปรไฟล์เต็ม <ArrowUpRight aria-hidden="true" size={17} />
-                </Link>
-                <span>{selectedTrainer.priceFrom == null
-                  ? "รอยืนยันราคา"
-                  : `เริ่มต้น ${formatMoney(selectedTrainer.priceFrom)} / ครั้ง`}</span>
-              </div>
+              <DisclosureSection
+                title="หลักฐานและใบรับรอง"
+                summary={`${selectedTrainer.certificates.length} รายการ · ประสบการณ์ ${selectedTrainer.yearsExperience} ปี`}
+                className="credential-disclosure"
+              >
+                <CredentialCard trainer={selectedTrainer} />
+              </DisclosureSection>
+              <AvailabilityPanel trainer={selectedTrainer} selectedSlot={selectedSlot} onSelectSlot={setSelectedSlot} />
             </>
           ) : (
             <div className="empty-evidence">
@@ -211,15 +246,7 @@ export function TrainerDiscovery({
               <h2>ปรับตัวกรองเพื่อดูโปรไฟล์</h2>
             </div>
           )}
-        </div>
-
-        <div className="schedule-zone">
-          {selectedTrainer ? (
-            <AvailabilityPanel trainer={selectedTrainer} selectedSlot={selectedSlot} onSelectSlot={setSelectedSlot} />
-          ) : (
-            <div className="empty-evidence"><h2>ยังไม่มีตารางเวลา</h2></div>
-          )}
-        </div>
+        </section>
       </div>
 
       <section className="process-rule" aria-labelledby="process-title">

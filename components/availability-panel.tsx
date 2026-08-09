@@ -9,12 +9,14 @@ type Props = {
 };
 
 export function AvailabilityPanel({ trainer, selectedSlot, onSelectSlot }: Props) {
+  const headingId = `availability-title-${trainer.id}`;
+
   return (
-    <section className="availability-panel" aria-labelledby="availability-title">
+    <section className="availability-panel" aria-label={`ตารางว่างของ ${trainer.displayName}`}>
       <div className="section-line-heading">
         <div>
           <p className="label">ตารางพร้อมจอง</p>
-          <h2 id="availability-title">เลือกเวลาที่เข้ากับคุณ</h2>
+          <h2 id={headingId}>เลือกเวลาที่เข้ากับคุณ</h2>
         </div>
         <CalendarDays aria-hidden="true" size={22} />
       </div>
