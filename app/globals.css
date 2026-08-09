@@ -460,8 +460,7 @@ h3 {
 }
 
 .profile-menu > a,
-.profile-menu > button,
-.mobile-signout {
+.profile-menu > button {
   display: flex;
   width: 100%;
   min-height: var(--size-control);
@@ -480,8 +479,7 @@ h3 {
   background: var(--color-paper-2);
 }
 
-.mobile-menu-button,
-.mobile-nav {
+.mobile-role-nav {
   display: none;
 }
 
@@ -3044,12 +3042,8 @@ h3 {
 
 /* Responsive */
 @media (max-width: 76rem) {
-  .desktop-nav {
-    display: none;
-  }
-
   .command-pill {
-    min-width: 15rem;
+    display: none;
   }
 
   .discovery-workbench {
@@ -3083,41 +3077,12 @@ h3 {
     min-height: 4rem;
   }
 
-  .command-pill,
-  .desktop-only {
+  .command-pill {
     display: none;
   }
 
   .header-actions {
     margin-left: auto;
-  }
-
-  .mobile-menu-button {
-    display: inline-grid;
-  }
-
-  .mobile-nav {
-    display: grid;
-    width: min(100% - 2rem, var(--container));
-    gap: 0;
-    margin-inline: auto;
-    padding-bottom: var(--space-md);
-  }
-
-  .mobile-nav a,
-  .mobile-search,
-  .mobile-signout {
-    display: flex;
-    min-height: var(--size-control);
-    align-items: center;
-    gap: var(--space-xs);
-    padding: var(--space-sm) 0;
-    background: transparent;
-    border: 0;
-    border-bottom: 1px solid var(--color-rule);
-    font-weight: 600;
-    text-align: left;
-    white-space: nowrap;
   }
 
   .session-placeholder {
@@ -3393,10 +3358,60 @@ h3 {
   }
 }
 
+@media (max-width: 47.99rem) {
+  body {
+    padding-bottom: calc(4.25rem + env(safe-area-inset-bottom));
+  }
+
+  .desktop-nav,
+  .desktop-only {
+    display: none;
+  }
+
+  .mobile-role-nav {
+    position: fixed;
+    right: 0;
+    bottom: 0;
+    left: 0;
+    z-index: var(--z-sticky-nav);
+    display: flex;
+    min-height: calc(4.25rem + env(safe-area-inset-bottom));
+    align-items: stretch;
+    padding: 0 var(--space-2xs) env(safe-area-inset-bottom);
+    background: var(--color-paper);
+    border-top: 1px solid var(--color-rule);
+    box-shadow: 0 -0.75rem 2rem var(--color-shadow);
+  }
+
+  .mobile-role-nav a {
+    display: flex;
+    min-width: 0;
+    min-height: 2.75rem;
+    flex: 1 1 auto;
+    align-items: center;
+    justify-content: center;
+    padding: var(--space-xs) var(--space-2xs);
+    color: var(--color-muted);
+    font-size: clamp(0.625rem, 2.8vw, var(--text-xs));
+    font-weight: 700;
+    line-height: 1;
+    text-align: center;
+    white-space: nowrap;
+  }
+
+  .mobile-role-nav a[aria-current="page"] {
+    color: var(--color-ink);
+    background: var(--color-accent-soft);
+  }
+
+  .booking-strip {
+    bottom: calc(4.25rem + env(safe-area-inset-bottom));
+  }
+}
+
 @media (max-width: 38rem) {
   .page-shell,
   .header-inner,
-  .mobile-nav,
   .booking-strip__inner,
   .page-footer {
     width: min(100% - 1.25rem, var(--container));

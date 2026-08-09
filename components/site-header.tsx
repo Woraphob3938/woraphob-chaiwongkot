@@ -2,7 +2,8 @@
 
 import Link from "next/link";
 import { FormEvent, useEffect, useRef, useState } from "react";
-import { ChevronDown, Dumbbell, LayoutDashboard, LogOut, Menu, Search, X } from "lucide-react";
+import { ChevronDown, Dumbbell, LayoutDashboard, LogOut, Search, X } from "lucide-react";
+import { MobileRoleNav } from "@/components/mobile-role-nav";
 import { ApiError, apiRequest } from "@/lib/api";
 import type { AuthenticatedUser, UserRole } from "@/lib/types";
 
@@ -48,7 +49,6 @@ function readStoredUser() {
 export function SiteHeader() {
   const dialogRef = useRef<HTMLDialogElement>(null);
   const profileRef = useRef<HTMLDivElement>(null);
-  const [mobileOpen, setMobileOpen] = useState(false);
   const [profileOpen, setProfileOpen] = useState(false);
   const [sessionReady, setSessionReady] = useState(false);
   const [user, setUser] = useState<AuthenticatedUser | null>(null);
@@ -128,7 +128,6 @@ export function SiteHeader() {
     localStorage.removeItem("fitconnect_user");
     setUser(null);
     setProfileOpen(false);
-    setMobileOpen(false);
     window.dispatchEvent(new CustomEvent("fitconnect:auth", { detail: null }));
     window.location.href = "/";
   }
@@ -195,39 +194,8 @@ export function SiteHeader() {
               <Link className="button button--dark desktop-only" href="/register">เริ่มใช้งาน</Link>
             </>
           )}
-          <button
-            className="icon-button mobile-menu-button"
-            type="button"
-            aria-label={mobileOpen ? "ปิดเมนู" : "เปิดเมนู"}
-            aria-expanded={mobileOpen}
-            onClick={() => setMobileOpen((open) => !open)}
-          >
-            {mobileOpen ? <X aria-hidden="true" /> : <Menu aria-hidden="true" />}
-          </button>
         </div>
       </div>
-
-      {mobileOpen && (
-        <nav className="mobile-nav" aria-label="เมนูหลักบนมือถือ">
-          <button type="button" className="mobile-search" onClick={() => dialogRef.current?.showModal()}>
-            <Search aria-hidden="true" size={18} /> ค้นหาเทรนเนอร์
-          </button>
-          {navItems.map((item) => (
-            <Link href={item.href} key={item.href} onClick={() => setMobileOpen(false)}>{item.label}</Link>
-          ))}
-          {user ? (
-            <>
-              <Link href={dashboardByRole[user.role]} onClick={() => setMobileOpen(false)}>พื้นที่ใช้งานของฉัน</Link>
-              <button type="button" className="mobile-signout" onClick={signOut}><LogOut aria-hidden="true" size={18} /> ออกจากระบบ</button>
-            </>
-          ) : (
-            <>
-              <Link href="/login" onClick={() => setMobileOpen(false)}>เข้าสู่ระบบ</Link>
-              <Link href="/register" onClick={() => setMobileOpen(false)}>สมัครสมาชิก</Link>
-            </>
-          )}
-        </nav>
-      )}
 
       <dialog className="search-dialog" ref={dialogRef} onClick={(event) => {
         if (event.target === event.currentTarget) event.currentTarget.close();
@@ -256,6 +224,7 @@ export function SiteHeader() {
           </div>
         </div>
       </dialog>
+      {sessionReady && <MobileRoleNav user={user} />}
     </header>
   );
 }
