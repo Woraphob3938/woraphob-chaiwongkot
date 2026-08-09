@@ -79,8 +79,8 @@ describe("getMemberNextAction", () => {
 });
 
 describe("getTrainerNextAction", () => {
-  it("directs people without a trainer workspace to apply", () => {
-    expect(getTrainerNextAction(null, [])).toMatchObject({ href: "/trainer/apply", cta: "สมัครเป็นเทรนเนอร์" });
+  it("directs a trainer without a professional profile to finish setup", () => {
+    expect(getTrainerNextAction(null, [])).toMatchObject({ href: "/trainer/apply", cta: "กรอกข้อมูลวิชาชีพ" });
   });
 
   it("prioritizes a pending booking over missing availability", () => {

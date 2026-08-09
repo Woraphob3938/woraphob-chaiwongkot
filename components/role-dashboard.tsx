@@ -58,7 +58,13 @@ function bookingIdFromActionHref(href: string): string | null {
   return markerIndex === -1 ? null : href.slice(markerIndex + marker.length);
 }
 
-export function RoleDashboard({ role }: { role: UserRole }) {
+export function RoleDashboard({
+  role,
+  navigate = (href) => window.location.assign(href),
+}: {
+  role: UserRole;
+  navigate?: (href: string) => void;
+}) {
   const copy = roleCopy[role];
   const [bookings, setBookings] = useState<Booking[]>([]);
   const [bookingError, setBookingError] = useState("");
@@ -230,7 +236,7 @@ export function RoleDashboard({ role }: { role: UserRole }) {
         </div>
       )}
 
-      {role === "trainer" && <TrainerWorkbench />}
+      {role === "trainer" && <TrainerWorkbench onIncompleteProfile={() => navigate("/trainer/apply")} />}
 
       {role === "admin" && <AdminReviewQueue />}
     </main>

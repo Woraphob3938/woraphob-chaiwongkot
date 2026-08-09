@@ -29,7 +29,7 @@ export function getMemberNextAction(bookings: Booking[]): DashboardAction {
 
 export function getTrainerNextAction(workspace: TrainerWorkspace | null, bookings: Booking[]): DashboardAction {
   if (!workspace?.profile) {
-    return { title: "เริ่มต้นเป็นเทรนเนอร์", description: "ส่งข้อมูลและใบรับรองก่อนเปิดตาราง", href: "/trainer/apply", cta: "สมัครเป็นเทรนเนอร์", state: "action" };
+    return { title: "กรอกข้อมูลวิชาชีพให้ครบ", description: "บัญชีพร้อมแล้ว เหลือข้อมูลการให้บริการและใบรับรอง", href: "/trainer/apply", cta: "กรอกข้อมูลวิชาชีพ", state: "action" };
   }
 
   if (workspace.profile.approvalStatus === "pending") {

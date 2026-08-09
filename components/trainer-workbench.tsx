@@ -22,7 +22,7 @@ function leaveExpiredSession(error: unknown) {
   return true;
 }
 
-export function TrainerWorkbench() {
+export function TrainerWorkbench({ onIncompleteProfile }: { onIncompleteProfile?: () => void } = {}) {
   const [workspace, setWorkspace] = useState<TrainerWorkspace | null>(null);
   const [bookings, setBookings] = useState<Booking[]>([]);
   const [workspaceError, setWorkspaceError] = useState("");
@@ -40,6 +40,11 @@ export function TrainerWorkbench() {
   const [showAllPending, setShowAllPending] = useState(false);
   const actionNoticeRef = useRef<HTMLParagraphElement>(null);
   const completionErrorRef = useRef<HTMLDivElement>(null);
+  const onIncompleteProfileRef = useRef(onIncompleteProfile);
+
+  useEffect(() => {
+    onIncompleteProfileRef.current = onIncompleteProfile;
+  }, [onIncompleteProfile]);
 
   const loadWorkspace = useCallback(async () => {
     try {
@@ -47,6 +52,7 @@ export function TrainerWorkbench() {
       setWorkspace(data);
       setWorkspaceError("");
       setWorkspaceReady(true);
+      if (data.profile === null) onIncompleteProfileRef.current?.();
     } catch (error) {
       if (leaveExpiredSession(error)) return;
       setWorkspaceReady(false);
@@ -85,6 +91,7 @@ export function TrainerWorkbench() {
         setWorkspace(workspaceResult.value);
         setWorkspaceError("");
         setWorkspaceReady(true);
+        if (workspaceResult.value.profile === null) onIncompleteProfileRef.current?.();
       } else if (!leaveExpiredSession(workspaceResult.reason)) {
         setWorkspaceReady(false);
         setWorkspaceError(workspaceResult.reason instanceof Error ? workspaceResult.reason.message : "โหลดข้อมูลเทรนเนอร์ไม่สำเร็จ");
@@ -347,7 +354,7 @@ export function TrainerWorkbench() {
     return (
       <div className="trainer-workbench">
         <section className="approval-panel approval-panel--empty">
-          <div><h2>ยังไม่มีโปรไฟล์เทรนเนอร์</h2><p>ส่งข้อมูลและใบรับรองก่อนเปิดตารางให้สมาชิกจอง</p></div>
+          <div><h2>ข้อมูลวิชาชีพยังไม่ครบ</h2><p>บัญชีเทรนเนอร์สร้างแล้ว กรอกข้อมูลการให้บริการและใบรับรองเพื่อส่งให้แอดมินตรวจ</p></div>
           {workspaceError && <div className="workbench-error" role="alert"><span>{workspaceError}</span><button type="button" onClick={() => void loadWorkspace()}>ลองใหม่</button></div>}
         </section>
         {bookingError && <div className="workbench-error" role="alert"><span>{bookingError}</span><button type="button" onClick={() => void loadBookings()}><RefreshCw aria-hidden="true" size={15} /> ลองใหม่</button></div>}

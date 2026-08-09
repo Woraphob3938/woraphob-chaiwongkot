@@ -87,8 +87,31 @@ describe("TrainerWorkbench", () => {
 
     render(<TrainerWorkbench />);
 
-    expect(await screen.findByRole("heading", { name: "เริ่มต้นเป็นเทรนเนอร์" })).toBeInTheDocument();
-    expect(screen.getByRole("link", { name: "สมัครเป็นเทรนเนอร์" })).toHaveAttribute("href", "/trainer/apply");
+    expect(await screen.findByRole("heading", { name: "กรอกข้อมูลวิชาชีพให้ครบ" })).toBeInTheDocument();
+    expect(screen.getByRole("link", { name: "กรอกข้อมูลวิชาชีพ" })).toHaveAttribute("href", "/trainer/apply");
+  });
+
+  it("reports a successfully loaded incomplete profile to the route guard", async () => {
+    const onIncompleteProfile = vi.fn();
+    vi.mocked(authenticatedRequest)
+      .mockResolvedValueOnce({ profile: null, certificates: [], slots: [] })
+      .mockResolvedValueOnce([]);
+
+    render(<TrainerWorkbench onIncompleteProfile={onIncompleteProfile} />);
+
+    await waitFor(() => expect(onIncompleteProfile).toHaveBeenCalledTimes(1));
+  });
+
+  it("does not report an incomplete profile when workspace loading fails", async () => {
+    const onIncompleteProfile = vi.fn();
+    vi.mocked(authenticatedRequest)
+      .mockRejectedValueOnce(new Error("โหลดสถานะเทรนเนอร์ไม่ได้"))
+      .mockResolvedValueOnce([]);
+
+    render(<TrainerWorkbench onIncompleteProfile={onIncompleteProfile} />);
+
+    expect(await screen.findByRole("alert")).toHaveTextContent("โหลดสถานะเทรนเนอร์ไม่ได้");
+    expect(onIncompleteProfile).not.toHaveBeenCalled();
   });
 
   it("withholds advice and booking controls when workspace loading fails", async () => {

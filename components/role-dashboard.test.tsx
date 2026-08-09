@@ -6,7 +6,11 @@ import type { Booking } from "@/lib/types";
 
 vi.mock("@/lib/api", () => ({ authenticatedRequest: vi.fn() }));
 vi.mock("@/components/admin-review-queue", () => ({ AdminReviewQueue: () => null }));
-vi.mock("@/components/trainer-workbench", () => ({ TrainerWorkbench: () => null }));
+vi.mock("@/components/trainer-workbench", () => ({
+  TrainerWorkbench: ({ onIncompleteProfile }: { onIncompleteProfile?: () => void }) => (
+    <button type="button" onClick={onIncompleteProfile}>จำลองโปรไฟล์ไม่ครบ</button>
+  ),
+}));
 
 function bookingFixture(id: string, overrides: Partial<Booking> = {}): Booking {
   return {
@@ -142,5 +146,15 @@ describe("member role dashboard", () => {
       "booking-BK-CONFIRMED",
     ]);
     expect(new Set(allSummaryIds).size).toBe(fourthActionBookings.length);
+  });
+});
+
+describe("trainer role dashboard", () => {
+  it("continues an incomplete trainer to professional profile setup", () => {
+    const navigate = vi.fn();
+    render(<RoleDashboard role="trainer" navigate={navigate} />);
+
+    fireEvent.click(screen.getByRole("button", { name: "จำลองโปรไฟล์ไม่ครบ" }));
+    expect(navigate).toHaveBeenCalledWith("/trainer/apply");
   });
 });

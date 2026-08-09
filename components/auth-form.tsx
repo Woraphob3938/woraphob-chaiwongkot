@@ -3,12 +3,38 @@
 import Link from "next/link";
 import { FormEvent, useState } from "react";
 import { ArrowRight, CircleAlert, LoaderCircle, LockKeyhole, Mail, UserRound } from "lucide-react";
-import { apiRequest } from "@/lib/api";
-import type { AuthenticatedUser } from "@/lib/types";
+import { apiRequest, authenticatedRequest } from "@/lib/api";
+import { resolvePostAuthDestination } from "@/lib/post-auth-destination";
+import type { AuthenticatedUser, TrainerWorkspace } from "@/lib/types";
 
-export function AuthForm({ mode }: { mode: "login" | "register" }) {
+type AuthFormProps = {
+  mode: "login" | "register";
+  navigate?: (href: string) => void;
+};
+
+export function AuthForm({ mode, navigate = (href) => window.location.assign(href) }: AuthFormProps) {
   const [pending, setPending] = useState(false);
   const [message, setMessage] = useState<{ tone: "error" | "success"; text: string } | null>(null);
+  const [authenticatedUser, setAuthenticatedUser] = useState<AuthenticatedUser | null>(null);
+
+  async function continueToWorkspace(user: AuthenticatedUser) {
+    setPending(true);
+    setMessage({ tone: "success", text: "เชื่อมต่อบัญชีสำเร็จ กำลังตรวจพื้นที่ใช้งานของคุณ" });
+    try {
+      const destination = await resolvePostAuthDestination(
+        user,
+        () => authenticatedRequest<TrainerWorkspace>("/v1/trainer/me"),
+      );
+      navigate(destination);
+    } catch (error) {
+      setMessage({
+        tone: "error",
+        text: error instanceof Error ? error.message : "ตรวจสถานะเทรนเนอร์ไม่สำเร็จ",
+      });
+    } finally {
+      setPending(false);
+    }
+  }
 
   async function onSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -24,8 +50,8 @@ export function AuthForm({ mode }: { mode: "login" | "register" }) {
       localStorage.setItem("fitconnect_token", result.token);
       localStorage.setItem("fitconnect_user", JSON.stringify(result.user));
       window.dispatchEvent(new CustomEvent("fitconnect:auth", { detail: result.user }));
-      setMessage({ tone: "success", text: "เชื่อมต่อบัญชีสำเร็จ กำลังพาไปยังพื้นที่ใช้งานของคุณ" });
-      window.location.href = result.user.role === "trainer" ? "/trainer" : result.user.role === "admin" ? "/admin" : "/member";
+      setAuthenticatedUser(result.user);
+      await continueToWorkspace(result.user);
     } catch (error) {
       setMessage({ tone: "error", text: error instanceof Error ? error.message : "เข้าสู่ระบบไม่สำเร็จ โปรดตรวจการเชื่อมต่อ XAMPP" });
     } finally {
@@ -59,8 +85,13 @@ export function AuthForm({ mode }: { mode: "login" | "register" }) {
         </div>
       )}
       <div className="form-message-slot" aria-live="polite">
-        {message && <div className={`form-message form-message--${message.tone}`} role="status"><CircleAlert aria-hidden="true" size={18} /> {message.text}</div>}
+        {message && <div className={`form-message form-message--${message.tone}`} role={message.tone === "error" ? "alert" : "status"}><CircleAlert aria-hidden="true" size={18} /> {message.text}</div>}
       </div>
+      {authenticatedUser && message?.tone === "error" && (
+        <button className="button button--ghost button--wide" type="button" disabled={pending} onClick={() => void continueToWorkspace(authenticatedUser)}>
+          ตรวจสถานะอีกครั้ง
+        </button>
+      )}
       <button className="button button--accent button--wide" type="submit" disabled={pending}>
         {pending ? <><LoaderCircle className="spin" aria-hidden="true" size={18} /> กำลังเชื่อมต่อ</> : <>{mode === "login" ? "เข้าสู่ระบบ" : "สร้างบัญชี"} <ArrowRight aria-hidden="true" size={18} /></>}
       </button>
