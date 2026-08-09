@@ -98,6 +98,7 @@ export function ChatWorkbench({ initialBookingId }: ChatWorkbenchProps) {
   const retryCursorRef = useRef<number | null>(null);
   const sendLockRef = useRef(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const selectedRoomRef = useRef<HTMLButtonElement>(null);
 
   const selectedBooking = useMemo(
     () => rooms.find((booking) => booking.id === selectedBookingId) ?? null,
@@ -117,6 +118,12 @@ export function ChatWorkbench({ initialBookingId }: ChatWorkbenchProps) {
     desktop.addEventListener("change", syncFactsDisclosure);
     return () => desktop.removeEventListener("change", syncFactsDisclosure);
   }, []);
+
+  useEffect(() => {
+    if (!selectedBookingId || typeof window.matchMedia !== "function") return;
+    if (window.matchMedia(DESKTOP_FACTS_QUERY).matches) return;
+    selectedRoomRef.current?.scrollIntoView?.({ block: "nearest" });
+  }, [selectedBookingId]);
 
   const loadRooms = useCallback(async () => {
     setRoomsLoading(true);
@@ -421,6 +428,7 @@ export function ChatWorkbench({ initialBookingId }: ChatWorkbenchProps) {
             className={`chat-contact${booking.id === selectedBooking.id ? " is-active" : ""}`}
             type="button"
             key={booking.id}
+            ref={booking.id === selectedBooking.id ? selectedRoomRef : undefined}
             aria-pressed={booking.id === selectedBooking.id}
             onClick={() => setSelectedBookingId(booking.id)}
           >
@@ -466,7 +474,7 @@ export function ChatWorkbench({ initialBookingId }: ChatWorkbenchProps) {
                   {message.message && <p>{message.message}</p>}
                   {message.attachment && (
                     <ul className="certificate-list">
-                      <li>
+                      <li className="chat-attachment-row">
                         <div>
                           <FileText aria-hidden="true" size={18} />
                           <span className="chat-breakable">

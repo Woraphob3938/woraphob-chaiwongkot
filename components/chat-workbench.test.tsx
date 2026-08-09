@@ -84,6 +84,25 @@ function stubDesktopFacts(matches: boolean) {
   }));
 }
 
+function max58RuleBody(selector: string): string | undefined {
+  const styles = readFileSync("app/globals.css", "utf8");
+  const mediaStart = styles.lastIndexOf("@media (max-width: 58rem)");
+  const mediaEnd = styles.indexOf("@media", mediaStart + 1);
+  const compactStyles = styles.slice(mediaStart, mediaEnd);
+  const escapedSelector = selector.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+  return compactStyles.match(new RegExp(`${escapedSelector}\\s*\\{([^}]*)\\}`))?.[1];
+}
+
+function declarationValue(ruleBody: string, property: string): string {
+  const styles = document.createElement("style");
+  styles.textContent = `.probe { ${ruleBody} }`;
+  document.head.append(styles);
+  const rule = styles.sheet?.cssRules[0] as CSSStyleRule | undefined;
+  const value = rule?.style.getPropertyValue(property) ?? "";
+  styles.remove();
+  return value;
+}
+
 describe("ChatWorkbench", () => {
   const originalVisibility = Object.getOwnPropertyDescriptor(document, "visibilityState");
 
@@ -128,6 +147,64 @@ describe("ChatWorkbench", () => {
     expect(screen.queryByText("เทรนเนอร์ จ.")).not.toBeInTheDocument();
     expect(screen.getByText("ห้องที่เลือก")).toBeInTheDocument();
     expect(authenticatedRequest).toHaveBeenCalledWith("/v1/chat-rooms/22/messages?afterId=0");
+  });
+
+  it("keeps every compact room accessible in a capped scroll region and reveals the selected room", async () => {
+    stubDesktopFacts(false);
+    const rooms = Array.from({ length: 18 }, (_, index) => bookingFixture({
+      id: `BK-ROOM-${String(index + 1).padStart(2, "0")}`,
+      chatRoomId: index + 1,
+      trainer: { id: index + 1, slug: `trainer-${index + 1}`, displayName: `เทรนเนอร์ ${index + 1}` },
+    }));
+    const selected = rooms.at(-1) as Booking;
+    const scrollIntoView = vi.fn();
+    const originalScrollIntoView = HTMLElement.prototype.scrollIntoView;
+    Object.defineProperty(HTMLElement.prototype, "scrollIntoView", { configurable: true, value: scrollIntoView });
+    vi.mocked(authenticatedRequest).mockImplementation((path) => {
+      if (path === "/v1/bookings") return Promise.resolve(rooms);
+      if (path === `/v1/chat-rooms/${selected.chatRoomId}/messages?afterId=0`) return Promise.resolve([]);
+      return Promise.reject(new Error(`unexpected ${path}`));
+    });
+
+    render(<ChatWorkbench initialBookingId={selected.id} />);
+    await flushPromises();
+
+    const roomList = screen.getByRole("complementary", { name: "ห้องตามคำขอจอง" });
+    expect(roomList).toHaveClass("chat-room-list");
+    expect(within(roomList).getAllByRole("button")).toHaveLength(18);
+    expect(within(roomList).getByRole("button", { name: /เทรนเนอร์ 18/ })).toHaveAttribute("aria-pressed", "true");
+    expect(scrollIntoView).toHaveBeenCalledWith({ block: "nearest" });
+
+    const compactRoomRule = max58RuleBody(".chat-room-list");
+    expect(compactRoomRule).toBeDefined();
+    expect(declarationValue(compactRoomRule ?? "", "max-block-size")).not.toBe("");
+    expect(declarationValue(compactRoomRule ?? "", "overflow-y")).toBe("auto");
+
+    Object.defineProperty(HTMLElement.prototype, "scrollIntoView", {
+      configurable: true,
+      value: originalScrollIntoView,
+    });
+  });
+
+  it("gives tablet chat attachments a semantic full-width row without character-by-character filenames", async () => {
+    stubDesktopFacts(false);
+    const attachment = { name: "trainer-a.png", mime: "image/png", size: 2_048, url: "/protected/trainer-a" };
+    vi.mocked(authenticatedRequest)
+      .mockResolvedValueOnce([bookingFixture()])
+      .mockResolvedValueOnce([messageFixture(3, "รูปสถานที่ฝึก", { attachment })]);
+
+    render(<ChatWorkbench />);
+    await flushPromises();
+
+    const filename = screen.getByText("trainer-a.png");
+    const attachmentRow = filename.closest("li");
+    expect(attachmentRow).toHaveClass("chat-attachment-row");
+    expect(within(attachmentRow as HTMLElement).getByRole("button", { name: "เปิดไฟล์ trainer-a.png" })).toBeEnabled();
+
+    const compactAttachmentRule = max58RuleBody(".chat-attachment-row");
+    expect(compactAttachmentRule).toBeDefined();
+    expect(declarationValue(compactAttachmentRule ?? "", "grid-template-columns")).toContain("minmax(0, 1fr)");
+    expect(declarationValue(compactAttachmentRule ?? "", "word-break")).not.toBe("break-all");
   });
 
   it.each([

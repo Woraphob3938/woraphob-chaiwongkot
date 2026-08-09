@@ -3540,7 +3540,11 @@ body {
   }
 
   .chat-room-list {
+    max-block-size: min(22rem, 48vh);
     padding: var(--space-md);
+    overflow-y: auto;
+    overscroll-behavior: contain;
+    scrollbar-gutter: stable;
   }
 
   .chat-workbench,
@@ -3566,6 +3570,28 @@ body {
     grid-column: 2;
     grid-row: 2;
     border-top: 1px solid var(--color-rule);
+  }
+
+  .chat-thread .messages > .ledger-row {
+    grid-template-columns: minmax(0, 1fr);
+    gap: var(--space-sm);
+  }
+
+  .chat-attachment-row {
+    display: grid;
+    width: 100%;
+    grid-template-columns: minmax(0, 1fr) auto;
+    align-items: start;
+    word-break: normal;
+  }
+
+  .chat-attachment-row > div {
+    width: 100%;
+  }
+
+  .chat-attachment-row .chat-breakable {
+    overflow-wrap: break-word;
+    word-break: normal;
   }
 
   .footer-line {
@@ -3968,6 +3994,10 @@ body {
     grid-row: 3;
     border-inline-start: 0;
     border-top: 1px solid var(--color-rule);
+  }
+
+  .chat-attachment-row {
+    grid-template-columns: minmax(0, 1fr);
   }
 
   .chat-thread > header {
