@@ -77,10 +77,14 @@ describe("BookingForm", () => {
     expect(screen.queryByRole("button", { name: /ยืนยันและส่งคำขอ/ })).not.toBeInTheDocument();
   });
 
-  it("keeps form values and reports a stale slot", async () => {
-    vi.mocked(apiRequest).mockResolvedValueOnce(liveTrainer).mockResolvedValueOnce({ ...liveTrainer, slots: [] });
+  it("keeps typed values but blocks a stale slot until a fresh valid slot is selected", async () => {
+    const replacementSlot = { ...liveTrainer.slots[0], id: 45 };
+    vi.mocked(apiRequest)
+      .mockResolvedValueOnce(liveTrainer)
+      .mockResolvedValueOnce({ ...liveTrainer, slots: [] })
+      .mockResolvedValueOnce({ ...liveTrainer, slots: [replacementSlot] });
     vi.mocked(authenticatedRequest).mockRejectedValue(new ApiError("ช่วงเวลานี้ไม่พร้อมจองแล้ว", 409, "SLOT_UNAVAILABLE"));
-    render(<BookingForm trainerSlug="live-trainer" slotId="44" />);
+    const { rerender } = render(<BookingForm trainerSlug="live-trainer" slotId="44" />);
     await screen.findByText("เทรนเนอร์จริง");
     const location = screen.getByLabelText("สถานที่ที่สะดวก");
     fireEvent.change(location, { target: { value: "สถานที่เดิม" } });
@@ -91,7 +95,20 @@ describe("BookingForm", () => {
     await waitFor(() => expect(apiRequest).toHaveBeenCalledTimes(2));
     expect(screen.getByLabelText("สถานที่ที่สะดวก")).toHaveValue("สถานที่เดิม");
     expect(screen.getByLabelText(/เป้าหมายหรือข้อจำกัดที่ควรรู้/)).toHaveValue("รักษาข้อมูลนี้ไว้");
-    expect(screen.getByRole("button", { name: /ยืนยันและส่งคำขอ/ })).toBeEnabled();
+    const staleSubmit = screen.getByRole("button", { name: /ยืนยันและส่งคำขอ/ });
+    expect(staleSubmit).toBeDisabled();
+    expect(screen.getByText("เวลาที่เลือกไม่ว่างแล้ว กรุณาเลือกเวลาใหม่")).toBeInTheDocument();
+    expect(screen.getByRole("link", { name: "เลือกเวลาอื่น" })).toHaveAttribute("href", "/trainers/live-trainer");
+    fireEvent.click(staleSubmit);
+    expect(authenticatedRequest).toHaveBeenCalledTimes(1);
+
+    rerender(<BookingForm trainerSlug="live-trainer" slotId="45" />);
+    await waitFor(() => expect(apiRequest).toHaveBeenCalledTimes(3));
+    await waitFor(() => expect(screen.getByRole("button", { name: /ยืนยันและส่งคำขอ/ })).toBeEnabled());
+    expect(screen.queryByText("เวลาที่เลือกไม่ว่างแล้ว กรุณาเลือกเวลาใหม่")).not.toBeInTheDocument();
+    expect(screen.queryByText("ช่วงเวลานี้ไม่พร้อมจองแล้ว")).not.toBeInTheDocument();
+    expect(screen.getByLabelText("สถานที่ที่สะดวก")).toHaveValue("สถานที่เดิม");
+    expect(screen.getByLabelText(/เป้าหมายหรือข้อจำกัดที่ควรรู้/)).toHaveValue("รักษาข้อมูลนี้ไว้");
   });
 
   it("associates a location field error with its input", async () => {

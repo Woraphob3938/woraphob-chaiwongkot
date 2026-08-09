@@ -2076,6 +2076,17 @@ body {
   margin-top: var(--space-xs);
 }
 
+.stale-slot-guidance {
+  flex-wrap: wrap;
+}
+
+.stale-slot-guidance a {
+  color: inherit;
+  font-weight: 800;
+  text-decoration: underline;
+  text-underline-offset: 0.2rem;
+}
+
 .spin {
   animation: spin 0.8s linear infinite;
 }

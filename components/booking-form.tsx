@@ -16,6 +16,7 @@ export function BookingForm({ trainerSlug, slotId }: { trainerSlug?: string; slo
   const router = useRouter();
   const [trainer, setTrainer] = useState<Trainer | null>(null);
   const [selectedSlot, setSelectedSlot] = useState<AvailabilitySlot | null>(null);
+  const [slotUnavailable, setSlotUnavailable] = useState(false);
   const [loading, setLoading] = useState(Boolean(trainerSlug));
   const [loadError, setLoadError] = useState("");
   const [pending, setPending] = useState(false);
@@ -30,8 +31,11 @@ export function BookingForm({ trainerSlug, slotId }: { trainerSlug?: string; slo
     void apiRequest<Trainer>(`/v1/trainers/${encodeURIComponent(trainerSlug)}`, { cache: "no-store" })
       .then((data) => {
         if (!active) return;
+        const freshSlot = data.slots.find((item) => item.id === Number(slotId) && item.available) ?? null;
         setTrainer(data);
-        setSelectedSlot(data.slots.find((item) => item.id === Number(slotId) && item.available) ?? null);
+        setSelectedSlot(freshSlot);
+        setSlotUnavailable(false);
+        setMessage("");
         setLoadError("");
       })
       .catch((error: unknown) => {
@@ -52,7 +56,12 @@ export function BookingForm({ trainerSlug, slotId }: { trainerSlug?: string; slo
       const freshTrainer = await apiRequest<Trainer>(`/v1/trainers/${encodeURIComponent(trainerSlug)}`, { cache: "no-store" });
       setTrainer(freshTrainer);
       const freshSlot = freshTrainer.slots.find((item) => item.id === Number(slotId) && item.available);
-      if (freshSlot) setSelectedSlot(freshSlot);
+      if (freshSlot) {
+        setSelectedSlot(freshSlot);
+        setSlotUnavailable(false);
+      } else {
+        setSlotUnavailable(true);
+      }
     } catch (error) {
       setLoadError(error instanceof Error ? error.message : "โหลดข้อมูลเทรนเนอร์ไม่สำเร็จ");
     } finally {
@@ -65,7 +74,7 @@ export function BookingForm({ trainerSlug, slotId }: { trainerSlug?: string; slo
 
   async function onSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
-    if (!trainer || !slot) return;
+    if (!trainer || !slot || slotUnavailable) return;
     setPending(true);
     setMessage("");
     setFieldErrors({});
@@ -134,10 +143,17 @@ export function BookingForm({ trainerSlug, slotId }: { trainerSlug?: string; slo
           {fieldErrors.location && <small id="booking-location-error" className="field-error">{fieldErrors.location}</small>}
         </div>
         <div className="field"><Label htmlFor="booking-note">เป้าหมายหรือข้อจำกัดที่ควรรู้ (ไม่บังคับ)</Label><Textarea id="booking-note" name="note" rows={5} value={note} onChange={(event) => setNote(event.target.value)} placeholder="เช่น ต้องการเริ่มเวทเบื้องต้น มีอาการเจ็บเข่า" /></div>
+        {slotUnavailable && (
+          <div className="form-message form-message--error stale-slot-guidance" role="alert">
+            <CircleAlert aria-hidden="true" size={18} />
+            <span>เวลาที่เลือกไม่ว่างแล้ว กรุณาเลือกเวลาใหม่</span>
+            <Link href={`/trainers/${trainer.slug}`}>เลือกเวลาอื่น</Link>
+          </div>
+        )}
         <div className="form-message-slot" aria-live="polite">
           {message && <div className="form-message form-message--error" role="alert"><CircleAlert aria-hidden="true" size={18} /> {message}</div>}
         </div>
-        <Button className="button button--accent button--wide" type="submit" disabled={pending}>{pending ? <><LoaderCircle className="spin" aria-hidden="true" size={18} /> กำลังส่งคำขอ</> : <>ยืนยันและส่งคำขอ <ArrowRight aria-hidden="true" size={18} /></>}</Button>
+        <Button className="button button--accent button--wide" type="submit" disabled={pending || slotUnavailable}>{pending ? <><LoaderCircle className="spin" aria-hidden="true" size={18} /> กำลังส่งคำขอ</> : <>ยืนยันและส่งคำขอ <ArrowRight aria-hidden="true" size={18} /></>}</Button>
       </div>
     </form>
   );
