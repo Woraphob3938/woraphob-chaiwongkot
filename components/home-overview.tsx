@@ -55,7 +55,7 @@ export function HomeOverview({ trainers, trainingTypes, isDemo }: HomeOverviewPr
       <section className="home-training-types" aria-labelledby="training-goals-title">
         <header className="home-section-heading">
           <h2 id="training-goals-title">เลือกจากเป้าหมายการฝึก</h2>
-          <p>เริ่มจากประเภทที่สนใจ แล้วปรับพื้นที่ ราคา และเวลาในหน้าค้นหา</p>
+          <p>เริ่มจากประเภทที่สนใจ แล้วปรับราคาและเวลาในหน้าค้นหา</p>
         </header>
         {trainingTypes.length > 0 ? (
           <ul className="home-training-types__list" aria-label="ประเภทการฝึก">

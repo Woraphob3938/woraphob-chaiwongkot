@@ -15,6 +15,8 @@ describe("HomeOverview", () => {
       `/trainers?type=${trainingTypes[0].slug}`,
     );
     expect(screen.getByText(/ผู้ดูแลตรวจหลักฐานด้วยตนเอง/)).toBeInTheDocument();
+    expect(screen.getByText("เริ่มจากประเภทที่สนใจ แล้วปรับราคาและเวลาในหน้าค้นหา")).toBeInTheDocument();
+    expect(screen.queryByText(/ปรับพื้นที่/)).not.toBeInTheDocument();
     expect(screen.queryByRole("heading", { name: "กรองเทรนเนอร์" })).not.toBeInTheDocument();
   });
 
