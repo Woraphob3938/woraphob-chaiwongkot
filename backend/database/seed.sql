@@ -50,9 +50,9 @@ INSERT INTO availability_slots (id, trainer_profile_id, starts_at, ends_at, stat
 ON DUPLICATE KEY UPDATE state = VALUES(state);
 
 INSERT INTO bookings
-  (id, public_id, member_user_id, trainer_profile_id, availability_slot_id, starts_at, ends_at, location_text, member_note, status, payment_status, is_demo)
+  (id, public_id, member_user_id, trainer_profile_id, availability_slot_id, starts_at, ends_at, member_note, status, payment_status, is_demo)
 VALUES
-  (1, 'BK-DEMO-001', 1, 1, 102, '2026-08-03 10:00:00', '2026-08-03 11:00:00', 'สถานที่ฝึกสาธิต · สกลนคร', 'ข้อมูลสาธิต', 'awaiting_payment', 'not_submitted', 1)
+  (1, 'BK-DEMO-001', 1, 1, 102, '2026-08-03 10:00:00', '2026-08-03 11:00:00', 'ข้อมูลสาธิต', 'awaiting_payment', 'not_submitted', 1)
 ON DUPLICATE KEY UPDATE status = VALUES(status), payment_status = VALUES(payment_status), is_demo = 1;
 
 INSERT IGNORE INTO booking_status_history (id, booking_id, from_status, to_status, changed_by_user_id, note)

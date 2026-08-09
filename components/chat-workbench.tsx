@@ -461,7 +461,7 @@ export function ChatWorkbench({ initialBookingId }: ChatWorkbenchProps) {
             {!threadLoading && !threadError && messages.length === 0 && (
               <div className="empty-state">
                 <strong>ยังไม่มีข้อความในห้องนี้</strong>
-                <p>{selectedBooking.actions.canSendChat ? "เริ่มคุยเรื่องเวลา สถานที่ หรือการเตรียมตัวได้" : "ประวัติข้อความจะปรากฏที่นี่เมื่อมีการสนทนา"}</p>
+                <p>{selectedBooking.actions.canSendChat ? "เริ่มคุยเรื่องเวลาและการเตรียมตัวได้" : "ประวัติข้อความจะปรากฏที่นี่เมื่อมีการสนทนา"}</p>
               </div>
             )}
             {messages.map((message) => (
@@ -587,7 +587,6 @@ export function ChatWorkbench({ initialBookingId }: ChatWorkbenchProps) {
         <div className="ledger-row"><span>รหัสคำขอ</span><strong className="chat-breakable">{selectedBooking.id}</strong></div>
         <div className="ledger-row"><span>วันและเวลา</span><strong>{formatDateTime(selectedBooking.startsAt)}</strong></div>
         <div className="ledger-row"><span>สิ้นสุด</span><strong>{formatDateTime(selectedBooking.endsAt)}</strong></div>
-        <div className="ledger-row"><span>สถานที่</span><strong className="chat-breakable">{selectedBooking.location}</strong></div>
         <div className="ledger-row"><span>สถานะการจอง</span><strong>{bookingStatusCopy[selectedBooking.status]}</strong></div>
         <div className="ledger-row"><span>สถานะหลักฐาน</span><strong>{paymentStatusCopy[selectedBooking.paymentStatus]}</strong></div>
         <div className="ledger-row"><span>ค่าฝึกที่แจ้ง</span><strong>{formatAmount(selectedBooking.quotedPrice)}</strong></div>

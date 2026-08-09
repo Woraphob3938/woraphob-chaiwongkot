@@ -122,7 +122,6 @@ export type AdminQueue = {
     trainerName: string;
     startsAt: string;
     endsAt: string;
-    location: string;
     quotedPrice: number | null;
     amount: number | null;
     difference: number | null;
@@ -157,7 +156,6 @@ export type Booking = {
   trainer: Pick<Trainer, "id" | "displayName" | "slug">;
   startsAt: string;
   endsAt: string;
-  location: string;
   status: BookingStatus;
   paymentStatus: "not_submitted" | "reviewing" | "approved" | "rejected";
   quotedPrice: number | null;

@@ -33,7 +33,6 @@ function bookingFixture(overrides: Partial<Booking> = {}): Booking {
     member: { displayName: "สมาชิกทดสอบ" },
     startsAt: "2026-08-10T02:00:00.000Z",
     endsAt: "2026-08-10T03:00:00.000Z",
-    location: "ฟิตเนสทดสอบ",
     note: "มีอาการเจ็บเข่า",
     status: "pending_trainer",
     paymentStatus: "not_submitted",
@@ -77,6 +76,7 @@ describe("TrainerWorkbench", () => {
     const bookingHeading = screen.getByRole("heading", { name: "คำขอที่รอคำตอบ" });
     expect(screen.getByTestId("next-action")).toHaveAttribute("data-state", "action");
     expect(screen.getByRole("link", { name: "ตรวจคำขอ" })).toHaveAttribute("href", "/trainer#booking-BK-TEST");
+    expect(screen.queryByText("สถานที่")).not.toBeInTheDocument();
     expect(actionTitle.compareDocumentPosition(bookingHeading) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
   });
 

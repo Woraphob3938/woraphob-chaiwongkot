@@ -287,7 +287,6 @@ export function TrainerWorkbench({ onIncompleteProfile }: { onIncompleteProfile?
         <article className="trainer-booking-card" aria-busy={isBusy}>
           <dl>
             <div><dt>วันและเวลา</dt><dd>{formatDateTime(booking.startsAt)}</dd></div>
-            <div><dt>สถานที่</dt><dd>{booking.location}</dd></div>
             <div><dt>หมายเหตุ</dt><dd>{booking.note || "ไม่มีหมายเหตุ"}</dd></div>
           </dl>
           <div>
@@ -322,7 +321,6 @@ export function TrainerWorkbench({ onIncompleteProfile }: { onIncompleteProfile?
         <dl>
           <div><dt>เริ่มฝึก</dt><dd>{formatDateTime(booking.startsAt)}</dd></div>
           <div><dt>สิ้นสุด</dt><dd>{formatDateTime(booking.endsAt)}</dd></div>
-          <div><dt>สถานที่</dt><dd>{booking.location}</dd></div>
         </dl>
         <div className="queue-actions">
           {!booking.actions.canComplete && <span>ฝึกเสร็จได้หลัง {formatDateTime(booking.endsAt)}</span>}

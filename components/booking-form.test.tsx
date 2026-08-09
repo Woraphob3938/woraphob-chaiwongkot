@@ -45,7 +45,7 @@ describe("BookingForm", () => {
     vi.mocked(apiRequest).mockResolvedValue(liveTrainer);
     render(<BookingForm trainerSlug="live-trainer" slotId="44" />);
     await screen.findByText("เทรนเนอร์จริง");
-    fireEvent.change(screen.getByLabelText("สถานที่ที่สะดวก"), { target: { value: "ฟิตเนสทดสอบ" } });
+    expect(screen.queryByLabelText("สถานที่ที่สะดวก")).not.toBeInTheDocument();
     fireEvent.click(screen.getByRole("button", { name: /ยืนยันและส่งคำขอ/ }));
     expect(await screen.findByText("กรุณาเข้าสู่ระบบเพื่อทำการขอจอง")).toBeInTheDocument();
     expect(authenticatedRequest).not.toHaveBeenCalled();
@@ -56,12 +56,11 @@ describe("BookingForm", () => {
     vi.mocked(authenticatedRequest).mockResolvedValue({ id: "BK-LIVE", status: "pending_trainer" });
     render(<BookingForm trainerSlug="live-trainer" slotId="44" />);
     await screen.findByText("เทรนเนอร์จริง");
-    fireEvent.change(screen.getByLabelText("สถานที่ที่สะดวก"), { target: { value: "ฟิตเนสกลางเมือง" } });
     fireEvent.change(screen.getByLabelText(/เป้าหมายหรือข้อจำกัดที่ควรรู้/), { target: { value: "เริ่มฝึกเวท" } });
     fireEvent.click(screen.getByRole("button", { name: /ยืนยันและส่งคำขอ/ }));
     await waitFor(() => expect(authenticatedRequest).toHaveBeenCalledWith("/v1/bookings", {
       method: "POST",
-      body: JSON.stringify({ trainerId: 1, slotId: 44, location: "ฟิตเนสกลางเมือง", note: "เริ่มฝึกเวท" }),
+      body: JSON.stringify({ trainerId: 1, slotId: 44, note: "เริ่มฝึกเวท" }),
     }));
     expect(push).toHaveBeenCalledWith("/member?booking=BK-LIVE");
   });
@@ -98,14 +97,11 @@ describe("BookingForm", () => {
     vi.mocked(authenticatedRequest).mockRejectedValue(new ApiError("ช่วงเวลานี้ไม่พร้อมจองแล้ว", 409, "SLOT_UNAVAILABLE"));
     const { rerender } = render(<BookingForm trainerSlug="live-trainer" slotId="44" />);
     await screen.findByText("เทรนเนอร์จริง");
-    const location = screen.getByLabelText("สถานที่ที่สะดวก");
-    fireEvent.change(location, { target: { value: "สถานที่เดิม" } });
     const note = screen.getByLabelText(/เป้าหมายหรือข้อจำกัดที่ควรรู้/);
     fireEvent.change(note, { target: { value: "รักษาข้อมูลนี้ไว้" } });
     fireEvent.click(screen.getByRole("button", { name: /ยืนยันและส่งคำขอ/ }));
     expect(await screen.findByText("ช่วงเวลานี้ไม่พร้อมจองแล้ว")).toBeInTheDocument();
     await waitFor(() => expect(apiRequest).toHaveBeenCalledTimes(2));
-    expect(screen.getByLabelText("สถานที่ที่สะดวก")).toHaveValue("สถานที่เดิม");
     expect(screen.getByLabelText(/เป้าหมายหรือข้อจำกัดที่ควรรู้/)).toHaveValue("รักษาข้อมูลนี้ไว้");
     const staleSubmit = screen.getByRole("button", { name: /ยืนยันและส่งคำขอ/ });
     expect(staleSubmit).toBeDisabled();
@@ -119,7 +115,6 @@ describe("BookingForm", () => {
     await waitFor(() => expect(screen.getByRole("button", { name: /ยืนยันและส่งคำขอ/ })).toBeEnabled());
     expect(screen.queryByText("เวลาที่เลือกไม่ว่างแล้ว กรุณาเลือกเวลาใหม่")).not.toBeInTheDocument();
     expect(screen.queryByText("ช่วงเวลานี้ไม่พร้อมจองแล้ว")).not.toBeInTheDocument();
-    expect(screen.getByLabelText("สถานที่ที่สะดวก")).toHaveValue("สถานที่เดิม");
     expect(screen.getByLabelText(/เป้าหมายหรือข้อจำกัดที่ควรรู้/)).toHaveValue("รักษาข้อมูลนี้ไว้");
   });
 
@@ -132,7 +127,6 @@ describe("BookingForm", () => {
     ));
     render(<BookingForm trainerSlug="live-trainer" slotId="44" />);
     await screen.findByText("เทรนเนอร์จริง");
-    fireEvent.change(screen.getByLabelText("สถานที่ที่สะดวก"), { target: { value: "ฟิตเนสทดสอบ" } });
     fireEvent.click(screen.getByRole("button", { name: /ยืนยันและส่งคำขอ/ }));
     expect(await screen.findByText("เกิดข้อผิดพลาดจากระบบ")).toBeInTheDocument();
   });

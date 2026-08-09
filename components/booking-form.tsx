@@ -3,10 +3,9 @@
 import Link from "next/link";
 import { FormEvent, useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
-import { ArrowLeft, ArrowRight, CircleAlert, LoaderCircle, MapPin, RefreshCw } from "lucide-react";
+import { ArrowLeft, ArrowRight, CircleAlert, LoaderCircle, RefreshCw } from "lucide-react";
 import { ApiError, apiRequest, authenticatedRequest } from "@/lib/api";
 import { Button } from "@/components/ui/button";
-import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { formatDateTime, formatMoney } from "@/lib/format";
@@ -20,9 +19,7 @@ export function BookingForm({ trainerSlug, slotId }: { trainerSlug?: string; slo
   const [loading, setLoading] = useState(Boolean(trainerSlug));
   const [loadError, setLoadError] = useState("");
   const [pending, setPending] = useState(false);
-  const [location, setLocation] = useState("");
   const [note, setNote] = useState("");
-  const [fieldErrors, setFieldErrors] = useState<Record<string, string>>({});
   const [message, setMessage] = useState("");
 
   useEffect(() => {
@@ -92,11 +89,10 @@ export function BookingForm({ trainerSlug, slotId }: { trainerSlug?: string; slo
     }
     setPending(true);
     setMessage("");
-    setFieldErrors({});
     try {
       const booking = await authenticatedRequest<{ id: string; status: "pending_trainer" }>("/v1/bookings", {
         method: "POST",
-        body: JSON.stringify({ trainerId: trainer.id, slotId: slot.id, location, note }),
+        body: JSON.stringify({ trainerId: trainer.id, slotId: slot.id, note }),
       });
       router.push(`/member?booking=${encodeURIComponent(booking.id)}`);
     } catch (error) {
@@ -105,7 +101,6 @@ export function BookingForm({ trainerSlug, slotId }: { trainerSlug?: string; slo
         setMessage("กรุณาเข้าสู่ระบบเพื่อทำการขอจอง");
         return;
       }
-      if (error instanceof ApiError) setFieldErrors(error.fields ?? {});
       setMessage(error instanceof Error ? error.message : "ส่งคำขอจองไม่สำเร็จ");
       if (error instanceof ApiError && error.status === 409) await reloadTrainer(false);
     } finally {
@@ -151,11 +146,6 @@ export function BookingForm({ trainerSlug, slotId }: { trainerSlug?: string; slo
         <p>ราคาสุดท้ายต้องได้รับการยืนยันจากเทรนเนอร์ก่อนเข้าสู่ขั้นตอนอัปโหลดสลิป</p>
       </div>
       <div className="booking-fields">
-        <div className="field">
-          <Label htmlFor="booking-location">สถานที่ที่สะดวก</Label>
-          <div className="input-with-icon"><MapPin aria-hidden="true" size={17} /><Input id="booking-location" name="location" value={location} onChange={(event) => setLocation(event.target.value)} placeholder="ระบุฟิตเนสหรือจุดนัดหมาย" required aria-invalid={Boolean(fieldErrors.location)} aria-describedby={fieldErrors.location ? "booking-location-error" : undefined} /></div>
-          {fieldErrors.location && <small id="booking-location-error" className="field-error">{fieldErrors.location}</small>}
-        </div>
         <div className="field"><Label htmlFor="booking-note">เป้าหมายหรือข้อจำกัดที่ควรรู้ (ไม่บังคับ)</Label><Textarea id="booking-note" name="note" rows={5} value={note} onChange={(event) => setNote(event.target.value)} placeholder="เช่น ต้องการเริ่มเวทเบื้องต้น มีอาการเจ็บเข่า" /></div>
         {slotUnavailable && (
           <div className="form-message form-message--error stale-slot-guidance" role="alert">

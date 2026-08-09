@@ -17,7 +17,6 @@ function bookingFixture(overrides: Partial<Booking> = {}): Booking {
     member: { displayName: "สมาชิกทดสอบ" },
     startsAt: "2026-08-10T02:00:00.000Z",
     endsAt: "2026-08-10T03:00:00.000Z",
-    location: "ฟิตเนสทดสอบ",
     note: "เน้นฝึกท่าพื้นฐาน",
     status: "confirmed",
     paymentStatus: "approved",
@@ -195,6 +194,7 @@ describe("ChatWorkbench", () => {
 
     render(<ChatWorkbench />);
     await flushPromises();
+    expect(screen.queryByText("สถานที่")).not.toBeInTheDocument();
 
     const filename = screen.getByText("trainer-a.png");
     const attachmentRow = filename.closest("li");

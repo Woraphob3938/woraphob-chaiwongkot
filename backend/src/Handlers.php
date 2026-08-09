@@ -292,7 +292,7 @@ final class Handlers
             $params[] = $user['id'];
         }
         $rows = $this->database->fetchAll(
-            'SELECT b.public_id, b.starts_at, b.ends_at, b.location_text, b.member_note,
+            'SELECT b.public_id, b.starts_at, b.ends_at, b.member_note,
                     b.status, b.payment_status, b.quoted_price, b.created_at, b.is_demo,
                     tp.id AS trainer_id, tp.slug,
                     trainer_user.display_name AS trainer_name,
@@ -327,7 +327,7 @@ final class Handlers
     {
         $user = $this->auth->requireUser(['member']);
         $input = Http::body();
-        Http::requireFields($input, ['trainerId', 'slotId', 'location']);
+        Http::requireFields($input, ['trainerId', 'slotId']);
         $publicId = 'BK-' . strtoupper(bin2hex(random_bytes(4)));
 
         $booking = $this->database->transaction(function (PDO $pdo) use ($user, $input, $publicId): array {
@@ -351,12 +351,12 @@ final class Handlers
                 throw new HttpException(409, 'ช่วงเวลานี้ไม่พร้อมจองแล้ว', 'SLOT_UNAVAILABLE');
             }
             $insert = $pdo->prepare(
-                'INSERT INTO bookings (public_id, member_user_id, trainer_profile_id, availability_slot_id, starts_at, ends_at, location_text, member_note, status, payment_status)
-                 VALUES (?, ?, ?, ?, ?, ?, ?, ?, "pending_trainer", "not_submitted")'
+                'INSERT INTO bookings (public_id, member_user_id, trainer_profile_id, availability_slot_id, starts_at, ends_at, member_note, status, payment_status)
+                 VALUES (?, ?, ?, ?, ?, ?, ?, "pending_trainer", "not_submitted")'
             );
             $insert->execute([
                 $publicId, $user['id'], (int) $input['trainerId'], (int) $input['slotId'], $slot['starts_at'], $slot['ends_at'],
-                trim((string) $input['location']), trim((string) ($input['note'] ?? '')),
+                trim((string) ($input['note'] ?? '')),
             ]);
             $bookingId = (int) $pdo->lastInsertId();
             $pdo->prepare('UPDATE availability_slots SET state = "held" WHERE id = ?')->execute([(int) $input['slotId']]);
@@ -784,7 +784,7 @@ final class Handlers
         );
         $payments = $this->database->fetchAll(
             'SELECT pay.id, pay.submitted_at, pay.amount,
-                    b.public_id AS booking_public_id, b.starts_at, b.ends_at, b.location_text, b.quoted_price, b.is_demo,
+                    b.public_id AS booking_public_id, b.starts_at, b.ends_at, b.quoted_price, b.is_demo,
                     member_user.display_name AS member_name, trainer_user.display_name AS trainer_name
              FROM payments pay
              JOIN bookings b ON b.id = pay.booking_id
@@ -834,7 +834,6 @@ final class Handlers
                 'trainerName' => $row['trainer_name'],
                 'startsAt' => $this->iso($row['starts_at']),
                 'endsAt' => $this->iso($row['ends_at']),
-                'location' => $row['location_text'],
                 'quotedPrice' => $row['quoted_price'] === null ? null : (float) $row['quoted_price'],
                 'amount' => $row['amount'] === null ? null : (float) $row['amount'],
                 'difference' => $row['amount'] === null || $row['quoted_price'] === null
@@ -989,7 +988,7 @@ final class Handlers
             'id' => $row['public_id'],
             'trainer' => ['id' => (int) $row['trainer_id'], 'displayName' => $row['trainer_name'], 'slug' => $row['slug']],
             'member' => ['displayName' => $row['member_name']],
-            'startsAt' => $this->iso($row['starts_at']), 'endsAt' => $this->iso($row['ends_at']), 'location' => $row['location_text'],
+            'startsAt' => $this->iso($row['starts_at']), 'endsAt' => $this->iso($row['ends_at']),
             'note' => $row['member_note'] ?? '',
             'status' => $row['status'], 'paymentStatus' => $row['payment_status'], 'createdAt' => $this->iso($row['created_at']),
             'quotedPrice' => $row['quoted_price'] === null ? null : (float) $row['quoted_price'],

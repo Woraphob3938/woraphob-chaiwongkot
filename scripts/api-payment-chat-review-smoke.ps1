@@ -113,7 +113,6 @@ if ($Scenario -eq 'all') {
     $bookingBody = @{
         trainerId = 1
         slotId = $slot.id
-        location = "จุดนัดหมายทดสอบ flow $label"
         note = "post-booking smoke $label"
     } | ConvertTo-Json
     $booking = (
@@ -228,10 +227,10 @@ if ($Scenario -in @('payment', 'all')) {
         $publicId = "BK-LEGACY-$([Guid]::NewGuid().ToString('N').Substring(0, 10).ToUpperInvariant())"
         $sql = @"
 INSERT INTO bookings
-    (public_id, member_user_id, trainer_profile_id, starts_at, ends_at, location_text, member_note, quoted_price, status, payment_status, is_demo)
+    (public_id, member_user_id, trainer_profile_id, starts_at, ends_at, member_note, quoted_price, status, payment_status, is_demo)
 VALUES
     ('$publicId', 1, 1, DATE_ADD(UTC_TIMESTAMP(), INTERVAL 7 DAY), DATE_ADD(UTC_TIMESTAMP(), INTERVAL 7 DAY) + INTERVAL 1 HOUR,
-     'legacy payment regression fixture', 'legacy payment regression fixture', NULL, 'payment_review', 'reviewing', 0);
+     'legacy payment regression fixture', NULL, 'payment_review', 'reviewing', 0);
 SET @legacy_booking_id = LAST_INSERT_ID();
 INSERT INTO payments
     (booking_id, submitted_by_user_id, amount, slip_path, mime_type, status, submitted_at)
@@ -263,11 +262,9 @@ VALUES
     function New-AcceptedPaymentBooking {
         param([string]$Label)
         $slot = New-PaymentTestSlot
-        $location = "จุดนัดหมายทดสอบการชำระเงิน $Label"
         $bookingBody = @{
             trainerId = 1
             slotId = $slot.id
-            location = $location
             note = "payment smoke $Label"
         } | ConvertTo-Json
         $booking = (
@@ -278,7 +275,7 @@ VALUES
         ).data
         Assert-True ($accepted.status -eq 'awaiting_payment') 'Trainer acceptance must move booking to awaiting_payment'
         Assert-True ([decimal]$accepted.quotedPrice -eq 1200) 'Trainer acceptance must save quotedPrice 1200'
-        return [pscustomobject]@{ booking = $booking; slot = $slot; location = $location }
+        return [pscustomobject]@{ booking = $booking; slot = $slot }
     }
 
     function Submit-Payment {
@@ -315,7 +312,6 @@ VALUES
         Assert-True (
             ([DateTimeOffset]::Parse($QueuePayment.endsAt)).ToUniversalTime() -eq ([DateTimeOffset]::Parse($Case.slot.endsAt)).ToUniversalTime()
         ) 'Admin queue must show the appointment end'
-        Assert-True ($QueuePayment.location -eq $Case.location) 'Admin queue must show the appointment location'
     }
 
     $legacyBookingId = New-LegacyPaymentFixture
@@ -440,7 +436,6 @@ if ($Scenario -in @('chat', 'all')) {
     $bookingBody = @{
         trainerId = 1
         slotId = $slot.id
-        location = "จุดนัดหมายทดสอบแชต $label"
         note = "chat smoke $label"
     } | ConvertTo-Json
     $booking = (
@@ -600,10 +595,10 @@ if ($Scenario -in @('review', 'all')) {
         $publicId = "BK-REVIEW-$([Guid]::NewGuid().ToString('N').Substring(0, 10).ToUpperInvariant())"
         $sql = @"
 INSERT INTO bookings
-    (public_id, member_user_id, trainer_profile_id, starts_at, ends_at, location_text, member_note, quoted_price, status, payment_status, is_demo)
+    (public_id, member_user_id, trainer_profile_id, starts_at, ends_at, member_note, quoted_price, status, payment_status, is_demo)
 VALUES
     ('$publicId', 1, 1, DATE_SUB(UTC_TIMESTAMP(), INTERVAL 2 HOUR), DATE_SUB(UTC_TIMESTAMP(), INTERVAL 1 HOUR),
-     'review smoke fixture', 'review smoke $Status fixture', 1200, '$Status', 'approved', 0);
+     'review smoke $Status fixture', 1200, '$Status', 'approved', 0);
 "@
         $mysqlPath = 'C:\xampp\mysql\bin\mysql.exe'
         $output = $sql | & $mysqlPath --connect-timeout=5 --default-character-set=utf8mb4 -u root fitconnect 2>&1

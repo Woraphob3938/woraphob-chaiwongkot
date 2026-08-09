@@ -120,7 +120,6 @@ if ($Scenario -in @('booking', 'all')) {
     $bookingBody = @{
         trainerId = 1
         slotId = $acceptedSlot.id
-        location = 'จุดนัดหมายทดสอบ'
         note = 'ทดสอบตอบรับ'
     } | ConvertTo-Json
     $acceptedBooking = (
@@ -156,7 +155,6 @@ if ($Scenario -in @('booking', 'all')) {
     $rejectBody = @{
         trainerId = 1
         slotId = $rejectedSlot.id
-        location = 'จุดนัดหมายทดสอบ'
         note = 'ทดสอบปฏิเสธ'
     } | ConvertTo-Json
     $rejectedBooking = (
@@ -177,7 +175,6 @@ if ($Scenario -in @('booking', 'all')) {
     $contestedBody = @{
         trainerId = 1
         slotId = $contestedSlot.id
-        location = 'ทดสอบการจองพร้อมกัน'
         note = 'concurrency'
     } | ConvertTo-Json
     $bookingRequest = {

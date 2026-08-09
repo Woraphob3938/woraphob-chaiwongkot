@@ -133,7 +133,6 @@ CREATE TABLE IF NOT EXISTS bookings (
   availability_slot_id BIGINT UNSIGNED NULL,
   starts_at DATETIME NOT NULL,
   ends_at DATETIME NOT NULL,
-  location_text VARCHAR(500) NOT NULL,
   member_note TEXT NULL,
   session_count SMALLINT UNSIGNED NOT NULL DEFAULT 1,
   quoted_price DECIMAL(10, 2) NULL,

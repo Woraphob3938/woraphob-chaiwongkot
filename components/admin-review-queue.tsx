@@ -323,7 +323,6 @@ export function AdminReviewQueue() {
             ["สมาชิก", payment.memberName],
             ["เทรนเนอร์", payment.trainerName],
             ["วันและเวลานัด", appointment],
-            ["สถานที่", payment.location],
             ["ราคาที่แจ้ง", formatPaymentAmount(payment.quotedPrice)],
             ["ยอดที่โอน", formatPaymentAmount(payment.amount)],
             ["ส่วนต่าง", formatPaymentDifference(payment.difference)],

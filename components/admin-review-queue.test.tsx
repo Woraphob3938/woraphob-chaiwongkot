@@ -32,7 +32,6 @@ const payment = {
   trainerName: "เทรนเนอร์ทดสอบ",
   startsAt: "2026-08-01T03:00:00.000Z",
   endsAt: "2026-08-01T04:00:00.000Z",
-  location: "สนามกีฬากลาง จังหวัดสกลนคร",
   quotedPrice: 1200,
   amount: 1000,
   difference: -200,
@@ -138,7 +137,7 @@ describe("AdminReviewQueue", () => {
     expect(within(row).getByText("สมาชิกทดสอบ")).toBeInTheDocument();
     expect(within(row).getByText("เทรนเนอร์ทดสอบ")).toBeInTheDocument();
     expect(within(row).getByText("เสาร์ 1 ส.ค. · 10:00 น. ถึง เสาร์ 1 ส.ค. · 11:00 น.")).toBeInTheDocument();
-    expect(within(row).getByText("สนามกีฬากลาง จังหวัดสกลนคร")).toBeInTheDocument();
+    expect(within(row).queryByText("สถานที่")).not.toBeInTheDocument();
     expect(within(row).getByText("฿1,200.00")).toBeInTheDocument();
     expect(within(row).getByText("฿1,000.00")).toBeInTheDocument();
     expect(within(row).getByText("-฿200.00")).toBeInTheDocument();
@@ -149,12 +148,10 @@ describe("AdminReviewQueue", () => {
   it("gives long unbroken evidence values an explicit wrapping contract", async () => {
     const longBooking = `BK-${"X".repeat(90)}`;
     const longTrainer = `เทรนเนอร์${"ย".repeat(90)}`;
-    const longLocation = `อาคาร${"A".repeat(120)}`;
     vi.mocked(authenticatedRequest).mockResolvedValueOnce(paymentQueue([{
       ...payment,
       bookingId: longBooking,
       trainerName: longTrainer,
-      location: longLocation,
     }]));
 
     render(<AdminReviewQueue />);
@@ -164,7 +161,6 @@ describe("AdminReviewQueue", () => {
     const wrappedValues = [
       within(row).getByText(`คำขอจอง ${longBooking}`),
       within(row).getByText(longTrainer),
-      within(row).getByText(longLocation),
     ];
     for (const value of wrappedValues) {
       expect(value).toHaveStyle({ display: "block", minWidth: "0", maxWidth: "100%", overflowWrap: "anywhere" });

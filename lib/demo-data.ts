@@ -87,7 +87,6 @@ export const demoBookings: Booking[] = [
     trainer: { id: 1, displayName: trainers[0].displayName, slug: trainers[0].slug },
     startsAt: trainers[0].slots[1].startsAt,
     endsAt: trainers[0].slots[1].endsAt,
-    location: "สถานที่ฝึกสาธิต · สกลนคร",
     status: "payment_review",
     paymentStatus: "reviewing",
     quotedPrice: 850,

@@ -18,7 +18,6 @@ function bookingFixture(id: string, overrides: Partial<Booking> = {}): Booking {
     trainer: { id: 3, slug: "trainer-c", displayName: "เทรนเนอร์ ค." },
     startsAt: "2026-08-10T02:00:00.000Z",
     endsAt: "2026-08-10T03:00:00.000Z",
-    location: "ฟิตเนสทดสอบ",
     status: "awaiting_payment",
     paymentStatus: "not_submitted",
     quotedPrice: 1_200,
@@ -103,7 +102,7 @@ describe("member role dashboard", () => {
     expect(paymentSummary).toHaveAttribute("open");
     expect(within(paymentSummary).getByText("รอชำระเงิน")).toBeInTheDocument();
     expect(within(paymentSummary).getAllByText("จันทร์ 10 ส.ค. · 09:00 น.").length).toBeGreaterThan(0);
-    expect(within(paymentSummary).getByText("ฟิตเนสทดสอบ")).toBeInTheDocument();
+    expect(within(paymentSummary).queryByText("สถานที่")).not.toBeInTheDocument();
     expect(within(paymentSummary).getAllByText("เทรนเนอร์ ค.").length).toBeGreaterThan(0);
     expect(within(paymentSummary).getAllByText("1,200.00 บาท").length).toBeGreaterThan(0);
     expect(within(paymentSummary).getByRole("button", { name: "ส่งสลิปให้ตรวจ" })).toBeInTheDocument();

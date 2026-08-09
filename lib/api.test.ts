@@ -8,7 +8,6 @@ const expandedBooking: Booking = {
   member: { displayName: "สมาชิกทดสอบ" },
   startsAt: "2026-08-10T02:00:00.000Z",
   endsAt: "2026-08-10T03:00:00.000Z",
-  location: "ฟิตเนสทดสอบ",
   note: "มีอาการเจ็บเข่า",
   status: "payment_review",
   paymentStatus: "reviewing",

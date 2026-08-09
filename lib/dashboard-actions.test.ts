@@ -24,7 +24,6 @@ const paymentQueueItem: AdminQueue["payments"][number] = {
   trainerName: "เทรนเนอร์ทดสอบ",
   startsAt: "2026-08-10T09:00:00+07:00",
   endsAt: "2026-08-10T10:00:00+07:00",
-  location: "สกลนคร",
   quotedPrice: 850,
   amount: 850,
   difference: 0,

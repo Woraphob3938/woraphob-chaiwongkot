@@ -12,7 +12,6 @@ function bookingFixture(overrides: Partial<Booking> = {}): Booking {
     trainer: { id: 3, slug: "trainer-c", displayName: "เทรนเนอร์ ค." },
     startsAt: "2026-08-10T02:00:00.000Z",
     endsAt: "2026-08-10T03:00:00.000Z",
-    location: "ฟิตเนสทดสอบ",
     status: "completed",
     paymentStatus: "approved",
     quotedPrice: 1_200,

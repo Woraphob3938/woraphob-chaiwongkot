@@ -237,7 +237,7 @@ export function TrainerDiscovery({
         </div>
         <ol>
           <li><span>01</span><strong>ส่งคำขอ</strong><p>เลือกโปรไฟล์และช่วงเวลาที่ว่าง</p></li>
-          <li><span>02</span><strong>เทรนเนอร์ตอบรับ</strong><p>ยืนยันเวลา สถานที่ และราคา</p></li>
+          <li><span>02</span><strong>เทรนเนอร์ตอบรับ</strong><p>ยืนยันเวลาและราคา</p></li>
           <li><span>03</span><strong>อัปโหลดสลิป</strong><p>แอดมินตรวจหลักฐานด้วยตนเอง</p></li>
           <li><span>04</span><strong>เริ่มฝึก</strong><p>นัดหมาย แชต และรีวิวในระบบเดียว</p></li>
         </ol>
