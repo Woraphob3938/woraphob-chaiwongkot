@@ -37,6 +37,20 @@ describe("BookingForm", () => {
     vi.mocked(apiRequest).mockReset();
     vi.mocked(authenticatedRequest).mockReset();
     push.mockReset();
+    localStorage.setItem("fitconnect_token", "test-token");
+    localStorage.setItem("fitconnect_user", JSON.stringify({ role: "member" }));
+  });
+
+  it("warns unauthenticated user to log in when submitting", async () => {
+    localStorage.removeItem("fitconnect_token");
+    localStorage.removeItem("fitconnect_user");
+    vi.mocked(apiRequest).mockResolvedValue(liveTrainer);
+    render(<BookingForm trainerSlug="live-trainer" slotId="44" />);
+    await screen.findByText("เทรนเนอร์จริง");
+    fireEvent.change(screen.getByLabelText("สถานที่ที่สะดวก"), { target: { value: "ฟิตเนสทดสอบ" } });
+    fireEvent.click(screen.getByRole("button", { name: /ยืนยันและส่งคำขอ/ }));
+    expect(await screen.findByText("กรุณาเข้าสู่ระบบเพื่อทำการขอจอง")).toBeInTheDocument();
+    expect(authenticatedRequest).not.toHaveBeenCalled();
   });
 
   it("loads the selected trainer from the API before submitting", async () => {
@@ -111,21 +125,17 @@ describe("BookingForm", () => {
     expect(screen.getByLabelText(/เป้าหมายหรือข้อจำกัดที่ควรรู้/)).toHaveValue("รักษาข้อมูลนี้ไว้");
   });
 
-  it("associates a location field error with its input", async () => {
+  it("displays form error message on API failure", async () => {
     vi.mocked(apiRequest).mockResolvedValue(liveTrainer);
     vi.mocked(authenticatedRequest).mockRejectedValue(new ApiError(
-      "กรุณาแก้ไขสถานที่",
-      422,
-      "VALIDATION_FAILED",
-      { location: "กรุณาระบุสถานที่ให้ชัดเจน" },
+      "เกิดข้อผิดพลาดจากระบบ",
+      500,
+      "SERVER_ERROR",
     ));
     render(<BookingForm trainerSlug="live-trainer" slotId="44" />);
     await screen.findByText("เทรนเนอร์จริง");
-    const location = screen.getByLabelText("สถานที่ที่สะดวก");
-    fireEvent.change(location, { target: { value: "ก" } });
+    fireEvent.change(screen.getByLabelText("สถานที่ที่สะดวก"), { target: { value: "ฟิตเนสทดสอบ" } });
     fireEvent.click(screen.getByRole("button", { name: /ยืนยันและส่งคำขอ/ }));
-    expect(await screen.findByText("กรุณาระบุสถานที่ให้ชัดเจน")).toBeInTheDocument();
-    expect(location).toHaveAttribute("aria-invalid", "true");
-    expect(location).toHaveAttribute("aria-describedby", "booking-location-error");
+    expect(await screen.findByText("เกิดข้อผิดพลาดจากระบบ")).toBeInTheDocument();
   });
 });

@@ -75,6 +75,21 @@ export function BookingForm({ trainerSlug, slotId }: { trainerSlug?: string; slo
   async function onSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     if (!trainer || !slot || slotUnavailable) return;
+
+    const token = typeof window !== "undefined" ? localStorage.getItem("fitconnect_token") : null;
+    const userStr = typeof window !== "undefined" ? localStorage.getItem("fitconnect_user") : null;
+    let isMember = Boolean(token);
+    if (userStr) {
+      try {
+        const u = JSON.parse(userStr);
+        if (u.role && u.role !== "member") isMember = false;
+      } catch {}
+    }
+
+    if (!isMember) {
+      setMessage("กรุณาเข้าสู่ระบบเพื่อทำการขอจอง");
+      return;
+    }
     setPending(true);
     setMessage("");
     setFieldErrors({});
@@ -87,7 +102,7 @@ export function BookingForm({ trainerSlug, slotId }: { trainerSlug?: string; slo
     } catch (error) {
       if (error instanceof ApiError && error.status === 401) {
         localStorage.removeItem("fitconnect_token");
-        router.push("/login");
+        setMessage("กรุณาเข้าสู่ระบบเพื่อทำการขอจอง");
         return;
       }
       if (error instanceof ApiError) setFieldErrors(error.fields ?? {});

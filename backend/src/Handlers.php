@@ -70,6 +70,17 @@ final class Handlers
         Http::json($this->trainerPayload($row));
     }
 
+    public function updateTrainerMe(): never
+    {
+        $user = $this->auth->requireUser(['trainer']);
+        $input = Http::body();
+        Http::requireFields($input, ['priceFrom']);
+        $price = WorkflowRules::normalizeMoney($input['priceFrom'] ?? null, 'priceFrom');
+        $this->database->prepare('UPDATE trainer_profiles SET price_from = ?, updated_at = UTC_TIMESTAMP() WHERE user_id = ?')
+            ->execute([$price, $user['id']]);
+        $this->trainerMe();
+    }
+
     public function trainerMe(): never
     {
         $user = $this->auth->requireUser(['trainer']);

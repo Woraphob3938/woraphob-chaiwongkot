@@ -1,13 +1,21 @@
-import { fireEvent, render, screen, within } from "@testing-library/react";
-import { describe, expect, it } from "vitest";
+import { fireEvent, render, screen, waitFor, within } from "@testing-library/react";
+import { beforeEach, describe, expect, it, vi } from "vitest";
 import { TrainerDetail } from "@/components/trainer-detail";
+import { authenticatedRequest } from "@/lib/api";
 import { trainers } from "@/lib/demo-data";
+
+vi.mock("@/lib/api", () => ({ authenticatedRequest: vi.fn() }));
 
 function appearsBefore(first: Element, second: Element) {
   return Boolean(first.compareDocumentPosition(second) & Node.DOCUMENT_POSITION_FOLLOWING);
 }
 
 describe("TrainerDetail", () => {
+  beforeEach(() => {
+    localStorage.clear();
+    vi.mocked(authenticatedRequest).mockReset();
+  });
+
   it("puts identity, verification, price, and one next action before supporting details", () => {
     const trainer = { ...trainers[0], demo: false };
     render(<TrainerDetail trainer={trainer} isDemo={false} />);
@@ -62,5 +70,44 @@ describe("TrainerDetail", () => {
     rerender(<TrainerDetail trainer={trainers[0]} isDemo />);
     expect(screen.getByRole("img", { name: `ภาพสังเคราะห์ของ${trainers[0].displayName} ใช้เพื่อสาธิต` })).toBeInTheDocument();
     expect(screen.getByText("ภาพสังเคราะห์ · สาธิต")).toBeInTheDocument();
+  });
+
+  it("lets a trainer update only their own profile price after the API succeeds", async () => {
+    const trainer = { ...trainers[0], demo: false };
+    const workspace = {
+      profile: { id: trainer.id, slug: trainer.slug, displayName: trainer.displayName, approvalStatus: "approved" as const, approvalNote: null },
+      certificates: [],
+      slots: [],
+    };
+    localStorage.setItem("fitconnect_user", JSON.stringify({ role: "trainer" }));
+    vi.mocked(authenticatedRequest)
+      .mockResolvedValueOnce(workspace)
+      .mockResolvedValueOnce(workspace);
+
+    render(<TrainerDetail trainer={trainer} isDemo={false} />);
+    fireEvent.click(await screen.findByRole("button", { name: "ปรับราคา" }));
+    fireEvent.change(screen.getByLabelText("ราคาเริ่มต้น"), { target: { value: "780" } });
+    fireEvent.click(screen.getByRole("button", { name: "บันทึก" }));
+
+    await waitFor(() => expect(authenticatedRequest).toHaveBeenCalledWith("/v1/trainer/me", {
+      method: "PATCH",
+      body: JSON.stringify({ priceFrom: 780 }),
+    }));
+    expect(await screen.findByRole("status")).toHaveTextContent("บันทึกราคาเริ่มต้นแล้ว");
+    expect(screen.getByText(/เริ่มต้น.*780/)).toBeInTheDocument();
+  });
+
+  it("does not expose the price editor on another trainer's profile", async () => {
+    const trainer = { ...trainers[0], demo: false };
+    localStorage.setItem("fitconnect_user", JSON.stringify({ role: "trainer" }));
+    vi.mocked(authenticatedRequest).mockResolvedValue({
+      profile: { id: trainer.id + 1, slug: "another-trainer", displayName: "อีกคน", approvalStatus: "approved", approvalNote: null },
+      certificates: [],
+      slots: [],
+    });
+
+    render(<TrainerDetail trainer={trainer} isDemo={false} />);
+    await waitFor(() => expect(authenticatedRequest).toHaveBeenCalledWith("/v1/trainer/me"));
+    expect(screen.queryByRole("button", { name: "ปรับราคา" })).not.toBeInTheDocument();
   });
 });

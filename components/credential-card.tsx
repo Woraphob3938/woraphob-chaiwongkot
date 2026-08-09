@@ -32,12 +32,12 @@ export function CredentialCard({ trainer }: { trainer: Trainer }) {
 
       <dl className="credential-specs">
         <div>
-          <dt><Award aria-hidden="true" size={17} /> ประสบการณ์</dt>
-          <dd>{trainer.yearsExperience} ปี</dd>
-        </div>
-        <div>
           <dt><MapPin aria-hidden="true" size={17} /> พื้นที่บริการ</dt>
           <dd>{trainer.province.nameTh}</dd>
+        </div>
+        <div>
+          <dt><Award aria-hidden="true" size={17} /> ประสบการณ์</dt>
+          <dd>{trainer.yearsExperience} ปี</dd>
         </div>
         <div>
           <dt><Building2 aria-hidden="true" size={17} /> รูปแบบ</dt>

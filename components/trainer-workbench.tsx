@@ -1,5 +1,6 @@
 "use client";
 
+import Link from "next/link";
 import { FormEvent, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { CalendarPlus, RefreshCw, Trash2 } from "lucide-react";
 import { NextActionCard } from "@/components/dashboard-primitives";
@@ -362,7 +363,14 @@ export function TrainerWorkbench() {
           <h2>{approved ? "โปรไฟล์พร้อมเปิดตาราง" : "โปรไฟล์ยังเปิดตารางไม่ได้"}</h2>
           <p>{workspace?.profile?.approvalNote ?? (approved ? "สร้างช่วงเวลาว่างล่วงหน้าได้ไม่เกิน 2 เดือน" : "รอผู้ดูแลตรวจใบรับรองก่อนสร้างช่วงเวลาว่าง")}</p>
         </div>
-        {workspace?.profile && <StatusBadge status={workspace.profile.approvalStatus} />}
+        {workspace?.profile && (
+          <div className="approval-panel__actions">
+            <Link className="button button--accent" href={`/trainers/${encodeURIComponent(workspace.profile.slug)}`}>
+              หน้าโปรไฟล์เทรนเนอร์
+            </Link>
+            <StatusBadge status={workspace.profile.approvalStatus} />
+          </div>
+        )}
         {workspaceError && <div className="workbench-error" role="alert"><span>{workspaceError}</span><button type="button" onClick={() => void loadWorkspace()}>ลองใหม่</button></div>}
       </section>
 

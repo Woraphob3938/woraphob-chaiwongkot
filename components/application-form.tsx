@@ -36,7 +36,7 @@ export function ApplicationForm() {
       <div className="form-grid">
         <div className="field"><label htmlFor="legal-name">ชื่อ-นามสกุล</label><input id="legal-name" name="legalName" required /></div>
         <div className="field"><label htmlFor="phone">เบอร์โทรศัพท์</label><input id="phone" name="phone" type="tel" inputMode="tel" required /></div>
-        <div className="field"><label htmlFor="application-province">จังหวัดหลักที่ให้บริการ</label><select id="application-province" name="provinceId" defaultValue="1">{provinces.map((province) => <option key={province.id} value={province.id}>{province.nameTh}</option>)}</select></div>
+        <div className="field"><label htmlFor="application-province">พื้นที่หลักที่ให้บริการ</label><select id="application-province" name="provinceId" defaultValue="1">{provinces.map((province) => <option key={province.id} value={province.id}>{province.nameTh}</option>)}</select></div>
         <div className="field"><label htmlFor="service-mode">รูปแบบการทำงาน</label><select id="service-mode" name="serviceMode" defaultValue="freelance"><option value="freelance">ฟรีแลนซ์</option><option value="gym">ประจำฟิตเนส</option><option value="both">ทั้งสองแบบ</option></select></div>
         <div className="field field--full"><label htmlFor="training-type">ความเชี่ยวชาญหลัก</label><select id="training-type" name="trainingTypeId" defaultValue="1">{trainingTypes.map((type) => <option key={type.id} value={type.id}>{type.nameTh}</option>)}</select></div>
         <div className="field field--full"><label htmlFor="experience">ประสบการณ์และแนวทางการฝึก</label><textarea id="experience" name="experience" rows={5} required /></div>
