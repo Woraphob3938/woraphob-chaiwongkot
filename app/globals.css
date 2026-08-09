@@ -3081,6 +3081,7 @@ h3 {
 @media (max-width: 58rem) {
   .header-inner {
     min-height: 4rem;
+    gap: var(--space-sm);
   }
 
   .command-pill {
@@ -3089,6 +3090,11 @@ h3 {
 
   .header-actions {
     margin-left: auto;
+    gap: var(--space-xs);
+  }
+
+  .desktop-nav {
+    gap: var(--space-md);
   }
 
   .session-placeholder {
