@@ -1694,7 +1694,7 @@ body {
 
 .trainer-detail-layout {
   display: grid;
-  grid-template-columns: minmax(0, 1.4fr) minmax(21rem, 0.8fr);
+  grid-template-columns: minmax(0, 1fr);
   border: 1px solid var(--color-rule);
 }
 
@@ -1739,6 +1739,11 @@ body {
   color: var(--color-muted);
 }
 
+.trainer-detail-status {
+  display: flex;
+  margin-top: var(--space-md);
+}
+
 .detail-meta {
   display: flex;
   flex-wrap: wrap;
@@ -1762,11 +1767,21 @@ body {
 }
 
 .trainer-detail-evidence {
-  border-right: 1px solid var(--color-rule);
+  border-top: 0;
 }
 
 .trainer-detail-schedule {
+  border-top: 0;
   background: var(--color-paper-2);
+}
+
+.trainer-detail-disclosure .disclosure-section__content {
+  padding: 0;
+}
+
+.trainer-detail-disclosure .credential-card,
+.trainer-detail-disclosure .availability-panel {
+  border: 0;
 }
 
 /* Auth and forms */

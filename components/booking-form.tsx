@@ -5,12 +5,17 @@ import { FormEvent, useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import { ArrowLeft, ArrowRight, CircleAlert, LoaderCircle, MapPin, RefreshCw } from "lucide-react";
 import { ApiError, apiRequest, authenticatedRequest } from "@/lib/api";
+import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
+import { Textarea } from "@/components/ui/textarea";
 import { formatDateTime, formatMoney } from "@/lib/format";
-import type { Trainer } from "@/lib/types";
+import type { AvailabilitySlot, Trainer } from "@/lib/types";
 
 export function BookingForm({ trainerSlug, slotId }: { trainerSlug?: string; slotId?: string }) {
   const router = useRouter();
   const [trainer, setTrainer] = useState<Trainer | null>(null);
+  const [selectedSlot, setSelectedSlot] = useState<AvailabilitySlot | null>(null);
   const [loading, setLoading] = useState(Boolean(trainerSlug));
   const [loadError, setLoadError] = useState("");
   const [pending, setPending] = useState(false);
@@ -26,6 +31,7 @@ export function BookingForm({ trainerSlug, slotId }: { trainerSlug?: string; slo
       .then((data) => {
         if (!active) return;
         setTrainer(data);
+        setSelectedSlot(data.slots.find((item) => item.id === Number(slotId) && item.available) ?? null);
         setLoadError("");
       })
       .catch((error: unknown) => {
@@ -36,14 +42,17 @@ export function BookingForm({ trainerSlug, slotId }: { trainerSlug?: string; slo
         if (active) setLoading(false);
       });
     return () => { active = false; };
-  }, [trainerSlug]);
+  }, [slotId, trainerSlug]);
 
   async function reloadTrainer(showLoading = true) {
     if (!trainerSlug) return;
     if (showLoading) setLoading(true);
     setLoadError("");
     try {
-      setTrainer(await apiRequest<Trainer>(`/v1/trainers/${encodeURIComponent(trainerSlug)}`, { cache: "no-store" }));
+      const freshTrainer = await apiRequest<Trainer>(`/v1/trainers/${encodeURIComponent(trainerSlug)}`, { cache: "no-store" });
+      setTrainer(freshTrainer);
+      const freshSlot = freshTrainer.slots.find((item) => item.id === Number(slotId) && item.available);
+      if (freshSlot) setSelectedSlot(freshSlot);
     } catch (error) {
       setLoadError(error instanceof Error ? error.message : "โหลดข้อมูลเทรนเนอร์ไม่สำเร็จ");
     } finally {
@@ -51,7 +60,8 @@ export function BookingForm({ trainerSlug, slotId }: { trainerSlug?: string; slo
     }
   }
 
-  const slot = trainer?.slots.find((item) => item.id === Number(slotId) && item.available) ?? null;
+  const preservedSlot = selectedSlot?.id === Number(slotId) ? selectedSlot : null;
+  const slot = trainer?.slots.find((item) => item.id === Number(slotId) && item.available) ?? preservedSlot;
 
   async function onSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -89,7 +99,7 @@ export function BookingForm({ trainerSlug, slotId }: { trainerSlug?: string; slo
         <CircleAlert aria-hidden="true" size={28} />
         <h2>ยังโหลดข้อมูลสำหรับจองไม่ได้</h2>
         <p>{loadError}</p>
-        <button className="button button--dark" type="button" onClick={() => void reloadTrainer()}><RefreshCw aria-hidden="true" size={17} /> ลองโหลดข้อมูลอีกครั้ง</button>
+        <Button className="button button--dark" type="button" onClick={() => void reloadTrainer()}><RefreshCw aria-hidden="true" size={17} /> ลองโหลดข้อมูลอีกครั้ง</Button>
       </div>
     );
   }
@@ -119,15 +129,15 @@ export function BookingForm({ trainerSlug, slotId }: { trainerSlug?: string; slo
       </div>
       <div className="booking-fields">
         <div className="field">
-          <label htmlFor="booking-location">สถานที่ที่สะดวก</label>
-          <div className="input-with-icon"><MapPin aria-hidden="true" size={17} /><input id="booking-location" name="location" value={location} onChange={(event) => setLocation(event.target.value)} placeholder="ระบุฟิตเนสหรือจุดนัดหมาย" required aria-invalid={Boolean(fieldErrors.location)} aria-describedby={fieldErrors.location ? "booking-location-error" : undefined} /></div>
+          <Label htmlFor="booking-location">สถานที่ที่สะดวก</Label>
+          <div className="input-with-icon"><MapPin aria-hidden="true" size={17} /><Input id="booking-location" name="location" value={location} onChange={(event) => setLocation(event.target.value)} placeholder="ระบุฟิตเนสหรือจุดนัดหมาย" required aria-invalid={Boolean(fieldErrors.location)} aria-describedby={fieldErrors.location ? "booking-location-error" : undefined} /></div>
           {fieldErrors.location && <small id="booking-location-error" className="field-error">{fieldErrors.location}</small>}
         </div>
-        <div className="field"><label htmlFor="booking-note">เป้าหมายหรือข้อจำกัดที่ควรรู้</label><textarea id="booking-note" name="note" rows={5} value={note} onChange={(event) => setNote(event.target.value)} placeholder="เช่น ต้องการเริ่มเวทเบื้องต้น มีอาการเจ็บเข่า" /></div>
+        <div className="field"><Label htmlFor="booking-note">เป้าหมายหรือข้อจำกัดที่ควรรู้ (ไม่บังคับ)</Label><Textarea id="booking-note" name="note" rows={5} value={note} onChange={(event) => setNote(event.target.value)} placeholder="เช่น ต้องการเริ่มเวทเบื้องต้น มีอาการเจ็บเข่า" /></div>
         <div className="form-message-slot" aria-live="polite">
           {message && <div className="form-message form-message--error" role="alert"><CircleAlert aria-hidden="true" size={18} /> {message}</div>}
         </div>
-        <button className="button button--accent button--wide" type="submit" disabled={pending}>{pending ? <><LoaderCircle className="spin" aria-hidden="true" size={18} /> กำลังส่งคำขอ</> : <>ยืนยันและส่งคำขอ <ArrowRight aria-hidden="true" size={18} /></>}</button>
+        <Button className="button button--accent button--wide" type="submit" disabled={pending}>{pending ? <><LoaderCircle className="spin" aria-hidden="true" size={18} /> กำลังส่งคำขอ</> : <>ยืนยันและส่งคำขอ <ArrowRight aria-hidden="true" size={18} /></>}</Button>
       </div>
     </form>
   );

@@ -45,9 +45,36 @@ describe("BookingForm", () => {
     render(<BookingForm trainerSlug="live-trainer" slotId="44" />);
     await screen.findByText("เทรนเนอร์จริง");
     fireEvent.change(screen.getByLabelText("สถานที่ที่สะดวก"), { target: { value: "ฟิตเนสกลางเมือง" } });
+    fireEvent.change(screen.getByLabelText(/เป้าหมายหรือข้อจำกัดที่ควรรู้/), { target: { value: "เริ่มฝึกเวท" } });
     fireEvent.click(screen.getByRole("button", { name: /ยืนยันและส่งคำขอ/ }));
-    await waitFor(() => expect(authenticatedRequest).toHaveBeenCalledWith("/v1/bookings", expect.objectContaining({ method: "POST" })));
+    await waitFor(() => expect(authenticatedRequest).toHaveBeenCalledWith("/v1/bookings", {
+      method: "POST",
+      body: JSON.stringify({ trainerId: 1, slotId: 44, location: "ฟิตเนสกลางเมือง", note: "เริ่มฝึกเวท" }),
+    }));
     expect(push).toHaveBeenCalledWith("/member?booking=BK-LIVE");
+  });
+
+  it("presents booking facts before an explicitly optional note and one submit action", async () => {
+    vi.mocked(apiRequest).mockResolvedValue(liveTrainer);
+    render(<BookingForm trainerSlug="live-trainer" slotId="44" />);
+
+    const trainerName = await screen.findByText("เทรนเนอร์จริง");
+    const note = screen.getByLabelText("เป้าหมายหรือข้อจำกัดที่ควรรู้ (ไม่บังคับ)");
+    const submit = screen.getByRole("button", { name: /ยืนยันและส่งคำขอ/ });
+    expect(trainerName.compareDocumentPosition(note) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    expect(note.compareDocumentPosition(submit) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    expect(screen.getAllByRole("button", { name: /ยืนยันและส่งคำขอ/ })).toHaveLength(1);
+  });
+
+  it("does not reuse a preserved slot when the requested slot id changes", async () => {
+    vi.mocked(apiRequest).mockResolvedValue(liveTrainer);
+    const { rerender } = render(<BookingForm trainerSlug="live-trainer" slotId="44" />);
+    await screen.findByText("เทรนเนอร์จริง");
+
+    rerender(<BookingForm trainerSlug="live-trainer" slotId="99" />);
+
+    expect(await screen.findByRole("heading", { name: "ช่วงเวลาที่เลือกถูกเปลี่ยน" })).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: /ยืนยันและส่งคำขอ/ })).not.toBeInTheDocument();
   });
 
   it("keeps form values and reports a stale slot", async () => {
@@ -57,10 +84,14 @@ describe("BookingForm", () => {
     await screen.findByText("เทรนเนอร์จริง");
     const location = screen.getByLabelText("สถานที่ที่สะดวก");
     fireEvent.change(location, { target: { value: "สถานที่เดิม" } });
+    const note = screen.getByLabelText(/เป้าหมายหรือข้อจำกัดที่ควรรู้/);
+    fireEvent.change(note, { target: { value: "รักษาข้อมูลนี้ไว้" } });
     fireEvent.click(screen.getByRole("button", { name: /ยืนยันและส่งคำขอ/ }));
     expect(await screen.findByText("ช่วงเวลานี้ไม่พร้อมจองแล้ว")).toBeInTheDocument();
-    expect(location).toHaveValue("สถานที่เดิม");
     await waitFor(() => expect(apiRequest).toHaveBeenCalledTimes(2));
+    expect(screen.getByLabelText("สถานที่ที่สะดวก")).toHaveValue("สถานที่เดิม");
+    expect(screen.getByLabelText(/เป้าหมายหรือข้อจำกัดที่ควรรู้/)).toHaveValue("รักษาข้อมูลนี้ไว้");
+    expect(screen.getByRole("button", { name: /ยืนยันและส่งคำขอ/ })).toBeEnabled();
   });
 
   it("associates a location field error with its input", async () => {
