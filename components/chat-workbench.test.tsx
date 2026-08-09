@@ -1,3 +1,4 @@
+import { readFileSync } from "node:fs";
 import { act, fireEvent, render, screen, within } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { ChatWorkbench } from "@/components/chat-workbench";
@@ -166,17 +167,44 @@ describe("ChatWorkbench", () => {
     expect(disclosure).toHaveAttribute("open");
   });
 
-  it("keeps booking facts expanded in the desktop three-zone workbench", async () => {
+  it("keeps the desktop booking facts open by default with a visible native disclosure control", async () => {
     stubDesktopFacts(true);
     const booking = bookingFixture();
     vi.mocked(authenticatedRequest)
       .mockResolvedValueOnce([booking])
       .mockResolvedValueOnce([]);
 
-    const { container } = render(<ChatWorkbench />);
+    const globalStyles = readFileSync("app/globals.css", "utf8");
+    const summaryRule = globalStyles.match(/\.chat-booking-facts__summary\s*\{[^}]*\}/)?.[0];
+    expect(summaryRule).toBeDefined();
+    const styles = document.createElement("style");
+    styles.textContent = summaryRule ?? "";
+    document.head.append(styles);
+    const appliedSummaryRule = styles.sheet?.cssRules[0] as CSSStyleRule | undefined;
+    styles.remove();
+    render(<ChatWorkbench />);
     await flushPromises();
 
-    expect(container.querySelector("details")).toHaveAttribute("open");
+    const summary = screen.getByText("รายละเอียดนัดหมาย", { selector: "summary" });
+    const disclosure = summary.closest("details");
+    expect(appliedSummaryRule?.style.display).not.toBe("none");
+    expect(summary).toBeVisible();
+    expect(summary.tagName).toBe("SUMMARY");
+    expect(summary.tabIndex).toBeGreaterThanOrEqual(0);
+    expect(disclosure).toHaveAttribute("open");
+
+    summary.focus();
+    expect(summary).toHaveFocus();
+    fireEvent.click(summary);
+    await flushPromises();
+    expect(disclosure).not.toHaveAttribute("open");
+
+    summary.focus();
+    fireEvent.keyDown(summary, { key: "Enter", code: "Enter" });
+    fireEvent.keyUp(summary, { key: "Enter", code: "Enter" });
+    fireEvent.click(summary); // Native keyboard activation dispatches the same click action in browsers.
+    await flushPromises();
+    expect(disclosure).toHaveAttribute("open");
   });
 
   it("announces the active conversation before secondary facts and keeps the composer after the message log", async () => {
