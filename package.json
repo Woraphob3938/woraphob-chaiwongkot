@@ -10,6 +10,8 @@
     "typecheck": "tsc --noEmit",
     "test": "vitest run",
     "test:php": "C:\\xampp\\php\\php.exe backend/tests/WorkflowRulesTest.php",
+    "migrate:remove-location-data": "powershell -NoProfile -ExecutionPolicy Bypass -File scripts/migrate-remove-province-location.ps1",
+    "smoke:trainer-onboarding": "powershell -NoProfile -ExecutionPolicy Bypass -File scripts/api-trainer-onboarding-smoke.ps1",
     "smoke:postbooking": "powershell -NoProfile -ExecutionPolicy Bypass -File scripts/api-payment-chat-review-smoke.ps1 -Scenario all",
     "audit:booking": "powershell -NoProfile -ExecutionPolicy Bypass -File scripts/audit-booking.ps1",
     "check": "npm run lint && npm run typecheck && npm run build",

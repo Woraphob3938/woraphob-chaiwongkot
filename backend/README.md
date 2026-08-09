@@ -14,7 +14,6 @@ PHP REST API แบบไม่พึ่ง Composer สำหรับ Apache +
 ## เส้นทางหลัก
 
 - `GET /v1/health`
-- `GET /v1/provinces`
 - `GET /v1/training-types`
 - `GET /v1/trainers`
 - `GET /v1/trainers/{slug}`
@@ -48,6 +47,22 @@ rtk powershell -NoProfile -ExecutionPolicy Bypass -File scripts/api-workflow-smo
 ```
 
 การทดสอบครอบคลุมการอนุมัติเทรนเนอร์ การสร้าง/ลบช่วงเวลาว่าง การจองพร้อมกัน การตอบรับ และการปฏิเสธ สคริปต์เปลี่ยนแปลงเฉพาะฐานข้อมูลสำหรับพัฒนาในเครื่อง และ `npm run xampp:connect` จะคืนสถานะข้อมูลตั้งต้นก่อนเริ่มรอบสะอาดอีกครั้ง
+
+## ย้ายฐานข้อมูลเดิมเพื่อลบจังหวัดและสถานที่นัดฝึก
+
+ฐานข้อมูลที่สร้างจาก schema รุ่นใหม่ไม่ต้องทำขั้นตอนนี้ สำหรับฐานข้อมูล XAMPP เดิม ให้เปิด MySQL แล้วรัน:
+
+```powershell
+npm run migrate:remove-location-data
+```
+
+สคริปต์จะตรวจสภาพ schema ก่อนเสมอ ถ้าพบว่าถูกแก้ไปเพียงบางส่วนจะหยุดทันที ถ้าเป็น schema เดิมจะสำรองฐานข้อมูลเต็มไว้ที่ `C:\xampp\fitconnect-backups` ก่อนลบตาราง/คอลัมน์จังหวัดและ `bookings.location_text` หากต้องการตรวจอย่างเดียวให้รัน `npm run migrate:remove-location-data -- -PreflightOnly` และหากต้องย้อนกลับให้นำเข้าไฟล์ `.sql` ที่สคริปต์แจ้งหลังคำว่า `Recovery backup`.
+
+ตรวจขั้นตอนบัญชีเทรนเนอร์ → กรอกข้อมูลวิชาชีพ → ถูกปฏิเสธ → ส่งใหม่ → อนุมัติ ด้วย:
+
+```powershell
+npm run smoke:trainer-onboarding
+```
 
 ## ตรวจ flow หลังการจองและเปิดดูใน phpMyAdmin
 
