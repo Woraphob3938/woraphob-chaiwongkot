@@ -4,8 +4,17 @@ import { FormEvent, useEffect, useId, useRef, useState } from "react";
 import { RefreshCw } from "lucide-react";
 import { authenticatedRequest } from "@/lib/api";
 import type { Booking } from "@/lib/types";
+import { Button } from "@/components/ui/button";
+import { Label } from "@/components/ui/label";
+import { Textarea } from "@/components/ui/textarea";
 
 const MAX_COMMENT_LENGTH = 2_000;
+
+const reviewStatusCopy: Record<NonNullable<Booking["review"]>["status"], string> = {
+  published: "เผยแพร่แล้ว",
+  hidden: "ซ่อนจากสาธารณะ",
+  reported: "มีรายงานให้ตรวจสอบ",
+};
 
 type ReviewFormProps = {
   booking: Booking;
@@ -106,16 +115,31 @@ export function ReviewForm({ booking, onUpdated }: ReviewFormProps) {
   const ratingErrorId = `${formId}-rating-error`;
   const commentErrorId = `${formId}-comment-error`;
   const commentGuideId = `${formId}-comment-guide`;
-  const showForm = !submitted;
+  const showForm = booking.actions.canReview && !submitted;
+  const visibleReviewStatus = submitted
+    ? reviewStatusCopy.published
+    : booking.review
+      ? reviewStatusCopy[booking.review.status]
+      : "ยังไม่มีรีวิวที่เผยแพร่";
 
   return (
-    <section aria-labelledby={`${formId}-title`}>
-      <div className="ledger-row">
-        <span>รีวิวหลังการฝึก</span>
-        <strong id={`${formId}-title`}>บอกประสบการณ์ที่ได้รับ</strong>
+    <section className="review-form guided-transaction-panel" aria-labelledby={`${formId}-title`}>
+      <div className="transaction-status-summary">
+        <span>สถานะรีวิว</span>
+        <strong id={`${formId}-title`}>{visibleReviewStatus}</strong>
+        {booking.review && (
+          <div className="published-review-summary">
+            <span>{booking.review.rating} จาก 5 ดาว</span>
+            <p>{booking.review.comment}</p>
+          </div>
+        )}
       </div>
       {showForm && (
-        <form className="booking-fields" onSubmit={submit} aria-busy={busy} noValidate>
+        <form className="booking-fields transaction-primary-action" onSubmit={submit} aria-busy={busy} noValidate>
+          <div className="transaction-primary-action__heading">
+            <strong>เขียนรีวิวหลังการฝึก</strong>
+            <span>รีวิวจะเผยแพร่หลังส่งสำเร็จ</span>
+          </div>
           <fieldset className="field" aria-describedby={fieldErrors.rating ? ratingErrorId : undefined}>
             <legend>คะแนนการฝึก</legend>
             <div className="ledger-actions">
@@ -140,8 +164,8 @@ export function ReviewForm({ booking, onUpdated }: ReviewFormProps) {
             {fieldErrors.rating && <small className="field-error" id={ratingErrorId}>{fieldErrors.rating}</small>}
           </fieldset>
           <div className="field">
-            <label htmlFor={`${formId}-comment`}>ความคิดเห็น</label>
-            <textarea
+            <Label htmlFor={`${formId}-comment`}>ความคิดเห็น</Label>
+            <Textarea
               id={`${formId}-comment`}
               value={comment}
               disabled={busy || !booking.actions.canReview}
@@ -155,9 +179,9 @@ export function ReviewForm({ booking, onUpdated }: ReviewFormProps) {
             <small id={commentGuideId}>เขียน 1 ถึง 2,000 ตัวอักษร ขณะนี้ {Array.from(comment).length.toLocaleString("th-TH")} ตัวอักษร</small>
             {fieldErrors.comment && <small className="field-error" id={commentErrorId}>{fieldErrors.comment}</small>}
           </div>
-          <button className="button button--accent" type="submit" disabled={busy || !booking.actions.canReview}>
+          <Button className="button button--accent" type="submit" disabled={busy || !booking.actions.canReview}>
             {busy ? "กำลังส่งรีวิว…" : requestError === "submit" ? "ลองส่งอีกครั้ง" : "ส่งรีวิว"}
-          </button>
+          </Button>
         </form>
       )}
 

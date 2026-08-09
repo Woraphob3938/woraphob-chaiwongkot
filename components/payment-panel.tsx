@@ -4,6 +4,10 @@ import { FormEvent, useEffect, useId, useRef, useState } from "react";
 import { RefreshCw } from "lucide-react";
 import { authenticatedRequest } from "@/lib/api";
 import type { Booking } from "@/lib/types";
+import { DisclosureSection } from "@/components/disclosure-section";
+import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
 
 const MAX_SLIP_SIZE = 5 * 1024 * 1024;
 const ACCEPTED_SLIP_TYPES = new Set([
@@ -151,28 +155,28 @@ export function PaymentPanel({ booking, onUpdated }: PaymentPanelProps) {
   const slipErrorId = `${slipId}-error`;
   const slipGuideId = `${slipId}-guide`;
   const canUpload = booking.actions.canPay && !uploaded;
+  const visiblePaymentStatus = uploaded ? paymentStatusCopy.reviewing : paymentStatusCopy[booking.paymentStatus];
 
   return (
-    <section className="payment-panel" aria-labelledby={`${amountId}-title`}>
-      <div className="ledger-row">
-        <span>หลักฐานการชำระ</span>
-        <strong id={`${amountId}-title`}>ส่งสลิปให้ผู้ดูแลตรวจ</strong>
+    <section className="payment-panel guided-transaction-panel" aria-labelledby={`${amountId}-title`}>
+      <div className="transaction-status-summary">
+        <span>สถานะหลักฐาน</span>
+        <strong id={`${amountId}-title`}>{visiblePaymentStatus}</strong>
+        {booking.payment?.reviewNote && (
+          <p><span>หมายเหตุจากผู้ดูแล</span>{booking.payment.reviewNote}</p>
+        )}
       </div>
-      <div className="ledger-row"><span>รหัสคำขอ</span><strong>{booking.id}</strong></div>
-      <div className="ledger-row"><span>เทรนเนอร์</span><strong>{booking.trainer.displayName}</strong></div>
-      <div className="ledger-row"><span>ค่าฝึกที่แจ้ง</span><strong>{formatAmount(booking.quotedPrice)}</strong></div>
-      <div className="ledger-row"><span>ยอดที่เคยส่ง</span><strong>{formatAmount(booking.payment?.amount ?? null)}</strong></div>
-      <div className="ledger-row"><span>สถานะหลักฐาน</span><strong>{paymentStatusCopy[booking.paymentStatus]}</strong></div>
-      {booking.payment?.status === "rejected" && booking.payment.reviewNote && (
-        <div className="ledger-row"><span>หมายเหตุจากผู้ดูแล</span><strong>{booking.payment.reviewNote}</strong></div>
-      )}
 
       {canUpload && (
-        <form className="booking-fields payment-panel__form" onSubmit={submit} aria-busy={busy} noValidate>
+        <form className="booking-fields payment-panel__form transaction-primary-action" onSubmit={submit} aria-busy={busy} noValidate>
+          <div className="transaction-primary-action__heading">
+            <strong>ส่งหลักฐานการโอน</strong>
+            <span>ผู้ดูแลจะตรวจหลักฐานด้วยตนเอง</span>
+          </div>
           <div className="form-grid">
             <div className="field">
-              <label htmlFor={amountId}>ยอดที่โอน</label>
-              <input
+              <Label htmlFor={amountId}>ยอดที่โอน</Label>
+              <Input
                 id={amountId}
                 type="number"
                 min="0.01"
@@ -190,8 +194,8 @@ export function PaymentPanel({ booking, onUpdated }: PaymentPanelProps) {
               {fieldErrors.amount && <small className="field-error" id={amountErrorId}>{fieldErrors.amount}</small>}
             </div>
             <div className="field">
-              <label htmlFor={slipId}>หลักฐานการโอน</label>
-              <input
+              <Label htmlFor={slipId}>หลักฐานการโอน</Label>
+              <Input
                 className="payment-slip-input"
                 id={slipId}
                 type="file"
@@ -208,9 +212,9 @@ export function PaymentPanel({ booking, onUpdated }: PaymentPanelProps) {
               {fieldErrors.slip && <small className="field-error" id={slipErrorId}>{fieldErrors.slip}</small>}
             </div>
           </div>
-          <button className="button button--accent" type="submit" disabled={busy}>
+          <Button className="button button--accent" type="submit" disabled={busy}>
             {busy ? "กำลังส่งสลิป…" : requestError === "upload" ? "ลองส่งอีกครั้ง" : "ส่งสลิปให้ตรวจ"}
-          </button>
+          </Button>
         </form>
       )}
 
@@ -228,6 +232,12 @@ export function PaymentPanel({ booking, onUpdated }: PaymentPanelProps) {
         </div>
       )}
       {notice && <p ref={feedbackRef as React.RefObject<HTMLParagraphElement>} className="queue-notice" role="status" tabIndex={-1}>{notice}</p>}
+      <DisclosureSection title="รายละเอียดหลักฐานเดิม" summary={booking.payment ? "มีหลักฐานที่เคยส่ง" : "ยังไม่มีหลักฐานเดิม"}>
+        <div className="ledger-row"><span>รหัสคำขอ</span><strong>{booking.id}</strong></div>
+        <div className="ledger-row"><span>เทรนเนอร์</span><strong>{booking.trainer.displayName}</strong></div>
+        <div className="ledger-row"><span>ค่าฝึกที่แจ้ง</span><strong>{formatAmount(booking.quotedPrice)}</strong></div>
+        <div className="ledger-row"><span>ยอดที่เคยส่ง</span><strong>{formatAmount(booking.payment?.amount ?? null)}</strong></div>
+      </DisclosureSection>
     </section>
   );
 }

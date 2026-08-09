@@ -51,6 +51,46 @@ describe("PaymentPanel", () => {
     vi.mocked(authenticatedRequest).mockReset();
   });
 
+  it("shows status and the administrator note before an open payment action and closed evidence", () => {
+    render(<PaymentPanel booking={bookingFixture({
+      paymentStatus: "rejected",
+      payment: {
+        id: 4,
+        amount: 1_200,
+        status: "rejected",
+        reviewNote: "ชื่อบัญชีในสลิปไม่ตรง กรุณาส่งไฟล์ใหม่",
+        submittedAt: "2026-08-01T01:00:00.000Z",
+      },
+    })} onUpdated={vi.fn()} />);
+
+    const status = screen.getByText("สถานะหลักฐาน").closest("div");
+    const note = screen.getByText("ชื่อบัญชีในสลิปไม่ตรง กรุณาส่งไฟล์ใหม่");
+    const submit = screen.getByRole("button", { name: "ส่งสลิปให้ตรวจ" });
+    const evidenceTitle = screen.getByText("รายละเอียดหลักฐานเดิม");
+    const evidence = evidenceTitle.closest("details");
+
+    expect(status).toBeVisible();
+    expect(note).toBeVisible();
+    expect(submit).toBeEnabled();
+    expect(evidence).not.toHaveAttribute("open");
+    expect(within(evidence as HTMLElement).getByText("ยอดที่เคยส่ง")).toBeInTheDocument();
+    expect(status).not.toBeNull();
+    expect((status as Node).compareDocumentPosition(submit) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    expect(submit.compareDocumentPosition(evidence as Node) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+  });
+
+  it("does not mount the upload form when payment is not allowed", () => {
+    render(<PaymentPanel booking={bookingFixture({
+      actions: { ...bookingFixture().actions, canPay: false },
+    })} onUpdated={vi.fn()} />);
+
+    expect(screen.getByText("สถานะหลักฐาน")).toBeVisible();
+    expect(screen.queryByLabelText("ยอดที่โอน")).not.toBeInTheDocument();
+    expect(screen.queryByLabelText("หลักฐานการโอน")).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "ส่งสลิปให้ตรวจ" })).not.toBeInTheDocument();
+    expect(screen.getByText("ยังส่งสลิปไม่ได้ตามสถานะการจองนี้")).toBeVisible();
+  });
+
   it("sends the exact booking, raw amount, and selected file before awaiting refresh", async () => {
     const onUpdated = vi.fn().mockResolvedValue(undefined);
     vi.mocked(authenticatedRequest).mockResolvedValue({ paymentId: 8, status: "reviewing" });

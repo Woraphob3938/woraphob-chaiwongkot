@@ -42,6 +42,36 @@ describe("ReviewForm", () => {
     vi.mocked(authenticatedRequest).mockReset();
   });
 
+  it("shows review status before the open review action", () => {
+    render(<ReviewForm booking={bookingFixture()} onUpdated={vi.fn()} />);
+
+    const status = screen.getByText("สถานะรีวิว").closest("div");
+    const submit = screen.getByRole("button", { name: "ส่งรีวิว" });
+    expect(status).toBeVisible();
+    expect(screen.getByText("ยังไม่มีรีวิวที่เผยแพร่")).toBeVisible();
+    expect(submit).toBeEnabled();
+    expect(status).not.toBeNull();
+    expect((status as Node).compareDocumentPosition(submit) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+  });
+
+  it("shows the factual published review summary without mounting another form", () => {
+    render(<ReviewForm booking={bookingFixture({
+      review: {
+        rating: 4,
+        comment: "สอนเข้าใจง่ายและดูแลท่าฝึกดี",
+        status: "published",
+        createdAt: "2026-08-10T04:00:00.000Z",
+      },
+      actions: { ...bookingFixture().actions, canReview: false },
+    })} onUpdated={vi.fn()} />);
+
+    expect(screen.getByText("เผยแพร่แล้ว")).toBeVisible();
+    expect(screen.getByText("4 จาก 5 ดาว")).toBeVisible();
+    expect(screen.getByText("สอนเข้าใจง่ายและดูแลท่าฝึกดี")).toBeVisible();
+    expect(screen.queryByRole("button", { name: "ส่งรีวิว" })).not.toBeInTheDocument();
+    expect(screen.queryByLabelText("ความคิดเห็น")).not.toBeInTheDocument();
+  });
+
   it("submits the exact rating and trimmed comment before awaiting refresh", async () => {
     vi.mocked(authenticatedRequest).mockResolvedValue({ reviewId: 5, status: "published" });
     const onUpdated = vi.fn().mockResolvedValue(undefined);
@@ -75,11 +105,11 @@ describe("ReviewForm", () => {
     expect(authenticatedRequest).not.toHaveBeenCalled();
   });
 
-  it("has no enabled submit when the server does not allow a review", () => {
+  it("does not mount the form when the server does not allow a review", () => {
     render(<ReviewForm booking={bookingFixture({ actions: { ...bookingFixture().actions, canReview: false } })} onUpdated={vi.fn()} />);
-    expect(screen.getByRole("button", { name: "ส่งรีวิว" })).toBeDisabled();
-    expect(screen.getAllByRole("radio").every((radio) => radio.hasAttribute("disabled"))).toBe(true);
-    expect(screen.getByLabelText("ความคิดเห็น")).toBeDisabled();
+    expect(screen.queryByRole("button", { name: "ส่งรีวิว" })).not.toBeInTheDocument();
+    expect(screen.queryAllByRole("radio")).toHaveLength(0);
+    expect(screen.queryByLabelText("ความคิดเห็น")).not.toBeInTheDocument();
     expect(screen.getByText("ยังเขียนรีวิวไม่ได้ตามสถานะการจองนี้")).toBeInTheDocument();
   });
 
