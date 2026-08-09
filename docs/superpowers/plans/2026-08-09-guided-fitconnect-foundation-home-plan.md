@@ -4,9 +4,9 @@
 
 **Goal:** Replace the dense first-viewport workbench with an overview-first FitConnect homepage and establish the shared visual/navigation foundation for later dashboard work.
 
-**Architecture:** Keep `app/page.tsx` as a server component that fetches the existing trainer and reference APIs, then render a new presentational `HomeOverview`. Keep `TrainerDiscovery` on `/trainers`; no API or database contract changes. `SiteHeader` continues to own session state and passes the authenticated user to a focused mobile role navigation component.
+**Architecture:** Initialize a selective shadcn/ui Radix foundation whose theme aliases resolve to the existing FitConnect tokens, then keep `app/page.tsx` as a server component that fetches the existing trainer and reference APIs and renders a new presentational `HomeOverview`. Keep `TrainerDiscovery` on `/trainers`; no API or database contract changes. `SiteHeader` continues to own session state and passes the authenticated user to a focused mobile role navigation component.
 
-**Tech Stack:** Next.js 16 App Router, React 19, TypeScript 6, CSS tokens, Lucide React, Vitest, Testing Library.
+**Tech Stack:** Next.js 16 App Router, React 19, TypeScript 6, Tailwind CSS 4, selective shadcn/ui with Radix primitives, CSS tokens, Lucide React, Vitest, Testing Library.
 
 ## Global Constraints
 
@@ -18,10 +18,120 @@
 - WCAG 2.2 AA; status never relies on color alone; touch targets are at least 44px.
 - Verify 320, 375, 414, 768, and 1280×800 widths with no horizontal page overflow.
 - Preserve unrelated working-tree changes and never stage `graphify-out/` or `.superpowers/brainstorm/`.
+- Do not clone the shadcn/ui repository, run `add --all`, apply a preset, replace FitConnect fonts, or accept generated CSS changes without reviewing the diff.
 
 ---
 
-### Task 1: Add the friendly-fitness token layer
+### Task 1: Initialize the selective shadcn foundation
+
+**Files:**
+- Create: `components.json`
+- Create: `lib/utils.ts`
+- Create: `components/ui/button.tsx`
+- Create: `components/ui/input.tsx`
+- Create: `components/ui/label.tsx`
+- Create: `components/ui/textarea.tsx`
+- Create: `components/ui/native-select.tsx`
+- Create: `components/ui/badge.tsx`
+- Create: `components/ui/alert.tsx`
+- Create: `components/ui/sheet.tsx`
+- Create: `components/ui/dialog.tsx`
+- Create: `components/ui/avatar.tsx`
+- Create: `components/ui/dropdown-menu.tsx`
+- Create: `components/ui/skeleton.tsx`
+- Create: `components/ui/empty.tsx`
+- Create: `components/shadcn-foundation.test.tsx`
+- Modify: `package.json`
+- Modify: `package-lock.json`
+- Modify: `app/globals.css:1-259`
+
+**Interfaces:**
+- Produces: source-owned UI primitives under `@/components/ui/*`, `cn(...inputs: ClassValue[]): string`, and shadcn theme aliases backed by existing FitConnect tokens.
+- Preserves: `tokens.css`, Bai Jamjuree, Chakra Petch, JetBrains Mono, all existing `.button` consumers until migrated task-by-task.
+
+- [ ] **Step 1: Write the failing foundation test**
+
+```tsx
+import { render, screen } from "@testing-library/react";
+import { describe, expect, it } from "vitest";
+import { Button } from "@/components/ui/button";
+import { Alert, AlertTitle } from "@/components/ui/alert";
+
+describe("selective shadcn foundation", () => {
+  it("renders FitConnect-owned accessible primitives", () => {
+    render(<><Button>ดำเนินการต่อ</Button><Alert><AlertTitle>ตรวจสอบข้อมูล</AlertTitle></Alert></>);
+    expect(screen.getByRole("button", { name: "ดำเนินการต่อ" })).toBeInTheDocument();
+    expect(screen.getByText("ตรวจสอบข้อมูล")).toBeInTheDocument();
+  });
+});
+```
+
+- [ ] **Step 2: Run the focused test and observe RED**
+
+Run: `rtk npm test -- components/shadcn-foundation.test.tsx`
+Expected: FAIL because `@/components/ui/button` and `alert` do not exist.
+
+- [ ] **Step 3: Initialize shadcn in an isolated execution worktree**
+
+Run: `rtk npx shadcn@latest init -d --base radix`
+Expected: creates `components.json`, `lib/utils.ts`, dependencies, and theme variables. Immediately inspect `rtk git diff -- package.json package-lock.json app/globals.css components.json lib/utils.ts`; do not continue if imports, fonts, existing selectors, or `tokens.css` were removed.
+
+- [ ] **Step 4: Preview the selected component changes**
+
+Run: `rtk npx shadcn@latest add button input label textarea native-select badge alert sheet dialog avatar dropdown-menu skeleton empty --dry-run`
+Expected: only the named primitives and their dependencies are proposed; no block, page template, Card, Data Table, chart, or unrelated registry item appears.
+
+- [ ] **Step 5: Add only the approved primitives**
+
+Run: `rtk npx shadcn@latest add button input label textarea native-select badge alert sheet dialog avatar dropdown-menu skeleton empty`
+Expected: source files are created under `components/ui/`; no application route is rewritten.
+
+- [ ] **Step 6: Map shadcn aliases to FitConnect tokens**
+
+Keep the existing imports at the top of `app/globals.css` and use this token bridge instead of generated raw palette values:
+
+```css
+:root {
+  --background: var(--color-paper);
+  --foreground: var(--color-ink);
+  --card: var(--color-paper);
+  --card-foreground: var(--color-ink);
+  --popover: var(--color-paper);
+  --popover-foreground: var(--color-ink);
+  --primary: var(--color-accent);
+  --primary-foreground: var(--color-accent-ink);
+  --secondary: var(--color-paper-2);
+  --secondary-foreground: var(--color-ink);
+  --muted: var(--color-paper-3);
+  --muted-foreground: var(--color-muted);
+  --accent: var(--color-accent-soft);
+  --accent-foreground: var(--color-accent-ink);
+  --destructive: var(--color-error);
+  --border: var(--color-rule);
+  --input: var(--color-rule);
+  --ring: var(--color-focus);
+}
+```
+
+Remove generated duplicate font and radius declarations. Retain the existing FitConnect `--font-*` and `--radius-*` variables as the only source of truth.
+
+- [ ] **Step 7: Run the foundation gates**
+
+Run: `rtk npm test -- components/shadcn-foundation.test.tsx`
+Expected: PASS.
+Run: `rtk npm run typecheck`
+Expected: exit 0.
+Run: `rtk npm run lint`
+Expected: exit 0.
+
+- [ ] **Step 8: Commit the selective foundation**
+
+```bash
+rtk git add components.json lib/utils.ts components/ui components/shadcn-foundation.test.tsx package.json package-lock.json app/globals.css
+rtk git commit -m "feat: add selective shadcn UI foundation"
+```
+
+### Task 2: Add the friendly-fitness token layer
 
 **Files:**
 - Modify: `tokens.css:1-96`
@@ -79,7 +189,7 @@ rtk git add tokens.css app/globals.css components/ui-system.test.tsx
 rtk git commit -m "style: add guided FitConnect UI tokens"
 ```
 
-### Task 2: Build the reusable trainer preview card
+### Task 3: Build the reusable trainer preview card
 
 **Files:**
 - Create: `components/trainer-preview-card.tsx`
@@ -134,7 +244,7 @@ rtk git add components/trainer-preview-card.tsx components/trainer-preview-card.
 rtk git commit -m "feat: add compact trainer preview cards"
 ```
 
-### Task 3: Replace the homepage workbench with Guided FitConnect
+### Task 4: Replace the homepage workbench with Guided FitConnect
 
 **Files:**
 - Create: `components/home-overview.tsx`
@@ -206,7 +316,7 @@ rtk git add app/page.tsx components/home-overview.tsx components/home-overview.t
 rtk git commit -m "feat: introduce overview-first FitConnect homepage"
 ```
 
-### Task 4: Simplify global navigation and add role-aware mobile navigation
+### Task 5: Simplify global navigation and add role-aware mobile navigation
 
 **Files:**
 - Create: `components/mobile-role-nav.tsx`
@@ -263,14 +373,14 @@ rtk git add components/mobile-role-nav.tsx components/site-header.tsx components
 rtk git commit -m "feat: simplify role-aware navigation"
 ```
 
-### Task 5: Verify the independently shippable foundation
+### Task 6: Verify the independently shippable foundation
 
 **Files:**
 - Modify: `DESIGN.md:1-end`
 - Modify: `.impeccable/surfaces/app-page-tsx.md:1-end`
 
 **Interfaces:**
-- Consumes: completed Tasks 1–4.
+- Consumes: completed Tasks 1–5.
 - Produces: documented Guided FitConnect homepage/navigation system ready for the dashboard plan.
 
 - [ ] **Step 1: Update design documentation**

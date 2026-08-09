@@ -17,6 +17,7 @@
 - Use real API state only; do not invent counts, revenue, performance, or recommendations.
 - Thai-first, WCAG 2.2 AA, keyboard accessible, and responsive at 320/375/414/768/1280.
 - Preserve unrelated working-tree changes and stage only files named by the current task.
+- Compose new controls from the approved shadcn primitives; keep domain components and copy owned by FitConnect.
 
 ---
 
@@ -112,13 +113,13 @@ Expected: FAIL because the components do not exist.
 
 - [ ] **Step 3: Implement the primitives**
 
-Use semantic `<section>`, heading IDs from `useId()`, and existing `.button` styles. Do not add animation libraries or nested card wrappers.
+Use semantic `<section>`, heading IDs from `useId()`, `Link` from `next/link`, and `Button` from `@/components/ui/button`. Do not add animation libraries or nested card wrappers.
 
 ```tsx
 export function NextActionCard({ action }: { action: DashboardAction }) {
   return <section className="next-action-card" data-state={action.state} data-testid="next-action">
     <div><p>สิ่งที่ต้องทำต่อ</p><h2>{action.title}</h2><p>{action.description}</p></div>
-    <Link className="button button--accent" href={action.href}>{action.cta}</Link>
+    <Button asChild><Link href={action.href}>{action.cta}</Link></Button>
   </section>;
 }
 ```

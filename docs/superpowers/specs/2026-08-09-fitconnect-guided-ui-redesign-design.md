@@ -99,6 +99,14 @@ Typography ใช้ Bai Jamjuree สำหรับภาษาไทยแล�
 
 ## 9. Component Patterns
 
+FitConnect ใช้ shadcn/ui แบบเลือกเฉพาะส่วนเป็นฐาน component โดยใช้ Radix base และคง source code ไว้ใน `components/ui/` เพื่อปรับให้เข้ากับ tokens เดิม การติดตั้งต้องไม่ clone repository ทั้งชุด ไม่ใช้ `add --all` และไม่ยอมให้ค่าเริ่มต้นของ shadcn เขียนทับ `tokens.css`, font configuration หรือ visual identity ของ Guided FitConnect
+
+- ชุดเริ่มต้น: Button, Input, Label, Textarea, Native Select, Badge, Alert, Sheet, Dialog, Avatar, Dropdown Menu, Skeleton และ Empty
+- ใช้ Sheet กับ navigation/filter บนมือถือ, Dialog กับ global search, Avatar/Dropdown Menu กับบัญชี และ Alert/Skeleton/Empty กับสถานะระบบ
+- component เฉพาะโดเมน เช่น NextActionCard, TrainerPreviewCard, StatusBadge, PaymentPanel และ BookingStrip ยังคงเป็นของ FitConnect โดยประกอบจาก primitive ที่เหมาะสม
+- ห้ามใช้ Card หรือ Data Table เป็นค่าเริ่มต้นกับทุกส่วน และหลีกเลี่ยง nested cards
+- generated shadcn components ต้องอ้างอิง theme aliases ที่ map กลับไปยัง FitConnect tokens ไม่มีสี ฟอนต์ หรือ radius ชุดที่สอง
+
 - **NextActionCard**: งานถัดไปหนึ่งรายการ พร้อมสถานะ คำอธิบายสั้น และ CTA เดียว
 - **CompactSummaryCard**: สรุปการจอง ข้อความ ตาราง หรือคิวตรวจ โดยแสดงข้อมูลไม่เกินที่จำเป็นต่อการตัดสินใจ
 - **TrainerPreviewCard**: รูป ชื่อ ความเชี่ยวชาญหลัก จังหวัด ราคาเริ่มต้น สถานะตรวจสอบ และ CTA ไปโปรไฟล์

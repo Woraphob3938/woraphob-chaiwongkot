@@ -18,6 +18,7 @@
 - One primary action per context; details are progressive, never deleted.
 - Verify WCAG 2.2 AA and widths 320/375/414/768/1280.
 - Preserve unrelated working-tree changes and never stage generated graph/brainstorm artifacts.
+- Use the approved shadcn Button/Input/Label/Textarea/NativeSelect/Alert/Sheet/Dialog/Skeleton/Empty primitives on files touched by this plan; do not perform a repository-wide mechanical replacement.
 
 ---
 
