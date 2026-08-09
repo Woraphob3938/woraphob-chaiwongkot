@@ -1,0 +1,51 @@
+import type { AdminQueue, Booking, TrainerWorkspace } from "@/lib/types";
+
+export type DashboardAction = {
+  title: string;
+  description: string;
+  href: string;
+  cta: string;
+  state: "action" | "waiting" | "complete";
+};
+
+export function getMemberNextAction(bookings: Booking[]): DashboardAction {
+  const payment = bookings.find((booking) => booking.actions.canPay);
+  if (payment) return { title: "ส่งหลักฐานการชำระเงิน", description: `คำขอ ${payment.id}`, href: `/member#booking-${payment.id}`, cta: "อัปโหลดสลิป", state: "action" };
+
+  const review = bookings.find((booking) => booking.actions.canReview);
+  if (review) return { title: "แบ่งปันผลการฝึก", description: `คำขอ ${review.id}`, href: `/member#booking-${review.id}`, cta: "เขียนรีวิว", state: "action" };
+
+  const pending = bookings.find((booking) => booking.status === "pending_trainer");
+  if (pending) return { title: "รอเทรนเนอร์ตอบรับ", description: `คำขอ ${pending.id}`, href: `/member#booking-${pending.id}`, cta: "ดูคำขอ", state: "waiting" };
+
+  const paymentReview = bookings.find((booking) => booking.status === "payment_review");
+  if (paymentReview) return { title: "รอผู้ดูแลตรวจหลักฐาน", description: `คำขอ ${paymentReview.id}`, href: `/member#booking-${paymentReview.id}`, cta: "ดูสถานะ", state: "waiting" };
+
+  const confirmed = bookings.find((booking) => booking.status === "confirmed");
+  if (confirmed) return { title: "เตรียมตัวสำหรับการฝึก", description: `คำขอ ${confirmed.id}`, href: `/member#booking-${confirmed.id}`, cta: "ดูนัดหมาย", state: "waiting" };
+
+  return { title: "เริ่มค้นหาเทรนเนอร์", description: "เปรียบเทียบคุณสมบัติและตารางว่าง", href: "/trainers", cta: "ค้นหาเทรนเนอร์", state: "complete" };
+}
+
+export function getTrainerNextAction(workspace: TrainerWorkspace | null, bookings: Booking[]): DashboardAction {
+  if (!workspace?.profile) {
+    return { title: "เริ่มต้นเป็นเทรนเนอร์", description: "ส่งข้อมูลและใบรับรองก่อนเปิดตาราง", href: "/trainer/apply", cta: "สมัครเป็นเทรนเนอร์", state: "action" };
+  }
+
+  const pending = bookings.find((booking) => booking.status === "pending_trainer");
+  if (pending) return { title: "ตอบรับคำขอจอง", description: `คำขอ ${pending.id}`, href: `/trainer#booking-${pending.id}`, cta: "ตรวจคำขอ", state: "action" };
+
+  if (workspace.slots.length === 0) {
+    return { title: "เพิ่มช่วงเวลาว่าง", description: "กำหนดตารางเพื่อให้สมาชิกจองได้", href: "/trainer#availability", cta: "เพิ่มช่วงเวลาว่าง", state: "action" };
+  }
+
+  return { title: "ตารางงานพร้อมแล้ว", description: "ดูนัดหมายและช่วงเวลาว่างปัจจุบัน", href: "/trainer#schedule", cta: "ดูตารางงาน", state: "complete" };
+}
+
+export function getAdminNextAction(queue: AdminQueue): DashboardAction {
+  if (queue.trainers.length > 0 || queue.payments.length > 0) {
+    return { title: "มีรายการรอตรวจ", description: "เปิดคิวเพื่อตัดสินใจรายการที่รออยู่", href: "/admin#review-queue", cta: "เปิดคิวตรวจสอบ", state: "action" };
+  }
+
+  return { title: "คิวตรวจสอบเป็นปัจจุบันแล้ว", description: "ไม่มีรายการรอตรวจ", href: "/admin#review-queue", cta: "ดูคิวตรวจสอบ", state: "complete" };
+}
