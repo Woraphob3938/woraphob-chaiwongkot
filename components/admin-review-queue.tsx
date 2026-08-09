@@ -2,8 +2,10 @@
 
 import { useCallback, useEffect, useRef, useState } from "react";
 import { FileText, RefreshCw } from "lucide-react";
+import { NextActionCard } from "@/components/dashboard-primitives";
 import { StatusBadge } from "@/components/status-badge";
 import { ApiError, authenticatedRequest, openProtectedFile } from "@/lib/api";
+import { getAdminNextAction } from "@/lib/dashboard-actions";
 import { formatDateTime } from "@/lib/format";
 import type { AdminQueue } from "@/lib/types";
 
@@ -235,19 +237,27 @@ export function AdminReviewQueue() {
 
   return (
     <div className="admin-board">
+      <NextActionCard action={getAdminNextAction(currentQueue)} />
+
       <section className="admin-summary" aria-label="สรุปคิวตรวจสอบ">
         <div><span>ใบสมัครรอตรวจ</span><strong>{String(currentQueue.trainers.length).padStart(2, "0")}</strong></div>
         <div><span>สลิปรอตรวจ</span><strong>{String(currentQueue.payments.length).padStart(2, "0")}</strong></div>
       </section>
 
-      <section className="verification-queue" aria-labelledby="review-queue-title">
+      <section id="review-queue" className="verification-queue" aria-labelledby="review-queue-title">
         <div className="section-line-heading">
           <div><h2 id="review-queue-title">รายการที่ต้องตัดสินใจ</h2></div>
           <span>{loading ? "กำลังอัปเดต" : "ข้อมูลจากระบบ"}</span>
         </div>
         {notice && <p ref={noticeRef} className="queue-notice" role="status" tabIndex={-1}>{notice}</p>}
 
-        {currentQueue.trainers.map((trainer) => {
+        <details className="admin-queue-disclosure">
+          <summary>
+            <span><strong>ใบสมัครเทรนเนอร์</strong><small>ตรวจคุณสมบัติและเอกสารรับรอง</small></span>
+            <span>{currentQueue.trainers.length} รายการ</span>
+          </summary>
+          <div className="admin-queue-disclosure__content">
+            {currentQueue.trainers.map((trainer) => {
           const rowKey = `trainer-${trainer.id}`;
           const isBusy = Boolean(busyRows[rowKey]);
           return (
@@ -290,7 +300,19 @@ export function AdminReviewQueue() {
           );
         })}
 
-        {currentQueue.payments.map((payment) => {
+          {currentQueue.trainers.length === 0 && (
+            <div className="empty-state"><strong>ไม่มีใบสมัครเทรนเนอร์รอตรวจ</strong></div>
+          )}
+          </div>
+        </details>
+
+        <details className="admin-queue-disclosure">
+          <summary>
+            <span><strong>หลักฐานการชำระเงิน</strong><small>ตรวจยอดและหลักฐานการโอน</small></span>
+            <span>{currentQueue.payments.length} รายการ</span>
+          </summary>
+          <div className="admin-queue-disclosure__content">
+            {currentQueue.payments.map((payment) => {
           const rowKey = `payment-${payment.id}`;
           const paymentCode = `PAY-${String(payment.id).padStart(6, "0")}`;
           const busyAction = busyRows[rowKey];
@@ -384,6 +406,12 @@ export function AdminReviewQueue() {
             </article>
           );
         })}
+
+          {currentQueue.payments.length === 0 && (
+            <div className="empty-state"><strong>ไม่มีหลักฐานการชำระเงินรอตรวจ</strong></div>
+          )}
+          </div>
+        </details>
 
         {currentQueue.trainers.length + currentQueue.payments.length === 0 && (
           <div className="empty-state"><strong>ไม่มีรายการรอตรวจ</strong><p>คิวตรวจสอบเป็นปัจจุบันแล้ว</p></div>
