@@ -1,0 +1,133 @@
+import Link from "next/link";
+import { TrainerPreviewCard } from "@/components/trainer-preview-card";
+import type { Trainer, TrainingType } from "@/lib/types";
+
+type HomeOverviewProps = {
+  trainers: Trainer[];
+  trainingTypes: TrainingType[];
+  isDemo: boolean;
+};
+
+const journeySteps = [
+  {
+    title: "ค้นหาเทรนเนอร์",
+    description: "เลือกจากประเภทการฝึก พื้นที่ให้บริการ ราคา และข้อมูลที่เทรนเนอร์ระบุ",
+  },
+  {
+    title: "ตรวจคุณสมบัติ",
+    description: "ดูสถานะการตรวจ ใบรับรอง ประสบการณ์ และช่วงเวลาที่เปิดให้จอง",
+  },
+  {
+    title: "เลือกเวลา",
+    description: "เลือกช่วงเวลาว่างแล้วส่งคำขอให้เทรนเนอร์พิจารณา",
+  },
+  {
+    title: "ยืนยันการชำระ",
+    description: "เมื่อคำขอได้รับการตอบรับ สมาชิกอัปโหลดสลิปให้ผู้ดูแลตรวจ",
+  },
+  {
+    title: "ฝึกและรีวิว",
+    description: "เข้าฝึกตามนัดและเขียนรีวิวหลังจบการฝึก",
+  },
+] as const;
+
+export function HomeOverview({ trainers, trainingTypes, isDemo }: HomeOverviewProps) {
+  const featuredTrainers = trainers.slice(0, 4);
+  const priorityTrainerId = featuredTrainers.find((trainer) => trainer.image)?.id;
+
+  return (
+    <div className="home-overview">
+      <section className="home-hero" aria-labelledby="home-title">
+        <div className="home-hero__copy">
+          <h1 id="home-title">เริ่มต้นสุขภาพที่ดีกับคนที่เหมาะกับคุณ</h1>
+        </div>
+        <div className="home-hero__action">
+          <p>ดูภาพรวมบริการก่อนเปรียบเทียบเทรนเนอร์ที่ผ่านการตรวจสอบ</p>
+          <Link className="button button--accent" href="/trainers">ค้นหาเทรนเนอร์</Link>
+        </div>
+        {isDemo && (
+          <p className="home-demo-notice">
+            ข้อมูลสาธิตใช้เพื่อแสดงขั้นตอนและหน้าตาระบบ โปรดตรวจข้อมูลจริงก่อนส่งคำขอ
+          </p>
+        )}
+      </section>
+
+      <section className="home-training-types" aria-labelledby="training-goals-title">
+        <header className="home-section-heading">
+          <h2 id="training-goals-title">เลือกจากเป้าหมายการฝึก</h2>
+          <p>เริ่มจากประเภทที่สนใจ แล้วปรับพื้นที่ ราคา และเวลาในหน้าค้นหา</p>
+        </header>
+        {trainingTypes.length > 0 ? (
+          <ul className="home-training-types__list" aria-label="ประเภทการฝึก">
+            {trainingTypes.map((type) => (
+              <li key={type.id}>
+                <Link href={`/trainers?type=${type.slug}`}>
+                  <span>{type.nameTh}</span>
+                  <span aria-hidden="true">→</span>
+                </Link>
+              </li>
+            ))}
+          </ul>
+        ) : (
+          <div className="home-empty-state">
+            <strong>ยังไม่มีประเภทการฝึกให้เลือก</strong>
+            <p>เปิดหน้าค้นหาเพื่อดูรายชื่อเทรนเนอร์ทั้งหมดที่พร้อมใช้งาน</p>
+          </div>
+        )}
+      </section>
+
+      <section className="home-featured" aria-labelledby="featured-trainers-title">
+        <header className="home-section-heading">
+          <h2 id="featured-trainers-title">เทรนเนอร์ที่น่าสนใจ</h2>
+          <p>ดูข้อมูลสำคัญก่อนเปิดโปรไฟล์เพื่อตรวจรายละเอียดและเวลาว่าง</p>
+        </header>
+        {featuredTrainers.length > 0 ? (
+          <div className="home-featured__grid">
+            {featuredTrainers.map((trainer) => (
+              <TrainerPreviewCard key={trainer.id} trainer={trainer} priority={trainer.id === priorityTrainerId} />
+            ))}
+          </div>
+        ) : (
+          <div className="home-empty-state">
+            <strong>ยังไม่มีเทรนเนอร์ในรายการแนะนำ</strong>
+            <p>เปิดหน้าค้นหาอีกครั้งเมื่อมีข้อมูล หรือปรับตัวกรองเพื่อดูรายการที่พร้อมใช้งาน</p>
+          </div>
+        )}
+      </section>
+
+      <section className="home-journey" aria-labelledby="journey-title">
+        <div className="home-journey__intro">
+          <h2 id="journey-title">ตั้งแต่ค้นหาจนจบการฝึก</h2>
+          <p>ทุกขั้นตอนใช้ข้อมูลการจองชุดเดียวกัน เพื่อให้สมาชิกและเทรนเนอร์เห็นสถานะตรงกัน</p>
+        </div>
+        <ol className="home-journey__steps">
+          {journeySteps.map((step, index) => (
+            <li key={step.title}>
+              <span>ขั้นที่ {index + 1}</span>
+              <div>
+                <h3>{step.title}</h3>
+                <p>{step.description}</p>
+              </div>
+            </li>
+          ))}
+        </ol>
+      </section>
+
+      <section className="home-trust" aria-labelledby="trust-title">
+        <h2 id="trust-title">ตรวจโดยคน เห็นสถานะชัดเจน</h2>
+        <div>
+          <p>ผู้ดูแลตรวจหลักฐานด้วยตนเอง ทั้งใบรับรองของเทรนเนอร์และหลักฐานการโอนของสมาชิก</p>
+          <p>FitConnect แสดงผลการตรวจตามสถานะจริง ไม่ได้อนุมัติเอกสารหรือการชำระเงินอัตโนมัติ</p>
+        </div>
+      </section>
+
+      <section className="home-final-cta" aria-labelledby="home-final-title">
+        <div>
+          <h2 id="home-final-title">พร้อมดูรายละเอียดแล้วหรือยัง</h2>
+          <p>เปรียบเทียบข้อมูล ตรวจโปรไฟล์ และเลือกเวลาที่เหมาะกับคุณ</p>
+        </div>
+        <Link className="button button--accent" href="/trainers">ดูเทรนเนอร์ทั้งหมด</Link>
+      </section>
+    </div>
+  );
+}
