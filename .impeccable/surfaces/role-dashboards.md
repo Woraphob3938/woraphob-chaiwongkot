@@ -20,7 +20,7 @@ related_targets: ["components/trainer-workbench.tsx", "components/admin-review-q
 3. Compact factual summary or at most three current records.
 4. Native `<details>/<summary>` disclosures for complete lists and management controls.
 
-All counts, prices, dates, locations, booking states, application notes, and payment-review states come from the existing API. A next-action anchor must resolve to content already mounted on the page; opening a disclosure must not duplicate or discard records.
+All counts, prices, dates, times, booking states, application notes, and payment-review states come from the existing API. Province, service-area, and appointment-location facts are not part of this surface. A next-action anchor must resolve to content already mounted on the page; opening a disclosure must not duplicate or discard records.
 
 ## Deterministic next-action order
 
@@ -37,7 +37,7 @@ The selected booking is promoted into the initial three summaries without duplic
 
 ### Trainer
 
-1. No trainer profile: apply as a trainer.
+1. No trainer profile: continue the second step and complete professional information.
 2. Application `pending`: inspect application status.
 3. Application `rejected`: edit and resubmit the application; preserve the administrator note.
 4. A `pending_trainer` booking: inspect and decide that request.
@@ -68,3 +68,14 @@ Trainer and payment counts remain separate and factual. All trainer applications
 - Component tests own deterministic priority, first-three ordering, full-list reachability, long unbroken values, loading/error/retry, conflict, and active async behavior.
 - Browser verification covers the three routes at 320/375/414/768/1280 px, disclosure keyboard operation, visible focus, clipping, and horizontal overflow.
 - States that require specific API races or backend data are accepted only with exact component-test and source evidence when they cannot be controlled safely in the local browser session.
+
+## Role navigation and resumable onboarding
+
+- Only members receive “ค้นหาเทรนเนอร์”, “การจองของฉัน”, and the header search control. Trainer and administrator navigation exposes only role-owned work.
+- Trainer registration creates the account first. Post-auth routing checks `/v1/trainer/me`: `profile: null` continues to `/trainer/apply`; saved `pending`, `rejected`, or `approved` profiles continue to `/trainer`.
+- Rejected applications retain the administrator note and may be corrected and resubmitted without creating a second account.
+
+## 2026-08-10 verification
+
+- Live XAMPP onboarding smoke passed `profile: null → pending → rejected with reason → resubmitted pending → approved` without a province field.
+- Browser checks at 1280 and 320 confirmed member-only navigation, role-owned trainer/admin navigation, resumable step two, no prohibited province/location facts, no horizontal overflow, and no console errors.

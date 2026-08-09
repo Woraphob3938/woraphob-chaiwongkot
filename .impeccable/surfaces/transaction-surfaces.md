@@ -22,6 +22,8 @@ related_targets: ["components/trainer-detail.tsx", "components/booking-form.tsx"
 
 No disclosure may hide a fact required to confirm a destructive or irreversible action. Disclosed content remains mounted and reachable by keyboard; a fragment link never substitutes for opening a closed group.
 
+Province, service-area, and appointment-location fields are outside the transaction contract. Discovery uses specialty, qualifications, service mode, price, rating, and availability. Booking preserves trainer, date, time, price context, optional member note, and recorded workflow states.
+
 ## Surface contract
 
 | Surface | Summary-visible | Disclosure-visible | Primary action |
@@ -55,6 +57,7 @@ No disclosure may hide a fact required to confirm a destructive or irreversible 
 - Component tests cover disclosure defaults, result/slot selection, stale-slot prevention, upload/review validation, chat send/retry, and long-value wrapping.
 - Browser review covers `/`, `/trainers`, one profile, `/booking`, `/member`, `/trainer`, `/admin`, and `/chat` at 1280/768/414/375/320, plus 200% zoom, keyboard, reduced motion, and representative no-data/loading/error/disabled/success states where the local data permits.
 - Live XAMPP smoke and booking audit own persistence evidence for booking/history/payments/rooms/messages/reviews. Frontend copy never substitutes for that audit.
+- The 2026-08-10 live audit for `BK-4DB02C37` passed with booking/history/payments/rooms/messages/reviews counts `1/7/2/1/2/1`; the migrated schema reported zero province/service-area/appointment-location targets after a verified full backup.
 
 ## Boundaries
 

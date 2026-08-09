@@ -16,7 +16,7 @@ Next.js with TypeScript and Tailwind CSS for the web interface. PHP REST endpoin
 - Freelance trainers and gym-employed trainers who want to present verified qualifications, manage availability, accept bookings, communicate with clients, and track their work.
 - Administrators who approve trainers, verify supporting documents and payments, and oversee users, bookings, and reports.
 
-Sakon Nakhon is the initial project and launch scope, not a permanent product boundary. Location data, search, and content must support expansion to other provinces across Thailand without redesigning the core system.
+FitConnect is not limited to one province. Geographic fields are intentionally outside the current product contract; expansion happens through trainer supply and service operations without asking users to maintain province data.
 
 ## Product Purpose
 
@@ -24,11 +24,11 @@ FitConnect brings trainer discovery, qualification review, scheduling, booking, 
 
 ## Positioning
 
-FitConnect is a location-aware trainer marketplace built around verifiable trainer credentials and real availability. Its distinguishing mechanism is the connected path from trainer verification through schedule-based booking, conversation, payment review, and member feedback.
+FitConnect is a trainer marketplace built around verifiable trainer credentials and real availability. Its distinguishing mechanism is the connected path from trainer verification through schedule-based booking, conversation, payment review, and member feedback.
 
 ## Operating Context
 
-- Members commonly use the service on a phone while comparing trainers by location, expertise, availability, price, and reviews.
+- Members commonly use the service on a phone while comparing trainers by expertise, qualifications, availability, price, and reviews.
 - A member can book a single day or a monthly plan of no more than 30 days.
 - Trainers publish availability up to two months ahead, then accept or reject requests and confirm appointment details.
 - Payments begin with a transfer slip uploaded by the member and reviewed by an administrator; the interface must not describe this as fully automatic payment processing.
@@ -37,12 +37,12 @@ FitConnect is a location-aware trainer marketplace built around verifiable train
 ## Capabilities and Constraints
 
 - Guest browsing, member and trainer registration, authentication, profile management, and role-aware navigation.
-- Trainer search and filtering by expandable province/location data, training type, availability, price, and rating.
+- Trainer search and filtering by training type, availability, price, rating, and trainer name.
 - Trainer profiles with expertise, experience, certificates, schedule, service type, and reviews.
 - Booking, cancellation, status history, chat, slip upload, payment review, and post-training reviews.
 - Trainer workspace for application status, profile, schedule, booking decisions, clients, reviews, and revenue summaries.
 - Administrator workspace for users, trainer approvals, certificates, bookings, payments, and reports.
-- Thai-first responsive web interface. Sakon Nakhon is seeded as the initial province, but province values must not be hard-coded as the only choice.
+- Thai-first responsive web interface for members, trainers, and administrators without province or appointment-location fields.
 - No fabricated trainers, testimonials, customer logos, performance metrics, or payment claims may be presented as real evidence. Seed data must be clearly identified as demonstration data.
 
 ## Brand Commitments
@@ -63,7 +63,7 @@ FitConnect is a location-aware trainer marketplace built around verifiable train
 
 1. Make trust inspectable: show qualification status, availability, pricing context, and booking status clearly.
 2. Keep the booking path continuous: discovery, conversation, schedule selection, payment evidence, and review should feel like one journey.
-3. Design for expansion: location and service structures must grow beyond the initial Sakon Nakhon scope.
+3. Design for expansion: keep discovery and transactions independent from province data so the service can grow without changing the core workflow.
 4. Give each role a focused workspace while keeping shared booking facts consistent.
 5. Describe manual operations honestly, especially certificate and payment verification.
 
