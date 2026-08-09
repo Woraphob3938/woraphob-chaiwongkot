@@ -58,7 +58,7 @@ describe("TrainerWorkbench", () => {
     expect(screen.getByRole("button", { name: "เพิ่มช่วงเวลาว่าง" })).toBeDisabled();
   });
 
-  it("requires a positive quote before accepting the selected pending booking", async () => {
+  it("lets the trainer accept a pending booking directly", async () => {
     const bookings = [bookingFixture()];
     vi.mocked(authenticatedRequest)
       .mockResolvedValueOnce(approvedWorkspace)
@@ -69,21 +69,13 @@ describe("TrainerWorkbench", () => {
 
     render(<TrainerWorkbench />);
     await screen.findByText("สมาชิกทดสอบ");
-    const quoteInput = screen.getByLabelText("ค่าฝึกสำหรับคำขอ BK-TEST");
     const acceptButton = screen.getByRole("button", { name: "ตอบรับคำขอ BK-TEST" });
 
-    expect(acceptButton).toBeDisabled();
-    for (const invalidQuote of ["0", "-100", "abc"]) {
-      fireEvent.change(quoteInput, { target: { value: invalidQuote } });
-      expect(acceptButton).toBeDisabled();
-    }
-
-    fireEvent.change(quoteInput, { target: { value: "1200" } });
     expect(acceptButton).toBeEnabled();
     fireEvent.click(acceptButton);
     await waitFor(() => expect(authenticatedRequest).toHaveBeenCalledWith(
       "/v1/bookings/BK-TEST/status",
-      { method: "PATCH", body: JSON.stringify({ status: "awaiting_payment", quotedPrice: "1200" }) },
+      { method: "PATCH", body: JSON.stringify({ status: "awaiting_payment" }) },
     ));
     expect(await screen.findByRole("status")).toHaveTextContent("ตอบรับคำขอ BK-TEST แล้ว");
   });

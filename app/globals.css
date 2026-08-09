@@ -850,6 +850,37 @@ h3 {
   font-size: var(--text-sm);
 }
 
+.price-editor-inline {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-xs);
+  flex-wrap: wrap;
+}
+
+.price-input-group {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-2xs);
+}
+
+.price-edit-input {
+  width: 6.5rem;
+  min-height: 2rem;
+  padding-inline: var(--space-xs);
+  color: var(--color-ink);
+  background: var(--color-paper);
+  border: 1px solid var(--color-rule);
+  border-radius: var(--radius-xs);
+  font-family: var(--font-mono);
+  font-size: var(--text-sm);
+}
+
+.button--sm {
+  min-height: 2rem;
+  padding: 0.2rem 0.6rem;
+  font-size: var(--text-xs);
+}
+
 .trainer-evidence {
   display: grid;
   grid-template-rows: 7.5rem auto auto;
@@ -2215,6 +2246,7 @@ h3 {
 .trainer-availability,
 .trainer-booking-list {
   border: 1px solid var(--color-rule);
+  background: var(--color-paper);
 }
 
 .trainer-availability > .section-line-heading,

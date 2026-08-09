@@ -157,9 +157,7 @@ export function TrainerWorkbench() {
     try {
       await authenticatedRequest(`/v1/bookings/${encodeURIComponent(bookingId)}/status`, {
         method: "PATCH",
-        body: JSON.stringify(decision === "accept"
-          ? { status: target, quotedPrice: quotedPrices[bookingId] ?? "" }
-          : { status: target }),
+        body: JSON.stringify({ status: target }),
       });
       await Promise.all([loadWorkspace(), loadBookings()]);
       setActionNotice(`${decision === "accept" ? "ตอบรับ" : "ปฏิเสธ"}คำขอ ${bookingId} แล้ว`);
@@ -242,12 +240,19 @@ export function TrainerWorkbench() {
           <h2>{approved ? "โปรไฟล์พร้อมเปิดตาราง" : "โปรไฟล์ยังเปิดตารางไม่ได้"}</h2>
           <p>{workspace?.profile?.approvalNote ?? (approved ? "สร้างช่วงเวลาว่างล่วงหน้าได้ไม่เกิน 2 เดือน" : "รอผู้ดูแลตรวจใบรับรองก่อนสร้างช่วงเวลาว่าง")}</p>
         </div>
-        {workspace?.profile && <StatusBadge status={workspace.profile.approvalStatus} />}
+        {workspace?.profile && (
+          <div className="approval-panel__actions" style={{ display: "flex", gap: "0.75rem", alignItems: "center", flexWrap: "wrap" }}>
+            <Link className="button button--accent" href={`/trainers/${encodeURIComponent(workspace.profile.slug)}`}>
+              หน้าโปรไฟล์เทรนเนอร์
+            </Link>
+            <StatusBadge status={workspace.profile.approvalStatus} />
+          </div>
+        )}
         {workspaceError && <div className="workbench-error" role="alert"><span>{workspaceError}</span><button type="button" onClick={() => void loadWorkspace()}>ลองใหม่</button></div>}
       </section>
       {actionNotice && <p ref={actionNoticeRef} className="queue-notice workbench-success" role="status" tabIndex={-1}>{actionNotice}</p>}
 
-      <section className="availability-panel trainer-availability" aria-labelledby="availability-title">
+      <section className="trainer-availability" aria-labelledby="availability-title">
         <div className="section-line-heading"><div><h2 id="availability-title">ตารางว่างของฉัน</h2><p>ช่วงเวลาที่สมาชิกมองเห็นและส่งคำขอได้</p></div><CalendarPlus aria-hidden="true" size={22} /></div>
         <form className="availability-form" onSubmit={createSlot}>
           <label>
@@ -282,9 +287,6 @@ export function TrainerWorkbench() {
         {bookingError && <div className="workbench-error" role="alert"><span>{bookingError}</span><button type="button" onClick={() => void loadBookings()}><RefreshCw aria-hidden="true" size={15} /> ลองใหม่</button></div>}
         {pendingBookings.map((booking) => {
           const isBusy = busy === `booking-${booking.id}`;
-          const rawQuote = quotedPrices[booking.id] ?? "";
-          const quoteAmount = Number(rawQuote);
-          const hasValidQuote = rawQuote.trim() !== "" && Number.isFinite(quoteAmount) && quoteAmount > 0;
           return (
             <article className="trainer-booking-card" key={booking.id} aria-busy={isBusy}>
               <div className="trainer-booking-card__identity"><span>{booking.id}</span><h3>{booking.member?.displayName ?? "สมาชิก FitConnect"}</h3></div>
@@ -293,24 +295,9 @@ export function TrainerWorkbench() {
                 <div><dt>สถานที่</dt><dd>{booking.location}</dd></div>
                 <div><dt>หมายเหตุ</dt><dd>{booking.note || "ไม่มีหมายเหตุ"}</dd></div>
               </dl>
-              <div>
-                <div className="field">
-                  <label htmlFor={`quote-${booking.id}`}>ค่าฝึกสำหรับคำขอ {booking.id}</label>
-                  <input
-                    id={`quote-${booking.id}`}
-                    type="number"
-                    min="0.01"
-                    step="0.01"
-                    inputMode="decimal"
-                    value={rawQuote}
-                    disabled={isBusy}
-                    onChange={(event) => setQuotedPrices((current) => ({ ...current, [booking.id]: event.target.value }))}
-                  />
-                </div>
-                <div className="queue-actions">
-                  <button type="button" disabled={isBusy || !hasValidQuote} aria-label={`ตอบรับคำขอ ${booking.id}`} onClick={() => void decideBooking(booking.id, "accept")}>{isBusy ? "กำลังบันทึก…" : "ตอบรับ"}</button>
-                  <button type="button" disabled={isBusy} aria-label={`ปฏิเสธคำขอ ${booking.id}`} onClick={() => void decideBooking(booking.id, "reject")}>ปฏิเสธ</button>
-                </div>
+              <div className="queue-actions">
+                <button type="button" disabled={isBusy} aria-label={`ตอบรับคำขอ ${booking.id}`} onClick={() => void decideBooking(booking.id, "accept")}>{isBusy ? "กำลังบันทึก…" : "ตอบรับ"}</button>
+                <button type="button" disabled={isBusy} aria-label={`ปฏิเสธคำขอ ${booking.id}`} onClick={() => void decideBooking(booking.id, "reject")}>ปฏิเสธ</button>
               </div>
             </article>
           );

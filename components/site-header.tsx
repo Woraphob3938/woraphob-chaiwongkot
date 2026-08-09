@@ -139,6 +139,11 @@ export function SiteHeader() {
     if (!query) event.preventDefault();
   }
 
+  const activeNavItems = navItems.filter((item) => {
+    if (item.href === "/trainer/apply" && user) return false;
+    return true;
+  });
+
   return (
     <header className="site-header">
       <div className="header-inner">
@@ -149,12 +154,11 @@ export function SiteHeader() {
 
         <button className="command-pill" type="button" onClick={() => dialogRef.current?.showModal()}>
           <Search aria-hidden="true" size={17} />
-          <span>ค้นหาจังหวัด ความเชี่ยวชาญ หรือชื่อเทรนเนอร์</span>
-          <kbd>Ctrl K</kbd>
+          <span>ค้นหาความเชี่ยวชาญ หรือชื่อเทรนเนอร์</span>
         </button>
 
         <nav className="desktop-nav" aria-label="เมนูหลัก">
-          {navItems.map((item) => <Link href={item.href} key={item.href}>{item.label}</Link>)}
+          {activeNavItems.map((item) => <Link href={item.href} key={item.href}>{item.label}</Link>)}
         </nav>
 
         <div className="header-actions">
@@ -212,7 +216,7 @@ export function SiteHeader() {
           <button type="button" className="mobile-search" onClick={() => dialogRef.current?.showModal()}>
             <Search aria-hidden="true" size={18} /> ค้นหาเทรนเนอร์
           </button>
-          {navItems.map((item) => (
+          {activeNavItems.map((item) => (
             <Link href={item.href} key={item.href} onClick={() => setMobileOpen(false)}>{item.label}</Link>
           ))}
           {user ? (
@@ -245,13 +249,12 @@ export function SiteHeader() {
           <form action="/trainers" method="get" className="dialog-search-form" onSubmit={submitSearch}>
             <Search aria-hidden="true" size={21} />
             <label className="sr-only" htmlFor="global-search">คำค้นหา</label>
-            <input id="global-search" name="q" autoFocus placeholder="เช่น เวทเทรนนิง, สกลนคร" />
+            <input id="global-search" name="q" autoFocus placeholder="เช่น เวทเทรนนิง" />
             <button className="button button--accent" type="submit">ค้นหา</button>
           </form>
           <div className="search-suggestions" aria-label="คำค้นหาแนะนำ">
             <span>ลองค้นหา</span>
             <Link href="/trainers?type=strength">เวทเทรนนิง</Link>
-            <Link href="/trainers?province=สกลนคร">สกลนคร</Link>
             <Link href="/trainers?type=mobility">การเคลื่อนไหว</Link>
           </div>
         </div>

@@ -37,6 +37,19 @@ describe("BookingForm", () => {
     vi.mocked(apiRequest).mockReset();
     vi.mocked(authenticatedRequest).mockReset();
     push.mockReset();
+    localStorage.setItem("fitconnect_token", "test-token");
+    localStorage.setItem("fitconnect_user", JSON.stringify({ role: "member" }));
+  });
+
+  it("warns unauthenticated user to log in when submitting", async () => {
+    localStorage.removeItem("fitconnect_token");
+    localStorage.removeItem("fitconnect_user");
+    vi.mocked(apiRequest).mockResolvedValue(liveTrainer);
+    render(<BookingForm trainerSlug="live-trainer" slotId="44" />);
+    await screen.findByText("เทรนเนอร์จริง");
+    fireEvent.click(screen.getByRole("button", { name: /ยืนยันและส่งคำขอ/ }));
+    expect(await screen.findByText("กรุณาเข้าสู่ระบบเพื่อทำการขอจอง")).toBeInTheDocument();
+    expect(authenticatedRequest).not.toHaveBeenCalled();
   });
 
   it("loads the selected trainer from the API before submitting", async () => {
@@ -44,7 +57,7 @@ describe("BookingForm", () => {
     vi.mocked(authenticatedRequest).mockResolvedValue({ id: "BK-LIVE", status: "pending_trainer" });
     render(<BookingForm trainerSlug="live-trainer" slotId="44" />);
     await screen.findByText("เทรนเนอร์จริง");
-    fireEvent.change(screen.getByLabelText("สถานที่ที่สะดวก"), { target: { value: "ฟิตเนสกลางเมือง" } });
+    fireEvent.change(screen.getByLabelText("เป้าหมายหรือข้อจำกัดที่ควรรู้"), { target: { value: "เน้นเล่นขา" } });
     fireEvent.click(screen.getByRole("button", { name: /ยืนยันและส่งคำขอ/ }));
     await waitFor(() => expect(authenticatedRequest).toHaveBeenCalledWith("/v1/bookings", expect.objectContaining({ method: "POST" })));
     expect(push).toHaveBeenCalledWith("/member?booking=BK-LIVE");
@@ -55,29 +68,24 @@ describe("BookingForm", () => {
     vi.mocked(authenticatedRequest).mockRejectedValue(new ApiError("ช่วงเวลานี้ไม่พร้อมจองแล้ว", 409, "SLOT_UNAVAILABLE"));
     render(<BookingForm trainerSlug="live-trainer" slotId="44" />);
     await screen.findByText("เทรนเนอร์จริง");
-    const location = screen.getByLabelText("สถานที่ที่สะดวก");
-    fireEvent.change(location, { target: { value: "สถานที่เดิม" } });
+    const note = screen.getByLabelText("เป้าหมายหรือข้อจำกัดที่ควรรู้");
+    fireEvent.change(note, { target: { value: "ข้อความเดิม" } });
     fireEvent.click(screen.getByRole("button", { name: /ยืนยันและส่งคำขอ/ }));
     expect(await screen.findByText("ช่วงเวลานี้ไม่พร้อมจองแล้ว")).toBeInTheDocument();
-    expect(location).toHaveValue("สถานที่เดิม");
+    expect(note).toHaveValue("ข้อความเดิม");
     await waitFor(() => expect(apiRequest).toHaveBeenCalledTimes(2));
   });
 
-  it("associates a location field error with its input", async () => {
+  it("displays form error message on API failure", async () => {
     vi.mocked(apiRequest).mockResolvedValue(liveTrainer);
     vi.mocked(authenticatedRequest).mockRejectedValue(new ApiError(
-      "กรุณาแก้ไขสถานที่",
-      422,
-      "VALIDATION_FAILED",
-      { location: "กรุณาระบุสถานที่ให้ชัดเจน" },
+      "เกิดข้อผิดพลาดจากระบบ",
+      500,
+      "SERVER_ERROR",
     ));
     render(<BookingForm trainerSlug="live-trainer" slotId="44" />);
     await screen.findByText("เทรนเนอร์จริง");
-    const location = screen.getByLabelText("สถานที่ที่สะดวก");
-    fireEvent.change(location, { target: { value: "ก" } });
     fireEvent.click(screen.getByRole("button", { name: /ยืนยันและส่งคำขอ/ }));
-    expect(await screen.findByText("กรุณาระบุสถานที่ให้ชัดเจน")).toBeInTheDocument();
-    expect(location).toHaveAttribute("aria-invalid", "true");
-    expect(location).toHaveAttribute("aria-describedby", "booking-location-error");
+    expect(await screen.findByText("เกิดข้อผิดพลาดจากระบบ")).toBeInTheDocument();
   });
 });

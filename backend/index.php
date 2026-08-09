@@ -35,6 +35,7 @@ try {
     if ($method === 'GET' && $path === '/v1/me') $handlers->me();
     if ($method === 'POST' && $path === '/v1/trainer-applications') $handlers->trainerApplication();
     if ($method === 'GET' && $path === '/v1/trainer/me') $handlers->trainerMe();
+    if ($method === 'PATCH' && $path === '/v1/trainer/me') $handlers->updateTrainerMe();
     if ($method === 'POST' && $path === '/v1/availability-slots') $handlers->createAvailabilitySlot();
     if ($method === 'GET' && $path === '/v1/bookings') $handlers->listBookings();
     if ($method === 'POST' && $path === '/v1/bookings') $handlers->createBooking();

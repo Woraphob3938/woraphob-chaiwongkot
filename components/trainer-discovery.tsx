@@ -74,7 +74,7 @@ export function TrainerDiscovery({
           <h1>หาเทรนเนอร์ที่<br />พร้อมฝึกจริง</h1>
         </div>
         <p>
-          เปรียบเทียบคุณสมบัติ พื้นที่บริการ และช่วงว่างก่อนส่งคำขอจอง
+          เปรียบเทียบคุณสมบัติ และช่วงว่างก่อนส่งคำขอจอง
           เริ่มต้นในสกลนครและออกแบบข้อมูลให้ขยายได้ทั่วประเทศ
         </p>
       </section>
@@ -111,13 +111,6 @@ export function TrainerDiscovery({
                   placeholder="เช่น เวทเทรนนิง"
                 />
               </div>
-            </div>
-            <div className="field">
-              <label htmlFor="province-filter">จังหวัด</label>
-              <select id="province-filter" value={province} onChange={(event) => setProvince(event.target.value)}>
-                <option value="">ทุกจังหวัด</option>
-                {provinces.map((item) => <option key={item.id} value={item.nameTh}>{item.nameTh}</option>)}
-              </select>
             </div>
             <div className="field">
               <label htmlFor="type-filter">ประเภทการฝึก</label>
@@ -163,7 +156,6 @@ export function TrainerDiscovery({
                   </span>
                   <span className="result-copy">
                     <strong>{trainer.displayName}</strong>
-                    <span><MapPin aria-hidden="true" size={14} /> {trainer.province.nameTh}</span>
                   </span>
                   {trainer.verification === "verified" && <BadgeCheck className="verified-icon" aria-label="ตรวจคุณสมบัติแล้ว" size={19} />}
                 </button>
@@ -172,7 +164,7 @@ export function TrainerDiscovery({
             {filtered.length === 0 && (
               <div className="empty-state">
                 <strong>ยังไม่พบเทรนเนอร์ที่ตรงครบทุกข้อ</strong>
-                <p>ลองเปลี่ยนจังหวัด ประเภทการฝึก หรือยกเลิกตัวกรองคุณสมบัติ</p>
+                <p>ลองเปลี่ยนประเภทการฝึก หรือยกเลิกตัวกรองคุณสมบัติ</p>
               </div>
             )}
           </div>

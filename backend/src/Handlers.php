@@ -70,6 +70,18 @@ final class Handlers
         Http::json($this->trainerPayload($row));
     }
 
+    public function updateTrainerMe(): never
+    {
+        $user = $this->auth->requireUser(['trainer']);
+        $input = Http::body();
+        if (isset($input['priceFrom'])) {
+            $price = (float) $input['priceFrom'];
+            $this->database->prepare('UPDATE trainer_profiles SET price_from = ?, updated_at = UTC_TIMESTAMP() WHERE user_id = ?')
+                ->execute([$price >= 0 ? $price : 0, $user['id']]);
+        }
+        $this->trainerMe();
+    }
+
     public function trainerMe(): never
     {
         $user = $this->auth->requireUser(['trainer']);
@@ -326,7 +338,7 @@ final class Handlers
     {
         $user = $this->auth->requireUser(['member']);
         $input = Http::body();
-        Http::requireFields($input, ['trainerId', 'slotId', 'location']);
+        Http::requireFields($input, ['trainerId', 'slotId']);
         $publicId = 'BK-' . strtoupper(bin2hex(random_bytes(4)));
 
         $booking = $this->database->transaction(function (PDO $pdo) use ($user, $input, $publicId): array {
@@ -355,7 +367,7 @@ final class Handlers
             );
             $insert->execute([
                 $publicId, $user['id'], (int) $input['trainerId'], (int) $input['slotId'], $slot['starts_at'], $slot['ends_at'],
-                trim((string) $input['location']), trim((string) ($input['note'] ?? '')),
+                trim((string) ($input['location'] ?? '')), trim((string) ($input['note'] ?? '')),
             ]);
             $bookingId = (int) $pdo->lastInsertId();
             $pdo->prepare('UPDATE availability_slots SET state = "held" WHERE id = ?')->execute([(int) $input['slotId']]);
@@ -377,7 +389,7 @@ final class Handlers
         $result = $this->database->transaction(function (PDO $pdo) use ($publicId, $input, $user): array {
             $statement = $pdo->prepare(
                 'SELECT b.id, b.status, b.payment_status, b.quoted_price, b.ends_at,
-                        b.availability_slot_id, tp.user_id AS trainer_user_id
+                        b.availability_slot_id, tp.user_id AS trainer_user_id, tp.price_from
                  FROM bookings b JOIN trainer_profiles tp ON tp.id = b.trainer_profile_id WHERE b.public_id = ? FOR UPDATE'
             );
             $statement->execute([$publicId]);
@@ -425,7 +437,13 @@ final class Handlers
 
             $quotedPrice = null;
             if ($newStatus === 'awaiting_payment') {
-                $quotedPrice = WorkflowRules::normalizeMoney($input['quotedPrice'] ?? null, 'quotedPrice');
+                $rawPrice = $input['quotedPrice'] ?? null;
+                if ($rawPrice !== null && trim((string) $rawPrice) !== '') {
+                    $quotedPrice = WorkflowRules::normalizeMoney($rawPrice, 'quotedPrice');
+                } else {
+                    $fallback = $booking['quoted_price'] ?? $booking['price_from'] ?? 500;
+                    $quotedPrice = number_format((float) $fallback, 2, '.', '');
+                }
             }
             $pdo->prepare('UPDATE bookings SET status = ?, quoted_price = COALESCE(?, quoted_price), updated_at = UTC_TIMESTAMP() WHERE id = ?')
                 ->execute([$newStatus, $quotedPrice, $booking['id']]);

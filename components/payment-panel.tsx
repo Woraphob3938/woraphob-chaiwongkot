@@ -32,11 +32,9 @@ type PaymentPanelProps = {
 };
 
 export function PaymentPanel({ booking, onUpdated }: PaymentPanelProps) {
-  const amountId = useId();
   const slipId = useId();
-  const [amount, setAmount] = useState("");
   const [slip, setSlip] = useState<File | null>(null);
-  const [fieldErrors, setFieldErrors] = useState<{ amount?: string; slip?: string }>({});
+  const [fieldErrors, setFieldErrors] = useState<{ slip?: string }>({});
   const [requestError, setRequestError] = useState<"upload" | "refresh" | null>(null);
   const [requestMessage, setRequestMessage] = useState("");
   const [notice, setNotice] = useState("");
@@ -50,11 +48,7 @@ export function PaymentPanel({ booking, onUpdated }: PaymentPanelProps) {
   }, [notice, requestMessage]);
 
   function validate(): boolean {
-    const nextErrors: { amount?: string; slip?: string } = {};
-    const numericAmount = Number(amount);
-    if (amount.trim() === "" || !Number.isFinite(numericAmount) || numericAmount <= 0) {
-      nextErrors.amount = "กรุณาระบุยอดที่โอนเป็นจำนวนมากกว่า 0 บาท";
-    }
+    const nextErrors: { slip?: string } = {};
     if (!slip) {
       nextErrors.slip = "กรุณาเลือกไฟล์หลักฐานการโอน";
     } else if (!ACCEPTED_SLIP_TYPES.has(slip.type)) {
@@ -99,9 +93,10 @@ export function PaymentPanel({ booking, onUpdated }: PaymentPanelProps) {
     setRequestError(null);
     setRequestMessage("");
 
+    const paymentAmount = booking.quotedPrice ?? 500;
     const body = new FormData();
     body.set("bookingId", booking.id);
-    body.set("amount", amount);
+    body.set("amount", String(paymentAmount));
     body.set("slip", slip);
 
     try {
@@ -147,16 +142,15 @@ export function PaymentPanel({ booking, onUpdated }: PaymentPanelProps) {
     }
   }
 
-  const amountErrorId = `${amountId}-error`;
   const slipErrorId = `${slipId}-error`;
   const slipGuideId = `${slipId}-guide`;
   const canUpload = booking.actions.canPay && !uploaded;
 
   return (
-    <section className="payment-panel" aria-labelledby={`${amountId}-title`}>
+    <section className="payment-panel" aria-labelledby={`${slipId}-title`}>
       <div className="ledger-row">
         <span>หลักฐานการชำระ</span>
-        <strong id={`${amountId}-title`}>ส่งสลิปให้ผู้ดูแลตรวจ</strong>
+        <strong id={`${slipId}-title`}>ส่งสลิปให้ผู้ดูแลตรวจ</strong>
       </div>
       <div className="ledger-row"><span>รหัสคำขอ</span><strong>{booking.id}</strong></div>
       <div className="ledger-row"><span>เทรนเนอร์</span><strong>{booking.trainer.displayName}</strong></div>
@@ -170,25 +164,6 @@ export function PaymentPanel({ booking, onUpdated }: PaymentPanelProps) {
       {canUpload && (
         <form className="booking-fields payment-panel__form" onSubmit={submit} aria-busy={busy} noValidate>
           <div className="form-grid">
-            <div className="field">
-              <label htmlFor={amountId}>ยอดที่โอน</label>
-              <input
-                id={amountId}
-                type="number"
-                min="0.01"
-                step="0.01"
-                inputMode="decimal"
-                value={amount}
-                disabled={busy}
-                aria-invalid={Boolean(fieldErrors.amount)}
-                aria-describedby={fieldErrors.amount ? amountErrorId : undefined}
-                onChange={(event) => {
-                  setAmount(event.target.value);
-                  setFieldErrors((current) => ({ ...current, amount: undefined }));
-                }}
-              />
-              {fieldErrors.amount && <small className="field-error" id={amountErrorId}>{fieldErrors.amount}</small>}
-            </div>
             <div className="field">
               <label htmlFor={slipId}>หลักฐานการโอน</label>
               <input
