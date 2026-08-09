@@ -659,7 +659,10 @@ rtk git commit -m "chore: safely migrate location data out"
 ### Task 6: ตรวจ workflow ครบวงจรและปิดงาน
 
 **Files:**
+- Modify: `PRODUCT.md`
 - Modify: `DESIGN.md`
+- Modify: `.impeccable/surfaces/role-dashboards.md`
+- Modify: `.impeccable/surfaces/transaction-surfaces.md`
 - Create: `.superpowers/sdd/2026-08-10-role-onboarding-location-removal/task-6-report.md` (ignored report; do not stage)
 
 **Interfaces:**
@@ -729,7 +732,9 @@ Expected: ไม่มี product match ที่ผิดสเปก; ยอ�
 
 - [ ] **Step 6: อัปเดต design ledger และ report**
 
-ใน `DESIGN.md` บันทึก:
+ใน `PRODUCT.md` ลบ positioning/principles/capabilities ที่กำหนดให้ FitConnect เป็น location-aware หรือค้นหาตามจังหวัด แล้วบันทึกความจริงใหม่ว่าการเลือกเทรนเนอร์ใช้ความเชี่ยวชาญ คุณสมบัติ ราคา รีวิว และช่วงเวลาว่างโดยไม่มีข้อมูลสถานที่
+
+ใน `DESIGN.md` และ surface briefs ทั้งสองไฟล์ บันทึก:
 
 - role-owned navigation
 - two-step resumable trainer onboarding
@@ -743,7 +748,7 @@ Expected: ไม่มี product match ที่ผิดสเปก; ยอ�
 
 ```powershell
 rtk git diff -- next-env.d.ts
-rtk git add DESIGN.md
+rtk git add PRODUCT.md DESIGN.md .impeccable/surfaces/role-dashboards.md .impeccable/surfaces/transaction-surfaces.md
 rtk git diff --cached --check
 rtk git commit -m "docs: finalize role onboarding and data simplification"
 rtk git status --short --branch
