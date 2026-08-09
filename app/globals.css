@@ -392,6 +392,9 @@ body {
 }
 
 .profile-trigger__name {
+  display: block;
+  min-width: 0;
+  flex: 1 1 auto;
   max-width: 10rem;
   overflow: hidden;
   text-overflow: ellipsis;
@@ -3319,6 +3322,14 @@ body {
   .header-actions {
     margin-left: auto;
     gap: var(--space-xs);
+  }
+
+  .profile-trigger__name {
+    max-width: 8rem;
+  }
+
+  .profile-trigger {
+    max-width: 12rem;
   }
 
   .desktop-nav {
