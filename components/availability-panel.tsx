@@ -39,7 +39,7 @@ export function AvailabilityPanel({ trainer, selectedSlot, onSelectSlot }: Props
           );
         })}
       </div>
-      <p className="availability-help">เทรนเนอร์จะตรวจคำขออีกครั้งก่อนเข้าสู่ขั้นตอนชำระเงิน</p>
+      <p className="availability-help">เมื่อยืนยัน ระบบจะเก็บเวลานี้ไว้ให้คุณชำระเงินภายใน 10 นาที</p>
     </section>
   );
 }

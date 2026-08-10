@@ -6,10 +6,19 @@ import { useRouter } from "next/navigation";
 import { ArrowLeft, ArrowRight, CircleAlert, LoaderCircle, RefreshCw } from "lucide-react";
 import { ApiError, apiRequest, authenticatedRequest } from "@/lib/api";
 import { Button } from "@/components/ui/button";
+import {
+  Dialog,
+  DialogClose,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { formatDateTime, formatMoney } from "@/lib/format";
-import type { AvailabilitySlot, Trainer } from "@/lib/types";
+import type { AvailabilitySlot, CreateBookingResponse, Trainer } from "@/lib/types";
 
 export function BookingForm({ trainerSlug, slotId }: { trainerSlug?: string; slotId?: string }) {
   const router = useRouter();
@@ -19,6 +28,7 @@ export function BookingForm({ trainerSlug, slotId }: { trainerSlug?: string; slo
   const [loading, setLoading] = useState(Boolean(trainerSlug));
   const [loadError, setLoadError] = useState("");
   const [pending, setPending] = useState(false);
+  const [confirmOpen, setConfirmOpen] = useState(false);
   const [note, setNote] = useState("");
   const [message, setMessage] = useState("");
 
@@ -87,15 +97,24 @@ export function BookingForm({ trainerSlug, slotId }: { trainerSlug?: string; slo
       setMessage("กรุณาเข้าสู่ระบบเพื่อทำการขอจอง");
       return;
     }
+
+    setMessage("");
+    setConfirmOpen(true);
+  }
+
+  async function createBooking() {
+    if (!trainer || !slot || slotUnavailable || pending) return;
+
     setPending(true);
     setMessage("");
     try {
-      const booking = await authenticatedRequest<{ id: string; status: "pending_trainer" }>("/v1/bookings", {
+      const booking = await authenticatedRequest<CreateBookingResponse>("/v1/bookings", {
         method: "POST",
         body: JSON.stringify({ trainerId: trainer.id, slotId: slot.id, note }),
       });
       router.push(`/member?booking=${encodeURIComponent(booking.id)}`);
     } catch (error) {
+      setConfirmOpen(false);
       if (error instanceof ApiError && error.status === 401) {
         localStorage.removeItem("fitconnect_token");
         setMessage("กรุณาเข้าสู่ระบบเพื่อทำการขอจอง");
@@ -135,30 +154,68 @@ export function BookingForm({ trainerSlug, slotId }: { trainerSlug?: string; slo
     );
   }
 
+  const hasPrice = typeof trainer.priceFrom === "number" && trainer.priceFrom > 0;
+
   return (
-    <form className="booking-form" onSubmit={onSubmit}>
-      <div className="booking-summary">
-        <h2>จองกับ <span>{trainer.displayName}</span></h2>
-        <dl>
-          <div><dt>วันและเวลา</dt><dd>{formatDateTime(slot.startsAt)}</dd></div>
-          <div><dt>ราคาเริ่มต้น</dt><dd>{trainer.priceFrom == null ? "รอยืนยันราคา" : formatMoney(trainer.priceFrom)}</dd></div>
-        </dl>
-        <p>ราคาสุดท้ายต้องได้รับการยืนยันจากเทรนเนอร์ก่อนเข้าสู่ขั้นตอนอัปโหลดสลิป</p>
-      </div>
-      <div className="booking-fields">
-        <div className="field"><Label htmlFor="booking-note">เป้าหมายหรือข้อจำกัดที่ควรรู้ (ไม่บังคับ)</Label><Textarea id="booking-note" name="note" rows={5} value={note} onChange={(event) => setNote(event.target.value)} placeholder="เช่น ต้องการเริ่มเวทเบื้องต้น มีอาการเจ็บเข่า" /></div>
-        {slotUnavailable && (
-          <div className="form-message form-message--error stale-slot-guidance" role="alert">
-            <CircleAlert aria-hidden="true" size={18} />
-            <span>เวลาที่เลือกไม่ว่างแล้ว กรุณาเลือกเวลาใหม่</span>
-            <Link href={`/trainers/${trainer.slug}`}>เลือกเวลาอื่น</Link>
-          </div>
-        )}
-        <div className="form-message-slot" aria-live="polite">
-          {message && <div className="form-message form-message--error" role="alert"><CircleAlert aria-hidden="true" size={18} /> {message}</div>}
+    <>
+      <form className="booking-form" aria-label="ยืนยันการจอง" onSubmit={onSubmit}>
+        <div className="booking-summary">
+          <p className="label">รายละเอียดที่เลือก</p>
+          <h2>จองกับ <span>{trainer.displayName}</span></h2>
+          <dl>
+            <div><dt>วันและเวลา</dt><dd>{formatDateTime(slot.startsAt)}</dd></div>
+            <div><dt>ค่าฝึกต่อครั้ง</dt><dd>{hasPrice ? formatMoney(trainer.priceFrom as number) : "ยังไม่กำหนด"}</dd></div>
+          </dl>
+          <p>เมื่อยืนยัน ระบบจะล็อกช่วงเวลานี้และให้คุณส่งหลักฐานชำระเงินภายใน 10 นาที</p>
         </div>
-        <Button className="button button--accent button--wide" type="submit" disabled={pending || slotUnavailable}>{pending ? <><LoaderCircle className="spin" aria-hidden="true" size={18} /> กำลังส่งคำขอ</> : <>ยืนยันและส่งคำขอ <ArrowRight aria-hidden="true" size={18} /></>}</Button>
-      </div>
-    </form>
+        <div className="booking-fields">
+          <div className="field"><Label htmlFor="booking-note">เป้าหมายหรือข้อจำกัดที่ควรรู้ (ไม่บังคับ)</Label><Textarea id="booking-note" name="note" rows={5} value={note} onChange={(event) => setNote(event.target.value)} placeholder="เช่น ต้องการเริ่มเวทเบื้องต้น มีอาการเจ็บเข่า" /></div>
+          {!hasPrice && (
+            <div className="form-message form-message--error" role="alert">
+              <CircleAlert aria-hidden="true" size={18} /> เทรนเนอร์ยังไม่ได้กำหนดค่าฝึก
+            </div>
+          )}
+          {slotUnavailable && (
+            <div className="form-message form-message--error stale-slot-guidance" role="alert">
+              <CircleAlert aria-hidden="true" size={18} />
+              <span>เวลาที่เลือกไม่ว่างแล้ว กรุณาเลือกเวลาใหม่</span>
+              <Link href={`/trainers/${trainer.slug}`}>เลือกเวลาอื่น</Link>
+            </div>
+          )}
+          <div className="form-message-slot" aria-live="polite">
+            {message && <div className="form-message form-message--error" role="alert"><CircleAlert aria-hidden="true" size={18} /> {message}</div>}
+          </div>
+          <Button className="button button--accent button--wide" type="submit" disabled={pending || slotUnavailable || !hasPrice}>
+            ตรวจสอบและยืนยัน <ArrowRight aria-hidden="true" size={18} />
+          </Button>
+        </div>
+      </form>
+
+      <Dialog open={confirmOpen} onOpenChange={(open) => { if (!pending) setConfirmOpen(open); }}>
+        <DialogContent className="booking-confirm-dialog">
+          <DialogHeader>
+            <DialogTitle>ยืนยันและเริ่มเวลา 10 นาที</DialogTitle>
+            <DialogDescription>
+              ตรวจรายละเอียดให้เรียบร้อย เพราะระบบจะเก็บเวลานี้ไว้ 10 นาทีหลังยืนยัน
+            </DialogDescription>
+          </DialogHeader>
+          <dl className="booking-confirm-facts">
+            <div><dt>เทรนเนอร์</dt><dd>{trainer.displayName}</dd></div>
+            <div><dt>วันและเวลา</dt><dd>{formatDateTime(slot.startsAt)}</dd></div>
+            <div><dt>ค่าฝึกต่อครั้ง</dt><dd>{formatMoney(trainer.priceFrom as number)}</dd></div>
+          </dl>
+          <DialogFooter>
+            <DialogClose asChild>
+              <Button variant="outline" type="button" disabled={pending}>กลับไปแก้ไข</Button>
+            </DialogClose>
+            <Button type="button" disabled={pending} onClick={() => void createBooking()}>
+              {pending
+                ? <><LoaderCircle className="spin" aria-hidden="true" /> กำลังจอง…</>
+                : "ยืนยันและเริ่มเวลา 10 นาที"}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+    </>
   );
 }

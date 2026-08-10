@@ -16,28 +16,24 @@ describe("TrainerDetail", () => {
     vi.mocked(authenticatedRequest).mockReset();
   });
 
-  it("puts identity, verification, price, and one next action before supporting details", () => {
+  it("uses a commerce-detail hierarchy with media, identity evidence, and booking panel", () => {
     const trainer = { ...trainers[0], demo: false };
     render(<TrainerDetail trainer={trainer} isDemo={false} />);
 
     const summary = screen.getByRole("region", { name: trainer.displayName });
-    const action = screen.getByRole("button", { name: "เลือกเวลา" });
+    const bookingPanel = screen.getByRole("complementary", { name: "เลือกเวลาฝึก" });
     const credentials = screen.getByText("ใบรับรองและคุณสมบัติ").closest("details");
-    const schedule = screen.getByText("ตารางว่างทั้งหมด").closest("details");
 
-    expect(within(summary).getByRole("heading", { name: trainer.displayName })).toBeInTheDocument();
-    expect(within(summary).getByText("ตรวจคุณสมบัติแล้ว")).toBeInTheDocument();
-    expect(within(summary).getByText(/เริ่มต้น.*650/)).toBeInTheDocument();
+    expect(within(summary).getByRole("heading", { level: 1, name: trainer.displayName })).toBeInTheDocument();
+    expect(within(summary).getAllByText("ตรวจคุณสมบัติแล้ว").length).toBeGreaterThan(0);
+    expect(screen.getAllByText("ค่าฝึกต่อครั้ง").length).toBeGreaterThan(0);
     expect(within(summary).queryByText(/สกลนคร|นครพนม|พื้นที่ให้บริการ/)).not.toBeInTheDocument();
-    expect(screen.getAllByRole("button", { name: "เลือกเวลา" })).toHaveLength(1);
     expect(credentials).not.toHaveAttribute("open");
-    expect(schedule).not.toHaveAttribute("open");
-    expect(appearsBefore(summary, action)).toBe(true);
-    expect(appearsBefore(action, credentials as Element)).toBe(true);
-    expect(appearsBefore(credentials as Element, schedule as Element)).toBe(true);
+    expect(appearsBefore(summary, bookingPanel)).toBe(true);
+    expect(within(bookingPanel).getByText("ระบบจะเก็บเวลาที่เลือกไว้ 10 นาทีหลังยืนยัน")).toBeInTheDocument();
   });
 
-  it("mounts credentials and the complete schedule once, then advances the single booking action", () => {
+  it("mounts credentials and the complete schedule once, then exposes the booking link", () => {
     const trainer = { ...trainers[0], demo: false };
     render(<TrainerDetail trainer={trainer} isDemo={false} />);
 
@@ -46,14 +42,12 @@ describe("TrainerDetail", () => {
     expect(screen.getAllByText(trainer.certificates[0].name)).toHaveLength(1);
     expect(screen.getAllByRole("region", { name: `ตารางว่างของ ${trainer.displayName}` })).toHaveLength(1);
 
-    fireEvent.click(within(schedule).getByText("ตารางว่างทั้งหมด"));
     expect(schedule).toHaveAttribute("open");
     const firstSlot = within(schedule).getAllByRole("button")[0];
     fireEvent.click(firstSlot);
 
-    expect(screen.queryByRole("button", { name: "เลือกเวลา" })).not.toBeInTheDocument();
-    expect(screen.getAllByRole("link", { name: /ส่งคำขอจอง/ })).toHaveLength(1);
-    expect(screen.getByRole("link", { name: /ส่งคำขอจอง/ })).toHaveAttribute(
+    expect(screen.getAllByRole("link", { name: "จองเวลานี้" })).toHaveLength(1);
+    expect(screen.getByRole("link", { name: "จองเวลานี้" })).toHaveAttribute(
       "href",
       `/booking?trainer=${trainer.slug}&slot=${trainer.slots[0].id}`,
     );
@@ -66,7 +60,7 @@ describe("TrainerDetail", () => {
 
     expect(screen.getByRole("img", { name: `ภาพบุคคลของ${liveTrainer.displayName}` })).toBeInTheDocument();
     expect(screen.queryByText("ภาพสังเคราะห์ · สาธิต")).not.toBeInTheDocument();
-    expect(screen.getAllByText("รอยืนยันราคา").length).toBeGreaterThan(0);
+    expect(screen.getAllByText("เทรนเนอร์ยังไม่ได้กำหนดค่าฝึก").length).toBeGreaterThan(0);
 
     rerender(<TrainerDetail trainer={trainers[0]} isDemo />);
     expect(screen.getByRole("img", { name: `ภาพสังเคราะห์ของ${trainers[0].displayName} ใช้เพื่อสาธิต` })).toBeInTheDocument();
@@ -87,15 +81,15 @@ describe("TrainerDetail", () => {
 
     render(<TrainerDetail trainer={trainer} isDemo={false} />);
     fireEvent.click(await screen.findByRole("button", { name: "ปรับราคา" }));
-    fireEvent.change(screen.getByLabelText("ราคาเริ่มต้น"), { target: { value: "780" } });
+    fireEvent.change(screen.getByLabelText("ค่าฝึกต่อครั้ง"), { target: { value: "780" } });
     fireEvent.click(screen.getByRole("button", { name: "บันทึก" }));
 
     await waitFor(() => expect(authenticatedRequest).toHaveBeenCalledWith("/v1/trainer/me", {
       method: "PATCH",
       body: JSON.stringify({ priceFrom: 780 }),
     }));
-    expect(await screen.findByRole("status")).toHaveTextContent("บันทึกราคาเริ่มต้นแล้ว");
-    expect(screen.getByText(/เริ่มต้น.*780/)).toBeInTheDocument();
+    expect(await screen.findByRole("status")).toHaveTextContent("บันทึกค่าฝึกต่อครั้งแล้ว");
+    expect(screen.getAllByText(/฿780/).length).toBeGreaterThan(0);
   });
 
   it("does not expose the price editor on another trainer's profile", async () => {

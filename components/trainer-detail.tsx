@@ -3,11 +3,10 @@
 import Image from "next/image";
 import { useEffect, useState } from "react";
 import { MessageSquareText, Pencil } from "lucide-react";
-import { AvailabilityPanel } from "@/components/availability-panel";
-import { BookingStrip } from "@/components/booking-strip";
 import { CredentialCard } from "@/components/credential-card";
 import { DemoNotice } from "@/components/demo-notice";
 import { DisclosureSection } from "@/components/disclosure-section";
+import { ProfileBookingPanel } from "@/components/profile-booking-panel";
 import { StatusBadge } from "@/components/status-badge";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -57,7 +56,7 @@ export function TrainerDetail({ trainer, isDemo }: { trainer: Trainer; isDemo: b
     const value = Number(priceInput);
     if (priceInput.trim() === "" || !Number.isFinite(value) || value <= 0) {
       setPriceError(true);
-      setPriceMessage("กรุณาระบุราคาเริ่มต้นที่มากกว่า 0 บาท");
+      setPriceMessage("กรุณาระบุค่าฝึกต่อครั้งที่มากกว่า 0 บาท");
       return;
     }
 
@@ -71,10 +70,10 @@ export function TrainerDetail({ trainer, isDemo }: { trainer: Trainer; isDemo: b
       });
       setPriceOverride({ trainerId: trainer.id, value });
       setEditingPrice(false);
-      setPriceMessage("บันทึกราคาเริ่มต้นแล้ว");
+      setPriceMessage("บันทึกค่าฝึกต่อครั้งแล้ว");
     } catch (error) {
       setPriceError(true);
-      setPriceMessage(error instanceof Error ? error.message : "บันทึกราคาเริ่มต้นไม่สำเร็จ");
+      setPriceMessage(error instanceof Error ? error.message : "บันทึกค่าฝึกต่อครั้งไม่สำเร็จ");
     } finally {
       setSavingPrice(false);
     }
@@ -85,8 +84,8 @@ export function TrainerDetail({ trainer, isDemo }: { trainer: Trainer; isDemo: b
   return (
     <>
       {isDemo && <DemoNotice />}
-      <div className="trainer-detail-layout trainer-profile-guided">
-        <section className="trainer-detail-hero" aria-labelledby={headingId}>
+      <div className="trainer-detail-layout trainer-commerce-layout">
+        <section className="trainer-detail-media" aria-label={`ภาพโปรไฟล์ของ ${trainer.displayName}`}>
           <div className="trainer-detail-photo">
             {trainer.image && (
               <Image
@@ -98,21 +97,25 @@ export function TrainerDetail({ trainer, isDemo }: { trainer: Trainer; isDemo: b
                 priority
                 loading="eager"
                 fetchPriority="high"
-                sizes="(max-width: 900px) 100vw, 48vw"
+                sizes="(max-width: 768px) 50vw, 31vw"
               />
             )}
             {trainer.demo && <div className="portrait-stamp">ภาพสังเคราะห์ · สาธิต</div>}
           </div>
-          <div className="trainer-detail-copy trainer-profile-summary">
-            <p className="profile-id">โปรไฟล์เทรนเนอร์ #{String(trainer.id).padStart(3, "0")}</p>
-            <h1 id={headingId}>{trainer.displayName}</h1>
-            <p className="lead">{trainer.headline}</p>
-            <p>{trainer.bio}</p>
-            <div className="trainer-detail-status"><StatusBadge status={trainer.verification} /></div>
-            <div className="detail-meta">
-              <span><MessageSquareText aria-hidden="true" size={17} /> ยังไม่มีรีวิวจริง</span>
+        </section>
+
+        <section className="trainer-detail-copy trainer-profile-summary" aria-labelledby={headingId}>
+          <p className="profile-id">โปรไฟล์เทรนเนอร์ #{String(trainer.id).padStart(3, "0")}</p>
+          <h1 id={headingId}>{trainer.displayName}</h1>
+          <p className="lead">{trainer.headline}</p>
+          <p>{trainer.bio}</p>
+          <div className="trainer-detail-status"><StatusBadge status={trainer.verification} /></div>
+          <div className="detail-meta">
+            <span><MessageSquareText aria-hidden="true" size={17} /> ยังไม่มีรีวิวจริง</span>
+            <div className="price-session">
+              <span className="label">ค่าฝึกต่อครั้ง</span>
               <div className="price-editor-inline">
-                <strong>{currentPrice == null ? "รอยืนยันราคา" : `เริ่มต้น ${formatMoney(currentPrice)}`}</strong>
+                <strong>{currentPrice == null ? "เทรนเนอร์ยังไม่ได้กำหนดค่าฝึก" : formatMoney(currentPrice)}</strong>
                 {canEditPrice && !editingPrice && (
                   <Button type="button" className="button button--dark" onClick={() => {
                     setPriceInput(String(currentPrice ?? ""));
@@ -134,7 +137,7 @@ export function TrainerDetail({ trainer, isDemo }: { trainer: Trainer; isDemo: b
                     value={priceInput}
                     onChange={(event) => setPriceInput(event.target.value)}
                     className="price-edit-input"
-                    aria-label="ราคาเริ่มต้น"
+                    aria-label="ค่าฝึกต่อครั้ง"
                     aria-invalid={priceError}
                   />
                   <Button type="button" className="button button--accent" disabled={savingPrice} onClick={() => void savePrice()}>
@@ -157,22 +160,17 @@ export function TrainerDetail({ trainer, isDemo }: { trainer: Trainer; isDemo: b
               )}
             </div>
           </div>
+
+          <DisclosureSection
+            title="ใบรับรองและคุณสมบัติ"
+            summary={`${trainer.certificates.length} รายการ · ประสบการณ์ ${trainer.yearsExperience} ปี`}
+            className="trainer-detail-disclosure trainer-detail-evidence"
+          >
+            <CredentialCard trainer={currentTrainer} />
+          </DisclosureSection>
         </section>
-        <BookingStrip trainer={currentTrainer} slot={slot} />
-        <DisclosureSection
-          title="ใบรับรองและคุณสมบัติ"
-          summary={`${trainer.certificates.length} รายการ · ประสบการณ์ ${trainer.yearsExperience} ปี`}
-          className="trainer-detail-disclosure trainer-detail-evidence"
-        >
-          <CredentialCard trainer={currentTrainer} />
-        </DisclosureSection>
-        <DisclosureSection
-          title="ตารางว่างทั้งหมด"
-          summary={`${trainer.slots.filter((item) => item.available).length} ช่วงพร้อมจอง`}
-          className="trainer-detail-disclosure trainer-detail-schedule"
-        >
-          <AvailabilityPanel trainer={currentTrainer} selectedSlot={slot} onSelectSlot={setSlot} />
-        </DisclosureSection>
+
+        <ProfileBookingPanel trainer={currentTrainer} selectedSlot={slot} onSelectSlot={setSlot} />
       </div>
     </>
   );
