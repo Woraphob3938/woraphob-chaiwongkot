@@ -110,6 +110,13 @@ describe("ChatWorkbench", () => {
     vi.useFakeTimers();
     vi.mocked(authenticatedRequest).mockReset();
     vi.mocked(openProtectedFile).mockReset();
+    localStorage.setItem("fitconnect_user", JSON.stringify({
+      id: 9,
+      email: "member@example.test",
+      displayName: "สมาชิกทดสอบ",
+      role: "member",
+      status: "active",
+    }));
     setVisibility("visible");
   });
 
@@ -305,6 +312,56 @@ describe("ChatWorkbench", () => {
     expect(facts).not.toHaveAttribute("open");
     expect(within(composer).getByRole("button", { name: "ส่งข้อความ" })).toBeEnabled();
     expect(screen.getAllByRole("form", { name: /เขียนข้อความถึง/ })).toHaveLength(1);
+  });
+
+  it("uses a searchable room list and places booking facts inside the active conversation", async () => {
+    stubDesktopFacts(true);
+    const first = bookingFixture();
+    const second = bookingFixture({
+      id: "BK-CHAT-002",
+      chatRoomId: 22,
+      trainer: { id: 4, slug: "trainer-d", displayName: "เทรนเนอร์ ด." },
+    });
+    vi.mocked(authenticatedRequest)
+      .mockResolvedValueOnce([first, second])
+      .mockResolvedValueOnce([]);
+
+    render(<ChatWorkbench />);
+    await flushPromises();
+
+    const roomList = screen.getByRole("complementary", { name: "ห้องตามคำขอจอง" });
+    const search = within(roomList).getByRole("searchbox", { name: "ค้นหาห้องสนทนา" });
+    fireEvent.change(search, { target: { value: "เทรนเนอร์ ด." } });
+    expect(within(roomList).queryByRole("button", { name: /เทรนเนอร์ ค\./ })).not.toBeInTheDocument();
+    expect(within(roomList).getByRole("button", { name: /เทรนเนอร์ ด\./ })).toBeInTheDocument();
+
+    const conversation = screen.getByRole("region", { name: "สนทนากับ เทรนเนอร์ ค." });
+    const facts = screen.getByText("รายละเอียดนัดหมาย", { selector: "summary" }).closest("details");
+    expect(conversation).toContainElement(facts as HTMLElement);
+  });
+
+  it("aligns the signed-in member message separately and keeps a compact accessible composer", async () => {
+    const trainerMessage = messageFixture(1, "เตรียมรองเท้าสำหรับฝึกด้วยครับ", {
+      sender: { id: 3, displayName: "เทรนเนอร์ ค." },
+    });
+    const memberMessage = messageFixture(2, "รับทราบครับ");
+    vi.mocked(authenticatedRequest)
+      .mockResolvedValueOnce([bookingFixture()])
+      .mockResolvedValueOnce([trainerMessage, memberMessage]);
+
+    render(<ChatWorkbench />);
+    await flushPromises();
+
+    const rows = screen.getAllByTestId("message-row");
+    expect(rows[0]).toHaveClass("chat-message", "chat-message--other");
+    expect(rows[1]).toHaveClass("chat-message", "chat-message--mine");
+    expect(within(rows[0]).getByText("เตรียมรองเท้าสำหรับฝึกด้วยครับ")).toBeInTheDocument();
+    expect(within(rows[1]).getByText("รับทราบครับ")).toBeInTheDocument();
+
+    const composer = screen.getByRole("form", { name: "เขียนข้อความถึง เทรนเนอร์ ค." });
+    expect(within(composer).getByPlaceholderText("พิมพ์ข้อความ…")).toBeInTheDocument();
+    expect(within(composer).getByRole("button", { name: "แนบไฟล์" })).toBeEnabled();
+    expect(within(composer).getByRole("button", { name: "ส่งข้อความ" })).toBeEnabled();
   });
 
   it("polls the latest cursor every five seconds only on a visible tab and cleans up", async () => {

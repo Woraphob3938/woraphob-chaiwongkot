@@ -106,9 +106,57 @@ describe("SiteHeader", () => {
     fireEvent.click(accountButton);
 
     expect(screen.getByText(member.email)).toBeInTheDocument();
-    expect(screen.getByRole("link", { name: /พื้นที่ใช้งานของฉัน/ })).toHaveAttribute("href", "/member");
+    expect(screen.queryByRole("link", { name: /พื้นที่ใช้งานของฉัน/ })).not.toBeInTheDocument();
     expect(screen.getByRole("button", { name: /ออกจากระบบ/ })).toBeInTheDocument();
     await waitFor(() => expect(mockedApiRequest).toHaveBeenCalled());
+  });
+
+  it.each([
+    ["member", "/member", ["หน้าแรก", "ค้นหาเทรนเนอร์", "การจองของฉัน", "แชต"]],
+    ["trainer", "/trainer", ["หน้าแรก", "พื้นที่เทรนเนอร์", "แชต"]],
+    ["admin", "/admin", ["หน้าแรก", "พื้นที่แอดมิน"]],
+  ] as const)("moves %s navigation into the authenticated side rail", async (role, pathname, labels) => {
+    const signedInUser = user(role);
+    mockedPathname.mockReturnValue(pathname);
+    localStorage.setItem("fitconnect_token", "test-token");
+    localStorage.setItem("fitconnect_user", JSON.stringify(signedInUser));
+    mockedApiRequest.mockResolvedValue(signedInUser);
+
+    render(<SiteHeader />);
+
+    const nav = await screen.findByRole("navigation", { name: "เมนูหลักด้านข้าง" });
+    const links = within(nav).getAllByRole("link");
+    expect(links.map((link) => link.textContent)).toEqual(labels);
+    expect(links.find((link) => link.getAttribute("href") === pathname)).toHaveAttribute("aria-current", "page");
+    for (const link of links) {
+      expect(link.querySelector('.app-sidebar__nav-icon[aria-hidden="true"]')).not.toBeNull();
+    }
+  });
+
+  it("keeps guest actions in the top header instead of the authenticated side rail", () => {
+    render(<SiteHeader />);
+
+    expect(screen.queryByRole("navigation", { name: "เมนูหลักด้านข้าง" })).not.toBeInTheDocument();
+    expect(screen.getByRole("banner")).toHaveClass("site-header");
+  });
+
+  it("collapses and restores the authenticated side rail without removing its destinations", async () => {
+    const member = user("member");
+    localStorage.setItem("fitconnect_token", "test-token");
+    localStorage.setItem("fitconnect_user", JSON.stringify(member));
+    mockedApiRequest.mockResolvedValue(member);
+
+    render(<SiteHeader />);
+
+    const sidebar = await screen.findByRole("complementary", { name: "แถบนำทาง FitConnect" });
+    fireEvent.click(within(sidebar).getByRole("button", { name: "ย่อแถบเมนู" }));
+    expect(sidebar).toHaveAttribute("data-collapsed", "true");
+    expect(within(sidebar).getByRole("button", { name: "ขยายแถบเมนู" })).toHaveAttribute("aria-expanded", "false");
+    expect(within(sidebar).getByRole("link", { name: "การจองของฉัน" })).toHaveAttribute("href", "/member");
+
+    fireEvent.click(within(sidebar).getByRole("button", { name: "ขยายแถบเมนู" }));
+    expect(sidebar).toHaveAttribute("data-collapsed", "false");
+    expect(within(sidebar).getByRole("button", { name: "ย่อแถบเมนู" })).toHaveAttribute("aria-expanded", "true");
   });
 
   it("signs out through Next navigation", async () => {
@@ -146,25 +194,17 @@ describe("SiteHeader", () => {
     expect(screen.queryByRole("button", { name: "เปิดค้นหาเทรนเนอร์" })).not.toBeInTheDocument();
   });
 
-  it("opens the global search dialog from the member header control", async () => {
+  it("removes the quick-search control from the side rail", async () => {
     const member = user("member");
     localStorage.setItem("fitconnect_token", "test-token");
     localStorage.setItem("fitconnect_user", JSON.stringify(member));
     mockedApiRequest.mockResolvedValue(member);
-    const showModal = vi.fn(function (this: HTMLDialogElement) {
-      this.setAttribute("open", "");
-    });
-    Object.defineProperty(HTMLDialogElement.prototype, "showModal", {
-      configurable: true,
-      value: showModal,
-    });
 
     render(<SiteHeader />);
-    fireEvent.click(await screen.findByRole("button", { name: "เปิดค้นหาเทรนเนอร์" }));
+    await screen.findByRole("complementary", { name: "แถบนำทาง FitConnect" });
 
-    expect(showModal).toHaveBeenCalledOnce();
-    expect(screen.getByRole("dialog")).toHaveAttribute("open");
-    delete (HTMLDialogElement.prototype as Partial<HTMLDialogElement>).showModal;
+    expect(screen.queryByText("ค้นหาแบบด่วน")).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "เปิดค้นหาเทรนเนอร์" })).not.toBeInTheDocument();
   });
 
   it("keeps only the page search on the trainer discovery route", async () => {
@@ -196,7 +236,7 @@ describe("SiteHeader", () => {
     });
 
     render(<SiteHeader />);
-    await screen.findByRole("button", { name: "เปิดค้นหาเทรนเนอร์" });
+    await screen.findByRole("complementary", { name: "แถบนำทาง FitConnect" });
     fireEvent.keyDown(window, { key: "k", ctrlKey: true });
 
     expect(showModal).toHaveBeenCalledOnce();

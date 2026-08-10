@@ -1,4 +1,4 @@
-/* Hallmark · macrostructure: Workbench · direction: Athlete Credential · F3 columns=3, rules=every-row, numbers=tabular · N13 centred/grouped/shown · C4 viewport-bottom · footer: Ft2
+/* Hallmark · macrostructure: Workbench · direction: Athlete Credential · F3 columns=3, rules=every-row, numbers=tabular · N3 side-rail · C4 viewport-bottom · footer: Ft2
  * Hallmark · pre-emit critique: P5 H5 E5 S5 R5 V5 · contrast: pass (40–41) · slop: pass (42–45) · honest: pass (46) · chrome: pass (47) · tokens: pass (48) · responsive/mobile: pass (34, 49, 50–57) · icons: pass (30)
  * theme: custom · vibe: "athletic accreditation, precise, earned, practical" · paper: oklch(97.5% 0.012 145) · accent: oklch(88% 0.20 125)
  * display: Chakra Petch · body: Bai Jamjuree · axes: light / geometric-sans / chromatic-green ~125deg
@@ -70,6 +70,7 @@
   --size-control: 2.75rem;
   --size-control-lg: 3rem;
   --banner-height: 4.5rem;
+  --size-app-sidebar: 17rem;
   --container: 90rem;
   --measure: 68ch;
 

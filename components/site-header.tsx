@@ -3,17 +3,42 @@
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
 import { FormEvent, useEffect, useRef, useState } from "react";
-import { ChevronDown, Dumbbell, LayoutDashboard, LogOut, Search, X } from "lucide-react";
+import {
+  CalendarCheck2,
+  ChevronDown,
+  Dumbbell,
+  Home,
+  LayoutDashboard,
+  LogOut,
+  MessageCircle,
+  PanelLeftClose,
+  PanelLeftOpen,
+  Search,
+  X,
+  type LucideIcon,
+} from "lucide-react";
 import { MobileRoleNav } from "@/components/mobile-role-nav";
 import { ApiError, apiRequest } from "@/lib/api";
-import { navigationFor } from "@/lib/role-navigation";
+import { navigationFor, type NavigationIcon } from "@/lib/role-navigation";
 import type { AuthenticatedUser, UserRole } from "@/lib/types";
 
-const dashboardByRole: Record<UserRole, string> = {
-  member: "/member",
-  trainer: "/trainer",
-  admin: "/admin",
+const validRoles: Record<UserRole, true> = {
+  member: true,
+  trainer: true,
+  admin: true,
 };
+
+const sidebarIcons: Partial<Record<NavigationIcon, LucideIcon>> = {
+  home: Home,
+  search: Search,
+  bookings: CalendarCheck2,
+  workspace: LayoutDashboard,
+  chat: MessageCircle,
+};
+
+function isCurrentDestination(pathname: string, href: string) {
+  return href === "/" ? pathname === href : pathname === href || pathname.startsWith(`${href}/`);
+}
 
 function userInitials(displayName: string) {
   const parts = displayName.trim().split(/\s+/).filter(Boolean);
@@ -31,7 +56,7 @@ function readStoredUser() {
       || typeof user.email !== "string"
       || typeof user.displayName !== "string"
       || !user.role
-      || !(user.role in dashboardByRole)
+      || !(user.role in validRoles)
     ) {
       throw new Error("Invalid stored user");
     }
@@ -50,6 +75,7 @@ export function SiteHeader() {
   const [profileOpen, setProfileOpen] = useState(false);
   const [sessionReady, setSessionReady] = useState(false);
   const [user, setUser] = useState<AuthenticatedUser | null>(null);
+  const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
 
   useEffect(() => {
     let active = true;
@@ -150,38 +176,47 @@ export function SiteHeader() {
   const desktopNavItems = navigationFor(user?.role ?? null).filter((item) => item.desktop);
 
   return (
-    <header className="site-header">
-      <div className="header-inner">
-        <Link className="brand" href="/" aria-label="FitConnect หน้าหลัก">
-          <span className="brand-mark" aria-hidden="true"><Dumbbell size={19} strokeWidth={2.2} /></span>
-          <span>FITCONNECT</span>
-        </Link>
-
-        {memberSearchEnabled && (
-          <button className="command-pill" type="button" onClick={() => dialogRef.current?.showModal()}>
-            <Search aria-hidden="true" size={17} />
-            <span>ค้นหาความเชี่ยวชาญหรือชื่อเทรนเนอร์</span>
-          </button>
-        )}
-
-        <nav className="desktop-nav" aria-label="เมนูหลัก">
-          {desktopNavItems.map((item) => <Link href={item.href} key={item.href}>{item.label}</Link>)}
-        </nav>
-
-        <div className="header-actions">
-          {memberSearchEnabled && (
+    <>
+      {sessionReady && user ? (
+        <aside className="app-sidebar" aria-label="แถบนำทาง FitConnect" data-collapsed={sidebarCollapsed}>
+          <div className="app-sidebar__top">
+            <Link className="brand" href="/" aria-label="FitConnect หน้าหลัก">
+              <span className="brand-mark" aria-hidden="true"><Dumbbell size={19} strokeWidth={2.2} /></span>
+              <span className="brand__label">FITCONNECT</span>
+            </Link>
             <button
-              className="icon-button responsive-search-button"
+              className="app-sidebar__toggle icon-button"
               type="button"
-              aria-label="เปิดค้นหาเทรนเนอร์"
-              onClick={() => dialogRef.current?.showModal()}
+              aria-label={sidebarCollapsed ? "ขยายแถบเมนู" : "ย่อแถบเมนู"}
+              aria-expanded={!sidebarCollapsed}
+              onClick={() => setSidebarCollapsed((collapsed) => !collapsed)}
             >
-              <Search aria-hidden="true" size={18} />
+              {sidebarCollapsed
+                ? <PanelLeftOpen aria-hidden="true" size={19} />
+                : <PanelLeftClose aria-hidden="true" size={19} />}
             </button>
-          )}
-          {!sessionReady ? (
-            <span className="session-placeholder" aria-hidden="true" />
-          ) : user ? (
+          </div>
+
+          <nav className="desktop-nav" aria-label="เมนูหลักด้านข้าง">
+            {desktopNavItems.map((item) => {
+              const Icon = sidebarIcons[item.icon] ?? Home;
+              const current = isCurrentDestination(pathname, item.href);
+              return (
+                <Link
+                  href={item.href}
+                  key={item.href}
+                  aria-current={current ? "page" : undefined}
+                  aria-label={item.label}
+                  title={sidebarCollapsed ? item.label : undefined}
+                >
+                  <span className="app-sidebar__nav-icon" aria-hidden="true"><Icon size={19} /></span>
+                  <span className="app-sidebar__nav-label">{item.label}</span>
+                </Link>
+              );
+            })}
+          </nav>
+
+          <div className="app-sidebar__account">
             <div className="profile-session" ref={profileRef}>
               <button
                 className="profile-trigger"
@@ -201,23 +236,34 @@ export function SiteHeader() {
                     <span className="profile-avatar" aria-hidden="true">{userInitials(user.displayName)}</span>
                     <span><strong>{user.displayName || "บัญชีของฉัน"}</strong><small>{user.email}</small></span>
                   </div>
-                  <Link href={dashboardByRole[user.role]} onClick={() => setProfileOpen(false)}>
-                    <LayoutDashboard aria-hidden="true" size={17} /> พื้นที่ใช้งานของฉัน
-                  </Link>
                   <button type="button" onClick={signOut}>
                     <LogOut aria-hidden="true" size={17} /> ออกจากระบบ
                   </button>
                 </div>
               )}
             </div>
-          ) : (
-            <>
-              <Link className="text-link desktop-only" href="/login">เข้าสู่ระบบ</Link>
-              <Link className="button button--dark desktop-only" href="/register">เริ่มใช้งาน</Link>
-            </>
-          )}
-        </div>
-      </div>
+          </div>
+        </aside>
+      ) : (
+        <header className="site-header">
+          <div className="header-inner">
+            <Link className="brand" href="/" aria-label="FitConnect หน้าหลัก">
+              <span className="brand-mark" aria-hidden="true"><Dumbbell size={19} strokeWidth={2.2} /></span>
+              <span>FITCONNECT</span>
+            </Link>
+            <div className="header-actions">
+              {!sessionReady ? (
+                <span className="session-placeholder" aria-hidden="true" />
+              ) : (
+                <>
+                  <Link className="text-link desktop-only" href="/login">เข้าสู่ระบบ</Link>
+                  <Link className="button button--dark desktop-only" href="/register">เริ่มใช้งาน</Link>
+                </>
+              )}
+            </div>
+          </div>
+        </header>
+      )}
 
       {memberSearchEnabled && <dialog className="search-dialog" ref={dialogRef} onClick={(event) => {
         if (event.target === event.currentTarget) event.currentTarget.close();
@@ -246,6 +292,6 @@ export function SiteHeader() {
         </div>
       </dialog>}
       {sessionReady && <MobileRoleNav user={user} />}
-    </header>
+    </>
   );
 }

@@ -8,7 +8,7 @@
 
 import Link from "next/link";
 import { FormEvent, useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { FileText, MessageSquareText, Paperclip, RefreshCw, Send, X } from "lucide-react";
+import { FileText, MessageSquareText, Paperclip, RefreshCw, Search, Send, X } from "lucide-react";
 import { authenticatedRequest, openProtectedFile } from "@/lib/api";
 import { formatDateTime, initials } from "@/lib/format";
 import type { Booking, ChatMessage } from "@/lib/types";
@@ -66,12 +66,23 @@ function formatAmount(amount: number | null): string {
   return `${new Intl.NumberFormat("th-TH", { minimumFractionDigits: 2, maximumFractionDigits: 2 }).format(amount)} บาท`;
 }
 
+function readStoredUserId(): number | null {
+  if (typeof window === "undefined") return null;
+  try {
+    const stored = JSON.parse(localStorage.getItem("fitconnect_user") ?? "null") as { id?: unknown } | null;
+    return typeof stored?.id === "number" ? stored.id : null;
+  } catch {
+    return null;
+  }
+}
+
 type ChatWorkbenchProps = {
   initialBookingId?: string;
 };
 
 export function ChatWorkbench({ initialBookingId }: ChatWorkbenchProps) {
   const [rooms, setRooms] = useState<Booking[]>([]);
+  const [roomQuery, setRoomQuery] = useState("");
   const [selectedBookingId, setSelectedBookingId] = useState("");
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [roomsLoading, setRoomsLoading] = useState(true);
@@ -87,6 +98,7 @@ export function ChatWorkbench({ initialBookingId }: ChatWorkbenchProps) {
   const [retrying, setRetrying] = useState(false);
   const [openingAttachment, setOpeningAttachment] = useState<number | null>(null);
   const [factsOpen, setFactsOpen] = useState(false);
+  const [currentUserId] = useState(readStoredUserId);
 
   const mountedRef = useRef(true);
   const generationRef = useRef(0);
@@ -104,6 +116,11 @@ export function ChatWorkbench({ initialBookingId }: ChatWorkbenchProps) {
     () => rooms.find((booking) => booking.id === selectedBookingId) ?? null,
     [rooms, selectedBookingId],
   );
+  const visibleRooms = useMemo(() => {
+    const query = roomQuery.trim().toLocaleLowerCase("th-TH");
+    if (!query) return rooms;
+    return rooms.filter((booking) => `${booking.trainer.displayName} ${booking.id}`.toLocaleLowerCase("th-TH").includes(query));
+  }, [roomQuery, rooms]);
 
   useEffect(() => {
     mountedRef.current = true;
@@ -423,24 +440,41 @@ export function ChatWorkbench({ initialBookingId }: ChatWorkbenchProps) {
 
   return (
     <div className="chat-guided-layout">
-      <aside className="chat-room-list" aria-labelledby="chat-room-list-title">
-        <h2 id="chat-room-list-title">ห้องตามคำขอจอง</h2>
-        {rooms.map((booking) => (
-          <button
-            className={`chat-contact${booking.id === selectedBooking.id ? " is-active" : ""}`}
-            type="button"
-            key={booking.id}
-            ref={booking.id === selectedBooking.id ? selectedRoomRef : undefined}
-            aria-pressed={booking.id === selectedBooking.id}
-            onClick={() => setSelectedBookingId(booking.id)}
-          >
-            <span aria-hidden="true">{initials(booking.trainer.displayName)}</span>
-            <div>
-              <strong>{booking.trainer.displayName}</strong>
-              <small>{booking.id} · {bookingStatusCopy[booking.status]}</small>
-            </div>
-          </button>
-        ))}
+      <aside className="chat-room-list" aria-label="ห้องตามคำขอจอง">
+        <div className="chat-room-list__heading">
+          <h2>ข้อความ</h2>
+          <span>{rooms.length} ห้อง</span>
+        </div>
+        <label className="chat-room-search" htmlFor="chat-room-search">
+          <Search aria-hidden="true" size={17} />
+          <span className="sr-only">ค้นหาห้องสนทนา</span>
+          <input
+            id="chat-room-search"
+            type="search"
+            value={roomQuery}
+            placeholder="ค้นหาชื่อเทรนเนอร์"
+            onChange={(event) => setRoomQuery(event.target.value)}
+          />
+        </label>
+        <div className="chat-room-list__items">
+          {visibleRooms.map((booking) => (
+            <button
+              className={`chat-contact${booking.id === selectedBooking.id ? " is-active" : ""}`}
+              type="button"
+              key={booking.id}
+              ref={booking.id === selectedBooking.id ? selectedRoomRef : undefined}
+              aria-pressed={booking.id === selectedBooking.id}
+              onClick={() => setSelectedBookingId(booking.id)}
+            >
+              <span aria-hidden="true">{initials(booking.trainer.displayName)}</span>
+              <div>
+                <strong>{booking.trainer.displayName}</strong>
+                <small>{booking.id} · {bookingStatusCopy[booking.status]}</small>
+              </div>
+            </button>
+          ))}
+          {visibleRooms.length === 0 && <p className="chat-room-list__empty" role="status">ไม่พบห้องสนทนาที่ตรงกับคำค้นหา</p>}
+        </div>
       </aside>
 
       <section className="chat-conversation chat-thread" aria-labelledby="chat-thread-title">
@@ -451,6 +485,22 @@ export function ChatWorkbench({ initialBookingId }: ChatWorkbenchProps) {
             </div>
             <strong className="status-dot">{bookingStatusCopy[selectedBooking.status]}</strong>
           </header>
+
+          <details
+            className="trainer-booking-list chat-booking-facts"
+            open={factsOpen}
+            onToggle={(event) => setFactsOpen(event.currentTarget.open)}
+          >
+            <summary className="chat-booking-facts__summary">รายละเอียดนัดหมาย</summary>
+            <div className="section-line-heading chat-booking-facts__heading"><h2>รายละเอียดนัดหมาย</h2></div>
+            <div className="ledger-row"><span>รหัสคำขอ</span><strong className="chat-breakable">{selectedBooking.id}</strong></div>
+            <div className="ledger-row"><span>วันและเวลา</span><strong>{formatDateTime(selectedBooking.startsAt)}</strong></div>
+            <div className="ledger-row"><span>สิ้นสุด</span><strong>{formatDateTime(selectedBooking.endsAt)}</strong></div>
+            <div className="ledger-row"><span>สถานะการจอง</span><strong>{bookingStatusCopy[selectedBooking.status]}</strong></div>
+            <div className="ledger-row"><span>สถานะหลักฐาน</span><strong>{paymentStatusCopy[selectedBooking.paymentStatus]}</strong></div>
+            <div className="ledger-row"><span>ค่าฝึกต่อครั้ง</span><strong>{formatAmount(selectedBooking.quotedPrice)}</strong></div>
+            <div className="ledger-row"><span>หมายเหตุ</span><strong className="chat-breakable">{selectedBooking.note || "ไม่มีหมายเหตุ"}</strong></div>
+          </details>
 
           <div
             className="messages"
@@ -466,13 +516,16 @@ export function ChatWorkbench({ initialBookingId }: ChatWorkbenchProps) {
                 <p>{selectedBooking.actions.canSendChat ? "เริ่มคุยเรื่องเวลาและการเตรียมตัวได้" : "ประวัติข้อความจะปรากฏที่นี่เมื่อมีการสนทนา"}</p>
               </div>
             )}
-            {messages.map((message) => (
-              <article className="ledger-row" data-testid="message-row" key={message.id}>
-                <span>
-                  <strong>{message.sender.displayName}</strong>
-                  <small>{formatDateTime(message.createdAt)} · {message.readAt ? "อ่านแล้ว" : "ยังไม่อ่าน"}</small>
-                </span>
-                <div className="chat-message-content">
+            {messages.map((message) => {
+              const mine = currentUserId !== null && message.sender.id === currentUserId;
+              return (
+              <article className={`chat-message chat-message--${mine ? "mine" : "other"}`} data-testid="message-row" key={message.id}>
+                <span className="chat-message__avatar" aria-hidden="true">{initials(message.sender.displayName)}</span>
+                <div className="chat-message__bubble chat-message-content">
+                  <div className="chat-message__meta">
+                    <strong>{message.sender.displayName}</strong>
+                    <small>{formatDateTime(message.createdAt)} · {message.readAt ? "อ่านแล้ว" : "ยังไม่อ่าน"}</small>
+                  </div>
                   {message.message && <p>{message.message}</p>}
                   {message.attachment && (
                     <ul className="certificate-list">
@@ -498,7 +551,8 @@ export function ChatWorkbench({ initialBookingId }: ChatWorkbenchProps) {
                   )}
                 </div>
               </article>
-            ))}
+              );
+            })}
           </div>
 
           {threadError && (
@@ -514,19 +568,30 @@ export function ChatWorkbench({ initialBookingId }: ChatWorkbenchProps) {
 
           {selectedBooking.actions.canSendChat ? (
             <form
-              className="chat-composer booking-fields"
+              className="chat-composer"
               aria-label={`เขียนข้อความถึง ${selectedBooking.trainer.displayName}`}
               onSubmit={sendMessage}
               aria-busy={sending}
               noValidate
             >
-              <div className="field">
-                <label htmlFor="chat-message">ข้อความ</label>
+              <div className="chat-composer__bar">
+                <button
+                  className="icon-button"
+                  type="button"
+                  disabled={sending}
+                  aria-label="แนบไฟล์"
+                  onClick={() => fileInputRef.current?.click()}
+                >
+                  <Paperclip aria-hidden="true" size={18} />
+                </button>
+                <label className="sr-only" htmlFor="chat-message">ข้อความ</label>
                 <textarea
                   id="chat-message"
                   value={messageText}
                   disabled={sending}
                   maxLength={4_000}
+                  rows={1}
+                  placeholder="พิมพ์ข้อความ…"
                   aria-invalid={Boolean(composerError)}
                   aria-describedby="chat-composer-guide chat-composer-feedback"
                   onChange={(event) => {
@@ -535,21 +600,23 @@ export function ChatWorkbench({ initialBookingId }: ChatWorkbenchProps) {
                     setNotice("");
                   }}
                 />
-                <small id="chat-composer-guide">เขียนข้อความไม่เกิน 4,000 ตัวอักษร หรือส่งไฟล์อย่างเดียวได้</small>
+                <button className="button button--accent" type="submit" disabled={sending}>
+                  <Send aria-hidden="true" size={17} /> {sending ? "กำลังส่ง…" : "ส่งข้อความ"}
+                </button>
               </div>
-              <div className="field">
-                <label htmlFor="chat-attachment"><Paperclip aria-hidden="true" size={16} /> ไฟล์แนบ</label>
-                <input
-                  ref={fileInputRef}
-                  id="chat-attachment"
-                  type="file"
-                  accept="image/jpeg,image/png,image/webp,application/pdf"
-                  disabled={sending}
-                  aria-describedby="chat-attachment-guide chat-composer-feedback"
-                  onChange={(event) => selectAttachment(event.target.files?.[0] ?? null)}
-                />
-                <small id="chat-attachment-guide">รองรับ JPEG, PNG, WebP หรือ PDF ขนาดไม่เกิน 5 MB</small>
-              </div>
+              <small className="sr-only" id="chat-composer-guide">เขียนข้อความไม่เกิน 4,000 ตัวอักษร หรือส่งไฟล์อย่างเดียวได้</small>
+              <label className="sr-only" htmlFor="chat-attachment">ไฟล์แนบ</label>
+              <input
+                className="sr-only"
+                ref={fileInputRef}
+                id="chat-attachment"
+                type="file"
+                accept="image/jpeg,image/png,image/webp,application/pdf"
+                disabled={sending}
+                aria-describedby="chat-attachment-guide chat-composer-feedback"
+                onChange={(event) => selectAttachment(event.target.files?.[0] ?? null)}
+              />
+              <small className="sr-only" id="chat-attachment-guide">รองรับ JPEG, PNG, WebP หรือ PDF ขนาดไม่เกิน 5 MB</small>
 
               {attachment && (
                 <div className="ledger-row">
@@ -567,9 +634,6 @@ export function ChatWorkbench({ initialBookingId }: ChatWorkbenchProps) {
               <div id="chat-composer-feedback" className="form-message-slot" aria-live="polite">
                 {composerError && <div className="form-message form-message--error" role="alert">{composerError}</div>}
               </div>
-              <button className="button button--accent" type="submit" disabled={sending}>
-                <Send aria-hidden="true" size={17} /> {sending ? "กำลังส่ง…" : "ส่งข้อความ"}
-              </button>
             </form>
           ) : (
             <div className="ledger-row">
@@ -578,22 +642,6 @@ export function ChatWorkbench({ initialBookingId }: ChatWorkbenchProps) {
             </div>
           )}
       </section>
-
-      <details
-        className="trainer-booking-list chat-booking-facts"
-        open={factsOpen}
-        onToggle={(event) => setFactsOpen(event.currentTarget.open)}
-      >
-        <summary className="chat-booking-facts__summary">รายละเอียดนัดหมาย</summary>
-        <div className="section-line-heading chat-booking-facts__heading"><h2>รายละเอียดนัดหมาย</h2></div>
-        <div className="ledger-row"><span>รหัสคำขอ</span><strong className="chat-breakable">{selectedBooking.id}</strong></div>
-        <div className="ledger-row"><span>วันและเวลา</span><strong>{formatDateTime(selectedBooking.startsAt)}</strong></div>
-        <div className="ledger-row"><span>สิ้นสุด</span><strong>{formatDateTime(selectedBooking.endsAt)}</strong></div>
-        <div className="ledger-row"><span>สถานะการจอง</span><strong>{bookingStatusCopy[selectedBooking.status]}</strong></div>
-        <div className="ledger-row"><span>สถานะหลักฐาน</span><strong>{paymentStatusCopy[selectedBooking.paymentStatus]}</strong></div>
-        <div className="ledger-row"><span>ค่าฝึกต่อครั้ง</span><strong>{formatAmount(selectedBooking.quotedPrice)}</strong></div>
-        <div className="ledger-row"><span>หมายเหตุ</span><strong className="chat-breakable">{selectedBooking.note || "ไม่มีหมายเหตุ"}</strong></div>
-      </details>
     </div>
   );
 }
