@@ -1,12 +1,13 @@
 import { fireEvent, render, screen, within } from "@testing-library/react";
 import { describe, expect, it } from "vitest";
+
 import { TrainerDiscovery } from "@/components/trainer-discovery";
 import { trainers, trainingTypes } from "@/lib/demo-data";
 
-function renderDiscovery() {
+function renderDiscovery(initialTrainers = trainers) {
   return render(
     <TrainerDiscovery
-      initialTrainers={trainers}
+      initialTrainers={initialTrainers}
       trainingTypes={trainingTypes}
       isDemo={false}
     />,
@@ -14,70 +15,61 @@ function renderDiscovery() {
 }
 
 describe("TrainerDiscovery", () => {
-  it("keeps search visible and groups the optional filters in a closed disclosure", () => {
+  it("renders a marketplace filter rail, result list, and profile CTAs", () => {
     renderDiscovery();
 
-    expect(screen.getByRole("searchbox", { name: "ชื่อหรือความเชี่ยวชาญ" })).toBeVisible();
-    const filters = screen.getByText("ตัวกรองเพิ่มเติม").closest("details");
-    expect(filters).not.toBeNull();
-    expect(filters).not.toHaveAttribute("open");
-    expect(within(filters as HTMLElement).queryByLabelText("จังหวัด")).not.toBeInTheDocument();
-    expect(within(filters as HTMLElement).getByLabelText("ประเภทการฝึก")).toBeInTheDocument();
-    expect(within(filters as HTMLElement).getByLabelText("แสดงเฉพาะโปรไฟล์ที่ตรวจแล้ว")).toBeInTheDocument();
+    expect(screen.getByRole("complementary", { name: "ตัวกรองเทรนเนอร์" })).toBeInTheDocument();
+    const results = screen.getByRole("list", { name: "ผลการค้นหาเทรนเนอร์ 3 รายการ" });
+    expect(within(results).getAllByRole("listitem")).toHaveLength(3);
+    expect(screen.getAllByRole("link", { name: "ดูโปรไฟล์และเลือกเวลา" })).toHaveLength(3);
+    expect(screen.queryByText("เทรนเนอร์ที่เลือก")).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: /เลือก .*ตรวจคุณสมบัติ/ })).not.toBeInTheDocument();
   });
 
-  it("announces result count and exposes every trainer choice", () => {
-    renderDiscovery();
+  it("filters by specialty, fixed session price, verification, and availability", () => {
+    const trainerWithoutSlots = { ...trainers[2], slots: [] };
+    renderDiscovery([trainers[0], trainers[1], trainerWithoutSlots]);
 
-    const results = screen.getByRole("region", { name: "ผลการค้นหาเทรนเนอร์ 3 รายการ" });
-    expect(within(results).getByText("3 ผลลัพธ์")).toBeInTheDocument();
-    for (const trainer of trainers) {
-      expect(within(results).getByRole("button", { name: new RegExp(trainer.displayName) })).toBeInTheDocument();
-    }
+    fireEvent.change(screen.getByLabelText("ประเภทการฝึก"), { target: { value: "strength" } });
+    expect(screen.getByRole("list", { name: "ผลการค้นหาเทรนเนอร์ 1 รายการ" })).toHaveTextContent(trainers[0].displayName);
+
+    fireEvent.change(screen.getByLabelText("ประเภทการฝึก"), { target: { value: "" } });
+    fireEvent.change(screen.getByLabelText("ค่าฝึกต่อครั้ง"), { target: { value: "under_700" } });
+    expect(screen.getByRole("list", { name: "ผลการค้นหาเทรนเนอร์ 2 รายการ" })).not.toHaveTextContent(trainers[2].displayName);
+
+    fireEvent.click(screen.getByLabelText("เฉพาะโปรไฟล์ที่ตรวจแล้ว"));
+    fireEvent.click(screen.getByLabelText("เฉพาะเทรนเนอร์ที่มีเวลาว่าง"));
+    expect(screen.getByRole("list", { name: "ผลการค้นหาเทรนเนอร์ 2 รายการ" })).toBeInTheDocument();
   });
 
-  it("summarizes the selected trainer before the closed credential evidence and schedule", () => {
-    renderDiscovery();
+  it("sorts prices without mutating the source order", () => {
+    const source = [...trainers];
+    renderDiscovery(source);
 
-    expect(screen.getByRole("heading", { name: trainers[0].displayName })).toBeInTheDocument();
-    const evidence = screen.getByText("หลักฐานและใบรับรอง").closest("details");
-    expect(evidence).not.toBeNull();
-    expect(evidence).not.toHaveAttribute("open");
-    expect(within(evidence as HTMLElement).getByText(trainers[0].certificates[0].name)).toBeInTheDocument();
-    expect(screen.getByRole("region", { name: `ตารางว่างของ ${trainers[0].displayName}` })).toBeInTheDocument();
+    fireEvent.change(screen.getByLabelText("เรียงผลลัพธ์"), { target: { value: "price_desc" } });
+    const cards = screen.getAllByRole("listitem");
+    expect(within(cards[0]).getByRole("heading", { name: trainers[0].displayName })).toBeInTheDocument();
+    expect(within(cards[1]).getByRole("heading", { name: trainers[1].displayName })).toBeInTheDocument();
+    expect(source.map((trainer) => trainer.id)).toEqual(trainers.map((trainer) => trainer.id));
   });
 
-  it("passes the selected trainer and slot to the booking strip, then clears the slot when trainer changes", () => {
+  it("opens mobile filters with unique field ids", () => {
     renderDiscovery();
 
-    fireEvent.click(screen.getByRole("button", { name: /เทรนเนอร์สาธิต ก\./ }));
-    const schedule = screen.getByRole("region", { name: `ตารางว่างของ ${trainers[0].displayName}` });
-    fireEvent.click(within(schedule).getAllByRole("button")[0]);
-
-    const bookingLink = screen.getByRole("link", { name: "ส่งคำขอจอง" });
-    expect(bookingLink).toHaveAttribute(
-      "href",
-      `/booking?trainer=${trainers[0].slug}&slot=${trainers[0].slots[0].id}`,
-    );
-
-    fireEvent.click(screen.getByRole("button", { name: /เทรนเนอร์สาธิต ข\./ }));
-    expect(screen.queryByRole("link", { name: "ส่งคำขอจอง" })).not.toBeInTheDocument();
-    expect(screen.getByRole("button", { name: "เลือกเวลา" })).toBeDisabled();
+    fireEvent.click(screen.getByRole("button", { name: "เปิดตัวกรอง" }));
+    expect(screen.getByRole("dialog", { name: "ตัวกรองเทรนเนอร์" })).toBeInTheDocument();
+    expect(document.querySelector("#desktop-training-type")).toBeInTheDocument();
+    expect(document.querySelector("#mobile-training-type")).toBeInTheDocument();
   });
 
-  it("does not keep a slot when filtering changes the selected trainer", () => {
+  it("shows a useful empty state", () => {
     renderDiscovery();
 
-    const firstSchedule = screen.getByRole("region", { name: `ตารางว่างของ ${trainers[0].displayName}` });
-    fireEvent.click(within(firstSchedule).getAllByRole("button")[0]);
-    expect(screen.getByRole("link", { name: "ส่งคำขอจอง" })).toBeInTheDocument();
-
-    fireEvent.change(screen.getByRole("searchbox", { name: "ชื่อหรือความเชี่ยวชาญ" }), {
-      target: { value: trainers[1].headline },
+    fireEvent.change(screen.getByRole("searchbox", { name: "ค้นหาชื่อหรือความเชี่ยวชาญ" }), {
+      target: { value: "ไม่มีคำนี้ในระบบ" },
     });
 
-    expect(screen.getByRole("heading", { name: trainers[1].displayName })).toBeInTheDocument();
-    expect(screen.queryByRole("link", { name: "ส่งคำขอจอง" })).not.toBeInTheDocument();
-    expect(screen.getByRole("button", { name: "เลือกเวลา" })).toBeDisabled();
+    expect(screen.getByText("ยังไม่พบเทรนเนอร์ที่ตรงครบทุกข้อ")).toBeInTheDocument();
+    expect(screen.getByText("ลองเปลี่ยนคำค้นหรือลดตัวกรองบางข้อ")).toBeInTheDocument();
   });
 });
