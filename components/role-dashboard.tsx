@@ -13,7 +13,6 @@ import {
 } from "lucide-react";
 import { AdminReviewQueue } from "@/components/admin-review-queue";
 import { DashboardSection, NextActionCard } from "@/components/dashboard-primitives";
-import { DemoNotice } from "@/components/demo-notice";
 import { PaymentPanel } from "@/components/payment-panel";
 import { PaymentDeadline } from "@/components/payment-deadline";
 import { ReviewForm } from "@/components/review-form";
@@ -72,7 +71,6 @@ export function RoleDashboard({
   const copy = roleCopy[role];
   const [bookings, setBookings] = useState<Booking[]>([]);
   const [bookingError, setBookingError] = useState("");
-  const [isDemoData, setIsDemoData] = useState(false);
   const [loadingBookings, setLoadingBookings] = useState(role === "member");
   const [showAllBookings, setShowAllBookings] = useState(false);
 
@@ -86,7 +84,6 @@ export function RoleDashboard({
     try {
       const items = await authenticatedRequest<Booking[]>("/v1/bookings");
       setBookings(items);
-      setIsDemoData(items.some((item) => item.demo));
       setBookingError("");
     } catch (error) {
       setBookingError(error instanceof Error ? error.message : "โหลดรายการจองไม่สำเร็จ");
@@ -107,7 +104,6 @@ export function RoleDashboard({
       .then((items) => {
         if (cancelled) return;
         setBookings(items);
-        setIsDemoData(items.some((item) => item.demo));
         setBookingError("");
       })
       .catch((error: unknown) => {
@@ -187,8 +183,6 @@ export function RoleDashboard({
         <div><h1>{copy.title}</h1></div>
         <p>{copy.lead}</p>
       </section>
-      {role !== "admin" && isDemoData && <DemoNotice />}
-
       {role === "member" && (
         <div className="member-dashboard-content">
           {loadingBookings && bookings.length === 0 && (

@@ -5,7 +5,6 @@ import type { Trainer, TrainingType } from "@/lib/types";
 type HomeOverviewProps = {
   trainers: Trainer[];
   trainingTypes: TrainingType[];
-  isDemo: boolean;
 };
 
 const journeySteps = [
@@ -31,7 +30,7 @@ const journeySteps = [
   },
 ] as const;
 
-export function HomeOverview({ trainers, trainingTypes, isDemo }: HomeOverviewProps) {
+export function HomeOverview({ trainers, trainingTypes }: HomeOverviewProps) {
   const featuredTrainers = trainers.slice(0, 4);
   const priorityTrainerId = featuredTrainers.find((trainer) => trainer.image)?.id;
 
@@ -45,11 +44,6 @@ export function HomeOverview({ trainers, trainingTypes, isDemo }: HomeOverviewPr
           <p>ดูภาพรวมบริการก่อนเปรียบเทียบเทรนเนอร์ที่ผ่านการตรวจสอบ</p>
           <Link className="button button--accent" href="/trainers">ค้นหาเทรนเนอร์</Link>
         </div>
-        {isDemo && (
-          <p className="home-demo-notice">
-            ข้อมูลสาธิตใช้เพื่อแสดงขั้นตอนและหน้าตาระบบ โปรดตรวจข้อมูลจริงก่อนส่งคำขอ
-          </p>
-        )}
       </section>
 
       <section className="home-training-types" aria-labelledby="training-goals-title">

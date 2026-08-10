@@ -9,12 +9,22 @@ function renderDiscovery(initialTrainers = trainers) {
     <TrainerDiscovery
       initialTrainers={initialTrainers}
       trainingTypes={trainingTypes}
-      isDemo={false}
     />,
   );
 }
 
 describe("TrainerDiscovery", () => {
+  it("does not show demo explanations in the discovery experience", () => {
+    render(
+      <TrainerDiscovery
+        initialTrainers={trainers}
+        trainingTypes={trainingTypes}
+      />,
+    );
+
+    expect(screen.queryByText(/ข้อมูลสาธิต|ภาพสังเคราะห์/)).not.toBeInTheDocument();
+  });
+
   it("renders a marketplace filter rail, result list, and profile CTAs", () => {
     renderDiscovery();
 

@@ -5,7 +5,7 @@ import { trainers, trainingTypes } from "@/lib/demo-data";
 
 describe("HomeOverview", () => {
   it("gives visitors a concise path into trainer discovery", () => {
-    render(<HomeOverview trainers={trainers} trainingTypes={trainingTypes} isDemo />);
+    render(<HomeOverview trainers={trainers} trainingTypes={trainingTypes} />);
 
     expect(screen.getByRole("heading", { level: 1, name: /เริ่มต้นสุขภาพที่ดี/ })).toBeInTheDocument();
     expect(screen.getByRole("link", { name: "ค้นหาเทรนเนอร์" })).toHaveAttribute("href", "/trainers");
@@ -16,12 +16,13 @@ describe("HomeOverview", () => {
     );
     expect(screen.getByText(/ผู้ดูแลตรวจหลักฐานด้วยตนเอง/)).toBeInTheDocument();
     expect(screen.getByText("เริ่มจากประเภทที่สนใจ แล้วปรับราคาและเวลาในหน้าค้นหา")).toBeInTheDocument();
+    expect(screen.queryByText(/ข้อมูลสาธิต|ภาพสังเคราะห์/)).not.toBeInTheDocument();
     expect(screen.queryByText(/ปรับพื้นที่/)).not.toBeInTheDocument();
     expect(screen.queryByRole("heading", { name: "กรองเทรนเนอร์" })).not.toBeInTheDocument();
   });
 
   it("keeps every overview section useful when the catalog is empty", () => {
-    render(<HomeOverview trainers={[]} trainingTypes={[]} isDemo={false} />);
+    render(<HomeOverview trainers={[]} trainingTypes={[]} />);
 
     expect(screen.getByText("ยังไม่มีประเภทการฝึกให้เลือก")).toBeInTheDocument();
     expect(screen.getByText("ยังไม่มีเทรนเนอร์ในรายการแนะนำ")).toBeInTheDocument();
@@ -38,7 +39,6 @@ describe("HomeOverview", () => {
       <HomeOverview
         trainers={[trainerWithoutImage, trainerWithImage]}
         trainingTypes={trainingTypes}
-        isDemo
       />,
     );
 
@@ -46,7 +46,7 @@ describe("HomeOverview", () => {
   });
 
   it("describes the journey through observable member actions", () => {
-    render(<HomeOverview trainers={trainers} trainingTypes={trainingTypes} isDemo />);
+    render(<HomeOverview trainers={trainers} trainingTypes={trainingTypes} />);
 
     expect(
       screen.getByText("ดูเส้นทางตั้งแต่เลือกเทรนเนอร์ ส่งคำขอ อัปโหลดสลิป จนถึงเขียนรีวิวหลังการฝึก"),

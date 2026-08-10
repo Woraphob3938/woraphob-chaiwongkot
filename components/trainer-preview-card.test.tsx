@@ -23,16 +23,16 @@ describe("TrainerPreviewCard", () => {
     expect(screen.queryByText(/฿0/)).not.toBeInTheDocument();
   });
 
-  it("uses synthetic portrait wording only for demonstration trainers", () => {
+  it("keeps portrait copy neutral for every trainer", () => {
     const demoTrainer = trainers[0];
     const liveTrainer = { ...trainers[1], demo: false };
 
     const { rerender } = render(<TrainerPreviewCard trainer={demoTrainer} />);
-    expect(screen.getByRole("img", { name: `ภาพสังเคราะห์ของ${demoTrainer.displayName} ใช้เพื่อสาธิต` })).toBeInTheDocument();
-    expect(screen.getByText("ภาพสังเคราะห์ · สาธิต")).toBeInTheDocument();
+    expect(screen.getByRole("img", { name: `รูปโปรไฟล์ของ${demoTrainer.displayName}` })).toBeInTheDocument();
+    expect(screen.queryByText("ภาพสังเคราะห์ · สาธิต")).not.toBeInTheDocument();
 
     rerender(<TrainerPreviewCard trainer={liveTrainer} />);
-    expect(screen.getByRole("img", { name: `ภาพบุคคลของ${liveTrainer.displayName}` })).toBeInTheDocument();
+    expect(screen.getByRole("img", { name: `รูปโปรไฟล์ของ${liveTrainer.displayName}` })).toBeInTheDocument();
     expect(screen.queryByText("ภาพสังเคราะห์ · สาธิต")).not.toBeInTheDocument();
   });
 });

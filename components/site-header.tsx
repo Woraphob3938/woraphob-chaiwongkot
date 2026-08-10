@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { useRouter } from "next/navigation";
+import { usePathname, useRouter } from "next/navigation";
 import { FormEvent, useEffect, useRef, useState } from "react";
 import { ChevronDown, Dumbbell, LayoutDashboard, LogOut, Search, X } from "lucide-react";
 import { MobileRoleNav } from "@/components/mobile-role-nav";
@@ -43,6 +43,7 @@ function readStoredUser() {
 }
 
 export function SiteHeader() {
+  const pathname = usePathname();
   const router = useRouter();
   const dialogRef = useRef<HTMLDialogElement>(null);
   const profileRef = useRef<HTMLDivElement>(null);
@@ -117,7 +118,7 @@ export function SiteHeader() {
   }, []);
 
   useEffect(() => {
-    if (user?.role !== "member") return;
+    if (user?.role !== "member" || pathname === "/trainers") return;
 
     function openMemberSearch(event: KeyboardEvent) {
       if ((event.metaKey || event.ctrlKey) && event.key.toLowerCase() === "k") {
@@ -128,7 +129,7 @@ export function SiteHeader() {
 
     window.addEventListener("keydown", openMemberSearch);
     return () => window.removeEventListener("keydown", openMemberSearch);
-  }, [user?.role]);
+  }, [pathname, user?.role]);
 
   function signOut() {
     localStorage.removeItem("fitconnect_token");
@@ -145,7 +146,7 @@ export function SiteHeader() {
     if (!query) event.preventDefault();
   }
 
-  const memberSearchEnabled = user?.role === "member";
+  const memberSearchEnabled = user?.role === "member" && pathname !== "/trainers";
   const desktopNavItems = navigationFor(user?.role ?? null).filter((item) => item.desktop);
 
   return (

@@ -167,6 +167,21 @@ describe("SiteHeader", () => {
     delete (HTMLDialogElement.prototype as Partial<HTMLDialogElement>).showModal;
   });
 
+  it("keeps only the page search on the trainer discovery route", async () => {
+    const member = user("member");
+    mockedPathname.mockReturnValue("/trainers");
+    localStorage.setItem("fitconnect_token", "test-token");
+    localStorage.setItem("fitconnect_user", JSON.stringify(member));
+    mockedApiRequest.mockResolvedValue(member);
+
+    render(<SiteHeader />);
+
+    await screen.findByRole("button", { name: `เปิดเมนูบัญชีของ ${member.displayName}` });
+    expect(screen.queryByRole("button", { name: "เปิดค้นหาเทรนเนอร์" })).not.toBeInTheDocument();
+    expect(screen.queryByText("ค้นหาความเชี่ยวชาญหรือชื่อเทรนเนอร์")).not.toBeInTheDocument();
+    expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
+  });
+
   it("keeps the global search dialog available to members from the desktop keyboard shortcut", async () => {
     const member = user("member");
     localStorage.setItem("fitconnect_token", "test-token");

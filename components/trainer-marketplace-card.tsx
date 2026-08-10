@@ -21,18 +21,13 @@ export function TrainerMarketplaceCard({
         {trainer.image ? (
           <Image
             src={trainer.image}
-            alt={trainer.demo
-              ? `ภาพสังเคราะห์ของ${trainer.displayName} ใช้เพื่อสาธิต`
-              : `ภาพบุคคลของ${trainer.displayName}`}
+            alt={`รูปโปรไฟล์ของ${trainer.displayName}`}
             fill
             priority={priority}
-            sizes="(max-width: 47.99rem) 100vw, (max-width: 75rem) 50vw, 33vw"
+            sizes="(max-width: 47.99rem) 100vw, (max-width: 75rem) 50vw, (max-width: 90rem) 33vw, 25vw"
           />
         ) : (
           <span aria-hidden="true">{initials(trainer.displayName)}</span>
-        )}
-        {trainer.demo && (
-          <span className="trainer-marketplace-card__demo">ภาพสังเคราะห์ · ข้อมูลสาธิต</span>
         )}
       </div>
 

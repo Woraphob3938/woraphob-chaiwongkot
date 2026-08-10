@@ -4,7 +4,6 @@ import Image from "next/image";
 import { useEffect, useState } from "react";
 import { MessageSquareText, Pencil } from "lucide-react";
 import { CredentialCard } from "@/components/credential-card";
-import { DemoNotice } from "@/components/demo-notice";
 import { DisclosureSection } from "@/components/disclosure-section";
 import { ProfileBookingPanel } from "@/components/profile-booking-panel";
 import { StatusBadge } from "@/components/status-badge";
@@ -14,7 +13,7 @@ import { authenticatedRequest } from "@/lib/api";
 import { formatMoney } from "@/lib/format";
 import type { AvailabilitySlot, Trainer, TrainerWorkspace } from "@/lib/types";
 
-export function TrainerDetail({ trainer, isDemo }: { trainer: Trainer; isDemo: boolean }) {
+export function TrainerDetail({ trainer }: { trainer: Trainer }) {
   const [slot, setSlot] = useState<AvailabilitySlot | null>(null);
   const [priceOverride, setPriceOverride] = useState<{ trainerId: number; value: number } | null>(null);
   const [editingPrice, setEditingPrice] = useState(false);
@@ -83,16 +82,13 @@ export function TrainerDetail({ trainer, isDemo }: { trainer: Trainer; isDemo: b
 
   return (
     <>
-      {isDemo && <DemoNotice />}
       <div className="trainer-detail-layout trainer-commerce-layout">
         <section className="trainer-detail-media" aria-label={`ภาพโปรไฟล์ของ ${trainer.displayName}`}>
           <div className="trainer-detail-photo">
             {trainer.image && (
               <Image
                 src={trainer.image}
-                alt={trainer.demo
-                  ? `ภาพสังเคราะห์ของ${trainer.displayName} ใช้เพื่อสาธิต`
-                  : `ภาพบุคคลของ${trainer.displayName}`}
+                alt={`รูปโปรไฟล์ของ${trainer.displayName}`}
                 fill
                 priority
                 loading="eager"
@@ -100,7 +96,6 @@ export function TrainerDetail({ trainer, isDemo }: { trainer: Trainer; isDemo: b
                 sizes="(max-width: 768px) 50vw, 31vw"
               />
             )}
-            {trainer.demo && <div className="portrait-stamp">ภาพสังเคราะห์ · สาธิต</div>}
           </div>
         </section>
 

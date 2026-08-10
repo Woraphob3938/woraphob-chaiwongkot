@@ -12,7 +12,8 @@ describe("TrainerMarketplaceCard", () => {
     expect(screen.getByText("ค่าฝึกต่อครั้ง")).toBeInTheDocument();
     expect(screen.getByText("฿650")).toBeInTheDocument();
     expect(screen.getByText(/ว่างเร็วสุด/)).toBeInTheDocument();
-    expect(screen.getByText("ภาพสังเคราะห์ · ข้อมูลสาธิต")).toBeInTheDocument();
+    expect(screen.getByRole("img", { name: `รูปโปรไฟล์ของ${trainers[0].displayName}` })).toBeInTheDocument();
+    expect(screen.queryByText(/ข้อมูลสาธิต|ภาพสังเคราะห์/)).not.toBeInTheDocument();
     expect(screen.queryByText(/คะแนน/)).not.toBeInTheDocument();
     expect(screen.getByRole("link", { name: "ดูโปรไฟล์และเลือกเวลา" })).toHaveAttribute(
       "href",

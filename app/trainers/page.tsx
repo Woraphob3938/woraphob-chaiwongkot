@@ -22,7 +22,6 @@ export default async function TrainersPage({ searchParams }: Props) {
         <TrainerDiscovery
           initialTrainers={catalog.trainers}
           trainingTypes={catalog.trainingTypes}
-          isDemo={catalog.trainers.some((trainer) => trainer.demo)}
           initialQuery={params.q}
           initialType={params.type}
         />

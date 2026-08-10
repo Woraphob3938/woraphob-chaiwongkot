@@ -79,6 +79,15 @@ describe("member role dashboard", () => {
     localStorage.setItem("fitconnect_token", "member-token");
   });
 
+  it("does not show demo explanations for bookings", async () => {
+    vi.mocked(authenticatedRequest).mockResolvedValue([bookingFixture("BK-DEMO", { demo: true })]);
+
+    render(<RoleDashboard role="member" />);
+
+    await screen.findByTestId("booking-summary");
+    expect(screen.queryByText(/ข้อมูลสาธิต|ภาพสังเคราะห์/)).not.toBeInTheDocument();
+  });
+
   it("puts the next action before three compact booking summaries", async () => {
     vi.mocked(authenticatedRequest).mockResolvedValue(bookings);
 

@@ -3,7 +3,6 @@
 import { useMemo, useState } from "react";
 import { Filter, Search } from "lucide-react";
 
-import { DemoNotice } from "@/components/demo-notice";
 import { TrainerMarketplaceCard } from "@/components/trainer-marketplace-card";
 import {
   TrainerMarketplaceFilters,
@@ -28,7 +27,6 @@ import type { Trainer, TrainingType } from "@/lib/types";
 type Props = {
   initialTrainers: Trainer[];
   trainingTypes: TrainingType[];
-  isDemo: boolean;
   initialQuery?: string;
   initialType?: string;
 };
@@ -46,7 +44,6 @@ function matchesPrice(trainer: Trainer, priceRange: TrainerPriceRange) {
 export function TrainerDiscovery({
   initialTrainers,
   trainingTypes,
-  isDemo,
   initialQuery = "",
   initialType = "",
 }: Props) {
@@ -106,8 +103,6 @@ export function TrainerDiscovery({
         </div>
         <p>ดูความเชี่ยวชาญ ค่าฝึกต่อครั้ง และเวลาว่าง ก่อนเปิดโปรไฟล์เพื่อนัดหมาย</p>
       </section>
-
-      {isDemo && <DemoNotice />}
 
       <section className="trainer-marketplace" aria-label="ตลาดค้นหาเทรนเนอร์">
         <div className="trainer-marketplace__toolbar">

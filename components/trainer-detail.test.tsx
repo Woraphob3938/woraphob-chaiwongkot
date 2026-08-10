@@ -18,7 +18,7 @@ describe("TrainerDetail", () => {
 
   it("uses a commerce-detail hierarchy with media, identity evidence, and booking panel", () => {
     const trainer = { ...trainers[0], demo: false };
-    render(<TrainerDetail trainer={trainer} isDemo={false} />);
+    render(<TrainerDetail trainer={trainer} />);
 
     const summary = screen.getByRole("region", { name: trainer.displayName });
     const bookingPanel = screen.getByRole("complementary", { name: "เลือกเวลาฝึก" });
@@ -35,7 +35,7 @@ describe("TrainerDetail", () => {
 
   it("mounts credentials and the complete schedule once, then exposes the booking link", () => {
     const trainer = { ...trainers[0], demo: false };
-    render(<TrainerDetail trainer={trainer} isDemo={false} />);
+    render(<TrainerDetail trainer={trainer} />);
 
     const credentials = screen.getByText("ใบรับรองและคุณสมบัติ").closest("details") as HTMLElement;
     const schedule = screen.getByText("ตารางว่างทั้งหมด").closest("details") as HTMLElement;
@@ -54,17 +54,17 @@ describe("TrainerDetail", () => {
     expect(credentials).not.toHaveAttribute("open");
   });
 
-  it("distinguishes live portraits from demo portraits and keeps a null price factual", () => {
+  it("keeps portrait copy neutral and a null price factual", () => {
     const liveTrainer = { ...trainers[0], demo: false, priceFrom: null };
-    const { rerender } = render(<TrainerDetail trainer={liveTrainer} isDemo={false} />);
+    const { rerender } = render(<TrainerDetail trainer={liveTrainer} />);
 
-    expect(screen.getByRole("img", { name: `ภาพบุคคลของ${liveTrainer.displayName}` })).toBeInTheDocument();
+    expect(screen.getByRole("img", { name: `รูปโปรไฟล์ของ${liveTrainer.displayName}` })).toBeInTheDocument();
     expect(screen.queryByText("ภาพสังเคราะห์ · สาธิต")).not.toBeInTheDocument();
     expect(screen.getAllByText("เทรนเนอร์ยังไม่ได้กำหนดค่าฝึก").length).toBeGreaterThan(0);
 
-    rerender(<TrainerDetail trainer={trainers[0]} isDemo />);
-    expect(screen.getByRole("img", { name: `ภาพสังเคราะห์ของ${trainers[0].displayName} ใช้เพื่อสาธิต` })).toBeInTheDocument();
-    expect(screen.getByText("ภาพสังเคราะห์ · สาธิต")).toBeInTheDocument();
+    rerender(<TrainerDetail trainer={trainers[0]} />);
+    expect(screen.getByRole("img", { name: `รูปโปรไฟล์ของ${trainers[0].displayName}` })).toBeInTheDocument();
+    expect(screen.queryByText("ภาพสังเคราะห์ · สาธิต")).not.toBeInTheDocument();
   });
 
   it("lets a trainer update only their own profile price after the API succeeds", async () => {
@@ -79,7 +79,7 @@ describe("TrainerDetail", () => {
       .mockResolvedValueOnce(workspace)
       .mockResolvedValueOnce(workspace);
 
-    render(<TrainerDetail trainer={trainer} isDemo={false} />);
+    render(<TrainerDetail trainer={trainer} />);
     fireEvent.click(await screen.findByRole("button", { name: "ปรับราคา" }));
     fireEvent.change(screen.getByLabelText("ค่าฝึกต่อครั้ง"), { target: { value: "780" } });
     fireEvent.click(screen.getByRole("button", { name: "บันทึก" }));
@@ -101,7 +101,7 @@ describe("TrainerDetail", () => {
       slots: [],
     });
 
-    render(<TrainerDetail trainer={trainer} isDemo={false} />);
+    render(<TrainerDetail trainer={trainer} />);
     await waitFor(() => expect(authenticatedRequest).toHaveBeenCalledWith("/v1/trainer/me"));
     expect(screen.queryByRole("button", { name: "ปรับราคา" })).not.toBeInTheDocument();
   });

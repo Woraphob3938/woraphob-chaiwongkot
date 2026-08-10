@@ -21,9 +21,7 @@ export function TrainerPreviewCard({ trainer, priority = false }: TrainerPreview
         {trainer.image ? (
           <Image
             src={trainer.image}
-            alt={trainer.demo
-              ? `ภาพสังเคราะห์ของ${trainer.displayName} ใช้เพื่อสาธิต`
-              : `ภาพบุคคลของ${trainer.displayName}`}
+            alt={`รูปโปรไฟล์ของ${trainer.displayName}`}
             width={320}
             height={240}
             priority={priority}
@@ -32,7 +30,6 @@ export function TrainerPreviewCard({ trainer, priority = false }: TrainerPreview
         ) : (
           <span className="trainer-preview-card__initials" aria-hidden="true">{initials(trainer.displayName)}</span>
         )}
-        {trainer.demo && <span className="trainer-preview-card__demo">ภาพสังเคราะห์ · สาธิต</span>}
       </div>
 
       <div className="trainer-preview-card__body">

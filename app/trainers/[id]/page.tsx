@@ -14,5 +14,5 @@ export default async function TrainerPage({ params }: Props) {
   const { id } = await params;
   const result = await getTrainer(id);
   if (!result.data) notFound();
-  return <main className="page-shell profile-shell"><TrainerDetail trainer={result.data} isDemo={result.source === "demo" || result.data.demo} /></main>;
+  return <main className="page-shell profile-shell"><TrainerDetail trainer={result.data} /></main>;
 }
