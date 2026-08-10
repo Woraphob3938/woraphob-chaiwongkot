@@ -85,6 +85,20 @@ describe("BookingForm", () => {
     expect(screen.getAllByRole("button", { name: /ตรวจสอบและยืนยัน/ })).toHaveLength(1);
   });
 
+  it("returns keyboard focus to the review button after dismissing confirmation", async () => {
+    vi.mocked(apiRequest).mockResolvedValue(liveTrainer);
+    render(<BookingForm trainerSlug="live-trainer" slotId="44" />);
+
+    const reviewButton = await screen.findByRole("button", { name: /ตรวจสอบและยืนยัน/ });
+    reviewButton.focus();
+    fireEvent.click(reviewButton);
+    expect(screen.getByRole("dialog", { name: "ยืนยันและเริ่มเวลา 10 นาที" })).toBeInTheDocument();
+
+    fireEvent.keyDown(document, { key: "Escape" });
+
+    await waitFor(() => expect(reviewButton).toHaveFocus());
+  });
+
   it("does not reuse a preserved slot when the requested slot id changes", async () => {
     vi.mocked(apiRequest).mockResolvedValue(liveTrainer);
     const { rerender } = render(<BookingForm trainerSlug="live-trainer" slotId="44" />);

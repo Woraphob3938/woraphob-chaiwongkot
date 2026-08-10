@@ -13,7 +13,7 @@ Next.js with TypeScript and Tailwind CSS for the web interface. PHP REST endpoin
 ## Users
 
 - Members who want to discover, compare, contact, and book a suitable personal trainer.
-- Freelance trainers and gym-employed trainers who want to present verified qualifications, manage availability, accept bookings, communicate with clients, and track their work.
+- Freelance trainers and gym-employed trainers who want to present verified qualifications, manage availability, communicate with clients, and track paid appointments.
 - Administrators who approve trainers, verify supporting documents and payments, and oversee users, bookings, and reports.
 
 FitConnect is not limited to one province. Geographic fields are intentionally outside the current product contract; expansion happens through trainer supply and service operations without asking users to maintain province data.
@@ -30,8 +30,9 @@ FitConnect is a trainer marketplace built around verifiable trainer credentials 
 
 - Members commonly use the service on a phone while comparing trainers by expertise, qualifications, availability, price, and reviews.
 - A member can book a single day or a monthly plan of no more than 30 days.
-- Trainers publish availability up to two months ahead, then accept or reject requests and confirm appointment details.
+- Trainers publish availability up to two months ahead and set a fixed session price. A member booking holds the selected slot for 10 minutes while payment evidence is submitted; no trainer acceptance step exists.
 - Payments begin with a transfer slip uploaded by the member and reviewed by an administrator; the interface must not describe this as fully automatic payment processing.
+- The first rejected slip grants one new 10-minute upload window. A second rejection or an unpaid deadline expires the booking and releases the slot.
 - Trainer applications include supporting certificate documents in PDF form and require administrator approval.
 
 ## Capabilities and Constraints
@@ -40,7 +41,7 @@ FitConnect is a trainer marketplace built around verifiable trainer credentials 
 - Trainer search and filtering by training type, availability, price, rating, and trainer name.
 - Trainer profiles with expertise, experience, certificates, schedule, service type, and reviews.
 - Booking, cancellation, status history, chat, slip upload, payment review, and post-training reviews.
-- Trainer workspace for application status, profile, schedule, booking decisions, clients, reviews, and revenue summaries.
+- Trainer workspace for application status, profile, availability, confirmed appointments, clients, reviews, and revenue summaries.
 - Administrator workspace for users, trainer approvals, certificates, bookings, payments, and reports.
 - Thai-first responsive web interface for members, trainers, and administrators without province or appointment-location fields.
 - No fabricated trainers, testimonials, customer logos, performance metrics, or payment claims may be presented as real evidence. Seed data must be clearly identified as demonstration data.

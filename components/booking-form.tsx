@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { FormEvent, useEffect, useState } from "react";
+import { FormEvent, useEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import { ArrowLeft, ArrowRight, CircleAlert, LoaderCircle, RefreshCw } from "lucide-react";
 import { ApiError, apiRequest, authenticatedRequest } from "@/lib/api";
@@ -22,6 +22,7 @@ import type { AvailabilitySlot, CreateBookingResponse, Trainer } from "@/lib/typ
 
 export function BookingForm({ trainerSlug, slotId }: { trainerSlug?: string; slotId?: string }) {
   const router = useRouter();
+  const reviewButtonRef = useRef<HTMLButtonElement>(null);
   const [trainer, setTrainer] = useState<Trainer | null>(null);
   const [selectedSlot, setSelectedSlot] = useState<AvailabilitySlot | null>(null);
   const [slotUnavailable, setSlotUnavailable] = useState(false);
@@ -185,14 +186,20 @@ export function BookingForm({ trainerSlug, slotId }: { trainerSlug?: string; slo
           <div className="form-message-slot" aria-live="polite">
             {message && <div className="form-message form-message--error" role="alert"><CircleAlert aria-hidden="true" size={18} /> {message}</div>}
           </div>
-          <Button className="button button--accent button--wide" type="submit" disabled={pending || slotUnavailable || !hasPrice}>
+          <Button ref={reviewButtonRef} className="button button--accent button--wide" type="submit" disabled={pending || slotUnavailable || !hasPrice}>
             ตรวจสอบและยืนยัน <ArrowRight aria-hidden="true" size={18} />
           </Button>
         </div>
       </form>
 
       <Dialog open={confirmOpen} onOpenChange={(open) => { if (!pending) setConfirmOpen(open); }}>
-        <DialogContent className="booking-confirm-dialog">
+        <DialogContent
+          className="booking-confirm-dialog"
+          onCloseAutoFocus={(event) => {
+            event.preventDefault();
+            reviewButtonRef.current?.focus();
+          }}
+        >
           <DialogHeader>
             <DialogTitle>ยืนยันและเริ่มเวลา 10 นาที</DialogTitle>
             <DialogDescription>

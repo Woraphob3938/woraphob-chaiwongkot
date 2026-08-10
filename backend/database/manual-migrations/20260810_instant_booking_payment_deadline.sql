@@ -32,11 +32,15 @@ SET payment_deadline_at = DATE_ADD(UTC_TIMESTAMP(), INTERVAL 10 MINUTE)
 WHERE status = 'awaiting_payment'
   AND payment_deadline_at IS NULL;
 
+SET SESSION check_constraint_checks = OFF;
+
 ALTER TABLE bookings
   MODIFY status ENUM(
     'awaiting_payment', 'payment_review', 'confirmed',
     'completed', 'cancelled', 'expired'
   ) NOT NULL;
+
+SET SESSION check_constraint_checks = ON;
 
 CREATE INDEX idx_booking_payment_deadline
   ON bookings (status, payment_deadline_at);

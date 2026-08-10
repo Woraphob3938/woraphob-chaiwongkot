@@ -1,5 +1,7 @@
-SELECT b.id, b.public_id, b.status, b.payment_status, b.quoted_price, b.starts_at, b.ends_at
+SELECT b.id, b.public_id, b.status, b.payment_status, b.quoted_price, b.payment_deadline_at, b.starts_at, b.ends_at,
+       b.availability_slot_id, s.state AS slot_state
 FROM bookings b
+LEFT JOIN availability_slots s ON s.id = b.availability_slot_id
 WHERE b.public_id = @booking_public_id;
 
 SELECT h.id, h.from_status, h.to_status, h.note, h.created_at
