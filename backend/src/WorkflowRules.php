@@ -67,22 +67,6 @@ final class WorkflowRules
         }
     }
 
-    public static function trainerBookingSlotState(string $current, string $target): string
-    {
-        if (!in_array($target, ['awaiting_payment', 'cancelled'], true)) {
-            throw new HttpException(
-                422,
-                'เทรนเนอร์เลือกสถานะนี้ไม่ได้',
-                'INVALID_TRAINER_TRANSITION',
-                ['status' => 'เลือกตอบรับหรือปฏิเสธ']
-            );
-        }
-        if ($current !== 'pending_trainer') {
-            throw new HttpException(409, 'คำขอนี้ได้รับการตอบแล้ว', 'BOOKING_ALREADY_DECIDED');
-        }
-        return $target === 'cancelled' ? 'available' : 'held';
-    }
-
     public static function isPaymentDeadlineExpired(
         DateTimeImmutable $deadline,
         DateTimeImmutable $now

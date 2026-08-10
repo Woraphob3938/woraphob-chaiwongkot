@@ -35,6 +35,7 @@ final class Handlers
 
     public function trainers(): never
     {
+        $this->expireAwaitingPayments();
         $rows = $this->database->fetchAll(
             'SELECT tp.id, tp.slug, tp.headline, tp.bio, tp.years_experience, tp.service_mode,
                     tp.gym_name, tp.price_from, tp.approval_status, tp.image_path, tp.is_demo,
@@ -52,6 +53,7 @@ final class Handlers
 
     public function trainer(string $slug): never
     {
+        $this->expireAwaitingPayments();
         $row = $this->trainerRow('tp.slug = ? AND u.status = "active"', [$slug]);
         if (!$row || $row['approval_status'] !== 'approved') {
             throw new HttpException(404, 'ไม่พบโปรไฟล์เทรนเนอร์', 'TRAINER_NOT_FOUND');
@@ -73,6 +75,7 @@ final class Handlers
     public function trainerMe(): never
     {
         $user = $this->auth->requireUser(['trainer']);
+        $this->expireAwaitingPayments();
         $profile = $this->database->fetchOne(
             'SELECT id, slug, approval_status, approval_note FROM trainer_profiles WHERE user_id = ?',
             [$user['id']]
@@ -282,6 +285,7 @@ final class Handlers
     public function listBookings(): never
     {
         $user = $this->auth->requireUser(['member', 'trainer', 'admin']);
+        $this->expireAwaitingPayments();
         $where = '';
         $params = [];
         if ($user['role'] === 'member') {
@@ -293,7 +297,7 @@ final class Handlers
         }
         $rows = $this->database->fetchAll(
             'SELECT b.public_id, b.starts_at, b.ends_at, b.member_note,
-                    b.status, b.payment_status, b.quoted_price, b.created_at, b.is_demo,
+                    b.status, b.payment_status, b.payment_deadline_at, b.quoted_price, b.created_at, b.is_demo,
                     tp.id AS trainer_id, tp.slug,
                     trainer_user.display_name AS trainer_name,
                     member_user.display_name AS member_name,
@@ -331,9 +335,10 @@ final class Handlers
         $publicId = 'BK-' . strtoupper(bin2hex(random_bytes(4)));
 
         $booking = $this->database->transaction(function (PDO $pdo) use ($user, $input, $publicId): array {
+            $this->expireAwaitingPaymentsInTransaction($pdo, (int) $input['slotId']);
             $statement = $pdo->prepare(
                 'SELECT s.id, s.trainer_profile_id, s.starts_at, s.ends_at, s.state,
-                        tp.approval_status, trainer_user.status AS trainer_user_status
+                        tp.approval_status, tp.price_from, trainer_user.status AS trainer_user_status
                  FROM availability_slots s
                  JOIN trainer_profiles tp ON tp.id = s.trainer_profile_id
                  JOIN users trainer_user ON trainer_user.id = tp.user_id
@@ -350,20 +355,35 @@ final class Handlers
             ) {
                 throw new HttpException(409, 'ช่วงเวลานี้ไม่พร้อมจองแล้ว', 'SLOT_UNAVAILABLE');
             }
+            if ($slot['price_from'] === null || (float) $slot['price_from'] <= 0) {
+                throw new HttpException(409, 'เทรนเนอร์ยังไม่ได้กำหนดค่าฝึก', 'TRAINER_PRICE_UNAVAILABLE');
+            }
             $insert = $pdo->prepare(
-                'INSERT INTO bookings (public_id, member_user_id, trainer_profile_id, availability_slot_id, starts_at, ends_at, member_note, status, payment_status)
-                 VALUES (?, ?, ?, ?, ?, ?, ?, "pending_trainer", "not_submitted")'
+                'INSERT INTO bookings
+                 (public_id, member_user_id, trainer_profile_id, availability_slot_id,
+                  starts_at, ends_at, member_note, quoted_price, status, payment_status,
+                  payment_deadline_at)
+                 VALUES (?, ?, ?, ?, ?, ?, ?, ?, "awaiting_payment", "not_submitted",
+                         DATE_ADD(UTC_TIMESTAMP(), INTERVAL 10 MINUTE))'
             );
             $insert->execute([
                 $publicId, $user['id'], (int) $input['trainerId'], (int) $input['slotId'], $slot['starts_at'], $slot['ends_at'],
-                trim((string) ($input['note'] ?? '')),
+                trim((string) ($input['note'] ?? '')), $slot['price_from'],
             ]);
             $bookingId = (int) $pdo->lastInsertId();
             $pdo->prepare('UPDATE availability_slots SET state = "held" WHERE id = ?')->execute([(int) $input['slotId']]);
-            $pdo->prepare('INSERT INTO booking_status_history (booking_id, from_status, to_status, changed_by_user_id, note) VALUES (?, NULL, "pending_trainer", ?, "สมาชิกส่งคำขอ")')
+            $pdo->prepare('INSERT INTO booking_status_history (booking_id, from_status, to_status, changed_by_user_id, note) VALUES (?, NULL, "awaiting_payment", ?, "สมาชิกจองและเริ่มช่วงชำระเงิน 10 นาที")')
                 ->execute([$bookingId, $user['id']]);
             $pdo->prepare('INSERT INTO chat_rooms (booking_id) VALUES (?)')->execute([$bookingId]);
-            return ['id' => $publicId, 'status' => 'pending_trainer'];
+            $created = $pdo->prepare('SELECT payment_deadline_at FROM bookings WHERE id = ?');
+            $created->execute([$bookingId]);
+            $createdBooking = $created->fetch();
+            return [
+                'id' => $publicId,
+                'status' => 'awaiting_payment',
+                'quotedPrice' => (float) $slot['price_from'],
+                'paymentDeadlineAt' => $this->iso($createdBooking['payment_deadline_at']),
+            ];
         });
 
         Http::json($booking, 201);
@@ -391,23 +411,18 @@ final class Handlers
                 if ((int) $booking['trainer_user_id'] !== (int) $user['id']) {
                     throw new HttpException(403, 'ไม่มีสิทธิ์แก้ไขคำขอนี้', 'FORBIDDEN');
                 }
-                if ($newStatus === 'completed') {
-                    WorkflowRules::assertTrainerCompletion(
-                        (string) $booking['status'],
-                        (string) $booking['payment_status'],
-                        new DateTimeImmutable((string) $booking['ends_at'], new DateTimeZone('UTC')),
-                        new DateTimeImmutable('now', new DateTimeZone('UTC'))
-                    );
-                    $slotState = 'booked';
-                } else {
-                    $slotState = WorkflowRules::trainerBookingSlotState(
-                        (string) $booking['status'],
-                        $newStatus
-                    );
+                if ($newStatus !== 'completed') {
+                    throw new HttpException(409, 'เทรนเนอร์เปลี่ยนได้เฉพาะงานที่ฝึกเสร็จแล้ว', 'INVALID_BOOKING_TRANSITION');
                 }
+                WorkflowRules::assertTrainerCompletion(
+                    (string) $booking['status'],
+                    (string) $booking['payment_status'],
+                    new DateTimeImmutable((string) $booking['ends_at'], new DateTimeZone('UTC')),
+                    new DateTimeImmutable('now', new DateTimeZone('UTC'))
+                );
+                $slotState = 'booked';
             } else {
                 $adminTransitions = [
-                    'pending_trainer' => ['cancelled'],
                     'awaiting_payment' => ['cancelled'],
                     'payment_review' => ['confirmed', 'cancelled'],
                     'confirmed' => ['cancelled'],
@@ -424,12 +439,8 @@ final class Handlers
                     : ($newStatus === 'cancelled' ? 'available' : null);
             }
 
-            $quotedPrice = null;
-            if ($newStatus === 'awaiting_payment') {
-                $quotedPrice = WorkflowRules::normalizeMoney($input['quotedPrice'] ?? null, 'quotedPrice');
-            }
-            $pdo->prepare('UPDATE bookings SET status = ?, quoted_price = COALESCE(?, quoted_price), updated_at = UTC_TIMESTAMP() WHERE id = ?')
-                ->execute([$newStatus, $quotedPrice, $booking['id']]);
+            $pdo->prepare('UPDATE bookings SET status = ?, updated_at = UTC_TIMESTAMP() WHERE id = ?')
+                ->execute([$newStatus, $booking['id']]);
             $pdo->prepare('INSERT INTO booking_status_history (booking_id, from_status, to_status, changed_by_user_id, note) VALUES (?, ?, ?, ?, ?)')
                 ->execute([$booking['id'], $booking['status'], $newStatus, $user['id'], trim((string) ($input['note'] ?? ''))]);
             if ($slotState !== null && $booking['availability_slot_id'] !== null) {
@@ -439,9 +450,7 @@ final class Handlers
             return [
                 'id' => $publicId,
                 'status' => $newStatus,
-                'quotedPrice' => $quotedPrice === null
-                    ? ($booking['quoted_price'] === null ? null : (float) $booking['quoted_price'])
-                    : (float) $quotedPrice,
+                'quotedPrice' => $booking['quoted_price'] === null ? null : (float) $booking['quoted_price'],
             ];
         });
         Http::json($result);
@@ -461,9 +470,12 @@ final class Handlers
         );
 
         try {
-            $paymentId = $this->database->transaction(function (PDO $pdo) use ($input, $user, $amount, $file): int {
+            $result = $this->database->transaction(function (PDO $pdo) use ($input, $user, $amount, $file): array {
                 $statement = $pdo->prepare(
-                    'SELECT id, status FROM bookings WHERE public_id = ? AND member_user_id = ? FOR UPDATE'
+                    'SELECT id, status, availability_slot_id, payment_deadline_at,
+                            UTC_TIMESTAMP() AS database_now
+                     FROM bookings
+                     WHERE public_id = ? AND member_user_id = ? FOR UPDATE'
                 );
                 $statement->execute([(string) $input['bookingId'], $user['id']]);
                 $booking = $statement->fetch();
@@ -473,28 +485,43 @@ final class Handlers
                 if ($booking['status'] !== 'awaiting_payment') {
                     throw new HttpException(409, 'คำขอนี้ยังไม่อยู่ในขั้นส่งหลักฐานการชำระ', 'PAYMENT_NOT_READY');
                 }
+                if ($booking['payment_deadline_at'] === null) {
+                    throw new HttpException(409, 'คำขอนี้ไม่มีช่วงเวลาส่งหลักฐาน', 'PAYMENT_NOT_READY');
+                }
+                $deadline = new DateTimeImmutable((string) $booking['payment_deadline_at'], new DateTimeZone('UTC'));
+                $databaseNow = new DateTimeImmutable((string) $booking['database_now'], new DateTimeZone('UTC'));
+                if (WorkflowRules::isPaymentDeadlineExpired($deadline, $databaseNow)) {
+                    $slotId = $booking['availability_slot_id'] === null ? null : (int) $booking['availability_slot_id'];
+                    $this->expireAwaitingPaymentsInTransaction($pdo, $slotId);
+                    return ['expired' => true, 'paymentId' => null];
+                }
 
                 $pdo->prepare(
                     'INSERT INTO payments (booking_id, submitted_by_user_id, amount, slip_path, mime_type, status, submitted_at)
                      VALUES (?, ?, ?, ?, ?, "reviewing", UTC_TIMESTAMP())'
                 )->execute([$booking['id'], $user['id'], $amount, $file['path'], $file['mime']]);
                 $paymentId = (int) $pdo->lastInsertId();
-                $pdo->prepare('UPDATE bookings SET status = "payment_review", payment_status = "reviewing", updated_at = UTC_TIMESTAMP() WHERE id = ?')
+                $pdo->prepare('UPDATE bookings SET status = "payment_review", payment_status = "reviewing", payment_deadline_at = NULL, updated_at = UTC_TIMESTAMP() WHERE id = ?')
                     ->execute([$booking['id']]);
                 $pdo->prepare('INSERT INTO booking_status_history (booking_id, from_status, to_status, changed_by_user_id, note) VALUES (?, "awaiting_payment", "payment_review", ?, "สมาชิกอัปโหลดสลิป")')
                     ->execute([$booking['id'], $user['id']]);
-                return $paymentId;
+                return ['expired' => false, 'paymentId' => $paymentId];
             });
         } catch (Throwable $error) {
             $this->removeUpload($file['path']);
             throw $error;
         }
-        Http::json(['paymentId' => $paymentId, 'bookingId' => $input['bookingId'], 'status' => 'reviewing', 'message' => 'ส่งสลิปให้แอดมินตรวจแล้ว'], 201);
+        if ($result['expired']) {
+            $this->removeUpload($file['path']);
+            throw new HttpException(409, 'หมดเวลาส่งหลักฐาน กรุณาเลือกเวลาใหม่', 'PAYMENT_DEADLINE_EXPIRED');
+        }
+        Http::json(['paymentId' => $result['paymentId'], 'bookingId' => $input['bookingId'], 'status' => 'reviewing', 'message' => 'ส่งสลิปให้แอดมินตรวจแล้ว'], 201);
     }
 
     public function messages(string $roomId): never
     {
         $user = $this->auth->requireUser();
+        $this->expireAwaitingPayments();
         $room = $this->requireChatParticipant((int) $roomId, $user);
         $rawAfterId = $_GET['afterId'] ?? '0';
         if (is_array($rawAfterId) || preg_match('/^\d+$/', (string) $rawAfterId) !== 1) {
@@ -552,6 +579,7 @@ final class Handlers
     public function sendMessage(string $roomId): never
     {
         $user = $this->auth->requireUser();
+        $this->expireAwaitingPayments();
         $room = $this->requireChatParticipant((int) $roomId, $user);
         WorkflowRules::assertChatWritable((string) $room['booking_status']);
         $input = Http::body();
@@ -774,6 +802,7 @@ final class Handlers
     public function adminReviewQueue(): never
     {
         $this->auth->requireUser(['admin']);
+        $this->expireAwaitingPayments();
         $trainers = $this->database->fetchAll(
             'SELECT tp.id, tp.slug, tp.created_at, tp.is_demo, u.display_name, COUNT(tc.id) AS certificate_count
              FROM trainer_profiles tp
@@ -855,7 +884,8 @@ final class Handlers
         $input = Http::body();
         $result = $this->database->transaction(function (PDO $pdo) use ($paymentId, $decision, $input, $admin): array {
             $statement = $pdo->prepare(
-                'SELECT pay.id, pay.status, pay.booking_id, b.public_id, b.status AS booking_status, b.availability_slot_id
+                'SELECT pay.id, pay.status, pay.booking_id, b.public_id, b.status AS booking_status,
+                        b.availability_slot_id, UTC_TIMESTAMP() AS database_now
                  FROM payments pay JOIN bookings b ON b.id = pay.booking_id WHERE pay.id = ? FOR UPDATE'
             );
             $statement->execute([(int) $paymentId]);
@@ -871,18 +901,46 @@ final class Handlers
                 $note
             );
             $paymentStatus = $decision === 'approve' ? 'approved' : 'rejected';
-            $bookingStatus = $decision === 'approve' ? 'confirmed' : 'awaiting_payment';
+            $paymentDeadline = null;
+            if ($decision === 'approve') {
+                $bookingStatus = 'confirmed';
+                $slotState = 'booked';
+            } else {
+                $rejectedCount = $pdo->prepare(
+                    'SELECT COUNT(*) FROM payments WHERE booking_id = ? AND status = "rejected" AND id <> ?'
+                );
+                $rejectedCount->execute([$payment['booking_id'], $payment['id']]);
+                $transition = WorkflowRules::paymentRejectionTransition(
+                    (int) $rejectedCount->fetchColumn(),
+                    new DateTimeImmutable((string) $payment['database_now'], new DateTimeZone('UTC'))
+                );
+                $bookingStatus = $transition['bookingStatus'];
+                $slotState = $transition['slotState'];
+                $paymentDeadline = $transition['paymentDeadlineAt'];
+            }
             $pdo->prepare('UPDATE payments SET status = ?, review_note = ?, reviewed_by_user_id = ?, reviewed_at = UTC_TIMESTAMP() WHERE id = ?')
                 ->execute([$paymentStatus, $note, $admin['id'], $payment['id']]);
-            $pdo->prepare('UPDATE bookings SET status = ?, payment_status = ?, updated_at = UTC_TIMESTAMP() WHERE id = ?')
-                ->execute([$bookingStatus, $paymentStatus, $payment['booking_id']]);
+            $pdo->prepare('UPDATE bookings SET status = ?, payment_status = ?, payment_deadline_at = ?, cancellation_reason = ?, updated_at = UTC_TIMESTAMP() WHERE id = ?')
+                ->execute([
+                    $bookingStatus,
+                    $paymentStatus,
+                    $paymentDeadline?->format('Y-m-d H:i:s'),
+                    $bookingStatus === 'expired' ? $note : null,
+                    $payment['booking_id'],
+                ]);
             $pdo->prepare('INSERT INTO booking_status_history (booking_id, from_status, to_status, changed_by_user_id, note) VALUES (?, ?, ?, ?, ?)')
                 ->execute([$payment['booking_id'], $payment['booking_status'], $bookingStatus, $admin['id'], $note]);
-            if ($decision === 'approve' && $payment['availability_slot_id'] !== null) {
-                $pdo->prepare('UPDATE availability_slots SET state = "booked" WHERE id = ?')
-                    ->execute([$payment['availability_slot_id']]);
+            if ($payment['availability_slot_id'] !== null) {
+                $pdo->prepare('UPDATE availability_slots SET state = ? WHERE id = ?')
+                    ->execute([$slotState, $payment['availability_slot_id']]);
             }
-            return ['paymentId' => (int) $payment['id'], 'bookingId' => $payment['public_id'], 'status' => $paymentStatus, 'bookingStatus' => $bookingStatus];
+            return [
+                'paymentId' => (int) $payment['id'],
+                'bookingId' => $payment['public_id'],
+                'status' => $paymentStatus,
+                'bookingStatus' => $bookingStatus,
+                'paymentDeadlineAt' => $paymentDeadline === null ? null : $this->iso($paymentDeadline->format('Y-m-d H:i:s')),
+            ];
         });
         Http::json($result);
     }
@@ -911,6 +969,44 @@ final class Handlers
         header('Cache-Control: private, no-store');
         readfile($target);
         exit;
+    }
+
+    private function expireAwaitingPayments(?int $slotId = null): void
+    {
+        $this->database->transaction(
+            fn(PDO $pdo): array => $this->expireAwaitingPaymentsInTransaction($pdo, $slotId)
+        );
+    }
+
+    private function expireAwaitingPaymentsInTransaction(PDO $pdo, ?int $slotId = null): array
+    {
+        $sql = 'SELECT id, public_id, availability_slot_id
+                FROM bookings
+                WHERE status = "awaiting_payment"
+                  AND payment_deadline_at <= UTC_TIMESTAMP()';
+        $params = [];
+        if ($slotId !== null) {
+            $sql .= ' AND availability_slot_id = ?';
+            $params[] = $slotId;
+        }
+        $sql .= ' ORDER BY id FOR UPDATE';
+
+        $statement = $pdo->prepare($sql);
+        $statement->execute($params);
+        $expired = $statement->fetchAll();
+
+        foreach ($expired as $booking) {
+            $pdo->prepare('UPDATE bookings SET status = "expired", updated_at = UTC_TIMESTAMP() WHERE id = ?')
+                ->execute([$booking['id']]);
+            if ($booking['availability_slot_id'] !== null) {
+                $pdo->prepare('UPDATE availability_slots SET state = "available" WHERE id = ? AND state = "held"')
+                    ->execute([$booking['availability_slot_id']]);
+            }
+            $pdo->prepare('INSERT INTO booking_status_history (booking_id, from_status, to_status, changed_by_user_id, note) VALUES (?, "awaiting_payment", "expired", NULL, "หมดเวลาส่งหลักฐานการชำระ")')
+                ->execute([$booking['id']]);
+        }
+
+        return $expired;
     }
 
     private function trainerRow(string $where, array $params): ?array
@@ -991,6 +1087,7 @@ final class Handlers
             'startsAt' => $this->iso($row['starts_at']), 'endsAt' => $this->iso($row['ends_at']),
             'note' => $row['member_note'] ?? '',
             'status' => $row['status'], 'paymentStatus' => $row['payment_status'], 'createdAt' => $this->iso($row['created_at']),
+            'paymentDeadlineAt' => $row['payment_deadline_at'] === null ? null : $this->iso($row['payment_deadline_at']),
             'quotedPrice' => $row['quoted_price'] === null ? null : (float) $row['quoted_price'],
             'chatRoomId' => $role === 'admin' || $row['chat_room_id'] === null ? null : (int) $row['chat_room_id'],
             'payment' => $row['payment_id'] === null ? null : [
@@ -1007,8 +1104,11 @@ final class Handlers
                 'createdAt' => $this->iso($row['review_created_at']),
             ],
             'actions' => [
-                'canPay' => $isMember && $row['status'] === 'awaiting_payment',
-                'canReadChat' => $role !== 'admin' && $row['status'] !== 'pending_trainer',
+                'canPay' => $isMember
+                    && $row['status'] === 'awaiting_payment'
+                    && $row['payment_deadline_at'] !== null
+                    && strtotime($row['payment_deadline_at'] . ' UTC') > time(),
+                'canReadChat' => $role !== 'admin',
                 'canSendChat' => $role !== 'admin' && in_array($row['status'], $acceptedStatuses, true),
                 'canComplete' => $isTrainer && $row['status'] === 'confirmed' && $row['payment_status'] === 'approved' && $appointmentEnded,
                 'canReview' => $isMember && $row['status'] === 'completed' && !$hasReview,

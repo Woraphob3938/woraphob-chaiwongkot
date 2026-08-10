@@ -134,6 +134,10 @@ test('second rejected payment expires and releases the slot', function (): void 
     assertSameValue(null, $result['paymentDeadlineAt']);
 });
 
+test('trainer booking decisions are no longer part of workflow rules', function (): void {
+    assertSameValue(false, method_exists(WorkflowRules::class, 'trainerBookingSlotState'));
+});
+
 test('normalizes a positive money value', function (): void {
     assertSameValue('1200.50', WorkflowRules::normalizeMoney('1200.5', 'quotedPrice'));
 });
@@ -146,8 +150,12 @@ test('requires a payment rejection note', function (): void {
     expectHttp(422, 'VALIDATION_FAILED', fn() => WorkflowRules::assertPaymentDecision('reviewing', 'payment_review', 'reject', ''));
 });
 
-test('blocks chat before trainer acceptance', function (): void {
-    expectHttp(409, 'CHAT_READ_ONLY', fn() => WorkflowRules::assertChatWritable('pending_trainer'));
+test('payment decisions require a reviewing payment and payment review booking', function (): void {
+    expectHttp(409, 'PAYMENT_ALREADY_REVIEWED', fn() => WorkflowRules::assertPaymentDecision('rejected', 'awaiting_payment', 'approve', ''));
+});
+
+test('blocks chat after an unpaid booking expires', function (): void {
+    expectHttp(409, 'CHAT_READ_ONLY', fn() => WorkflowRules::assertChatWritable('expired'));
 });
 
 test('allows completion after a paid appointment ends', function (): void {
