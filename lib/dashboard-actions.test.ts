@@ -9,7 +9,7 @@ import {
 import type { AdminQueue, Booking, TrainerWorkspace } from "@/lib/types";
 
 const booking = demoBookings[0];
-const pendingBooking: Booking = { ...booking, id: "BK-PENDING", status: "pending_trainer" };
+const expiredBooking: Booking = { ...booking, id: "BK-EXPIRED", status: "expired" };
 const trainerQueueItem: AdminQueue["trainers"][number] = {
   id: 7,
   slug: "trainer-test",
@@ -41,7 +41,7 @@ describe("getMemberNextAction", () => {
     expect(getMemberNextAction([
       { ...booking, id: "BK-PAY", actions: { ...booking.actions, canPay: true } },
       { ...booking, id: "BK-REVIEW", actions: { ...booking.actions, canReview: true } },
-      pendingBooking,
+      expiredBooking,
       { ...booking, id: "BK-PAYMENT", status: "payment_review" },
       { ...booking, id: "BK-CONFIRMED", status: "confirmed" },
     ])).toMatchObject({ href: "/member#booking-BK-PAY", cta: "อัปโหลดสลิป", description: "ส่งสลิปก่อนหมดเวลา · คำขอ BK-PAY", state: "action" });
@@ -50,17 +50,17 @@ describe("getMemberNextAction", () => {
   it("prioritizes an actionable review over all lower member states", () => {
     expect(getMemberNextAction([
       { ...booking, id: "BK-REVIEW", actions: { ...booking.actions, canReview: true } },
-      pendingBooking,
+      expiredBooking,
       { ...booking, id: "BK-PAYMENT", status: "payment_review" },
       { ...booking, id: "BK-CONFIRMED", status: "confirmed" },
     ])).toMatchObject({ href: "/member#booking-BK-REVIEW", cta: "เขียนรีวิว", state: "action" });
   });
 
-  it("ignores the transitional pending trainer state and shows payment review", () => {
+  it("ignores an expired booking and shows payment review", () => {
     expect(getMemberNextAction([
       { ...booking, id: "BK-PAYMENT", status: "payment_review" },
       { ...booking, id: "BK-CONFIRMED", status: "confirmed" },
-      pendingBooking,
+      expiredBooking,
     ])).toMatchObject({ href: "/member#booking-BK-PAYMENT", cta: "ดูสถานะ", state: "waiting" });
   });
 
@@ -81,8 +81,8 @@ describe("getTrainerNextAction", () => {
     expect(getTrainerNextAction(null, [])).toMatchObject({ href: "/trainer/apply", cta: "กรอกข้อมูลวิชาชีพ" });
   });
 
-  it("does not ask trainers to accept transitional pending bookings", () => {
-    expect(getTrainerNextAction({ ...workspace, slots: [] }, [pendingBooking])).toMatchObject({ href: "/trainer#availability", state: "action" });
+  it("does not ask trainers to act on expired bookings", () => {
+    expect(getTrainerNextAction({ ...workspace, slots: [] }, [expiredBooking])).toMatchObject({ href: "/trainer#availability", state: "action" });
   });
 
   it("keeps a pending application in a reachable waiting state", () => {

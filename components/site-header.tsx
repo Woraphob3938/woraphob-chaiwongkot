@@ -1,6 +1,7 @@
 "use client";
 
 import Link from "next/link";
+import { useRouter } from "next/navigation";
 import { FormEvent, useEffect, useRef, useState } from "react";
 import { ChevronDown, Dumbbell, LayoutDashboard, LogOut, Search, X } from "lucide-react";
 import { MobileRoleNav } from "@/components/mobile-role-nav";
@@ -42,6 +43,7 @@ function readStoredUser() {
 }
 
 export function SiteHeader() {
+  const router = useRouter();
   const dialogRef = useRef<HTMLDialogElement>(null);
   const profileRef = useRef<HTMLDivElement>(null);
   const [profileOpen, setProfileOpen] = useState(false);
@@ -134,7 +136,7 @@ export function SiteHeader() {
     setUser(null);
     setProfileOpen(false);
     window.dispatchEvent(new CustomEvent("fitconnect:auth", { detail: null }));
-    window.location.href = "/";
+    router.push("/");
   }
 
   function submitSearch(event: FormEvent<HTMLFormElement>) {

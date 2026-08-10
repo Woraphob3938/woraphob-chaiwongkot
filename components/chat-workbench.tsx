@@ -23,7 +23,6 @@ const ACCEPTED_ATTACHMENT_TYPES = new Set([
 ]);
 
 const bookingStatusCopy: Record<Booking["status"], string> = {
-  pending_trainer: "รอเทรนเนอร์ตอบรับ",
   awaiting_payment: "รอชำระเงิน",
   payment_review: "รอตรวจสลิป",
   confirmed: "ยืนยันการชำระแล้ว",
@@ -418,6 +417,8 @@ export function ChatWorkbench({ initialBookingId }: ChatWorkbenchProps) {
 
   const readOnlyCopy = selectedBooking.status === "cancelled"
     ? "การจองนี้ถูกยกเลิกแล้ว จึงส่งข้อความเพิ่มไม่ได้"
+    : selectedBooking.status === "expired"
+      ? "การจองหมดเวลาแล้ว ประวัติยังอ่านได้แต่ส่งข้อความเพิ่มไม่ได้"
     : "สถานะการจองนี้ยังไม่เปิดให้ส่งข้อความเพิ่ม";
 
   return (
@@ -590,7 +591,7 @@ export function ChatWorkbench({ initialBookingId }: ChatWorkbenchProps) {
         <div className="ledger-row"><span>สิ้นสุด</span><strong>{formatDateTime(selectedBooking.endsAt)}</strong></div>
         <div className="ledger-row"><span>สถานะการจอง</span><strong>{bookingStatusCopy[selectedBooking.status]}</strong></div>
         <div className="ledger-row"><span>สถานะหลักฐาน</span><strong>{paymentStatusCopy[selectedBooking.paymentStatus]}</strong></div>
-        <div className="ledger-row"><span>ค่าฝึกที่แจ้ง</span><strong>{formatAmount(selectedBooking.quotedPrice)}</strong></div>
+        <div className="ledger-row"><span>ค่าฝึกต่อครั้ง</span><strong>{formatAmount(selectedBooking.quotedPrice)}</strong></div>
         <div className="ledger-row"><span>หมายเหตุ</span><strong className="chat-breakable">{selectedBooking.note || "ไม่มีหมายเหตุ"}</strong></div>
       </details>
     </div>

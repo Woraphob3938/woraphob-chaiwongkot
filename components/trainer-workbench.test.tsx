@@ -2,8 +2,11 @@ import { act, fireEvent, render, screen, waitFor, within } from "@testing-librar
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { TrainerWorkbench } from "@/components/trainer-workbench";
 import { authenticatedRequest } from "@/lib/api";
-import * as dashboardActions from "@/lib/dashboard-actions";
 import type { Booking } from "@/lib/types";
+
+const push = vi.fn();
+
+vi.mock("next/navigation", () => ({ useRouter: () => ({ push }) }));
 
 vi.mock("@/lib/api", () => ({
   authenticatedRequest: vi.fn(),
@@ -34,10 +37,10 @@ function bookingFixture(overrides: Partial<Booking> = {}): Booking {
     startsAt: "2026-08-10T02:00:00.000Z",
     endsAt: "2026-08-10T03:00:00.000Z",
     note: "มีอาการเจ็บเข่า",
-    status: "pending_trainer",
+    status: "awaiting_payment",
     paymentStatus: "not_submitted",
-    paymentDeadlineAt: null,
-    quotedPrice: null,
+    paymentDeadlineAt: "2099-08-10T02:10:00.000Z",
+    quotedPrice: 1_200,
     chatRoomId: null,
     payment: null,
     review: null,
@@ -58,27 +61,24 @@ describe("TrainerWorkbench", () => {
   beforeEach(() => {
     vi.restoreAllMocks();
     vi.mocked(authenticatedRequest).mockReset();
+    push.mockReset();
   });
 
-  it("puts the pending booking action before the workspace summaries", async () => {
-    const bookings = [
-      bookingFixture({ id: "BK-OLD-1", status: "cancelled" }),
-      bookingFixture({ id: "BK-OLD-2", status: "completed" }),
-      bookingFixture({ id: "BK-OLD-3", status: "awaiting_payment" }),
-      bookingFixture(),
-    ];
+  it("puts the schedule action before the workspace summaries", async () => {
     vi.mocked(authenticatedRequest)
-      .mockResolvedValueOnce(approvedWorkspace)
-      .mockResolvedValueOnce(bookings);
+      .mockResolvedValueOnce({
+        ...approvedWorkspace,
+        slots: [{ id: 70, startsAt: "2026-08-12T02:00:00.000Z", endsAt: "2026-08-12T03:00:00.000Z", state: "available" }],
+      })
+      .mockResolvedValueOnce([]);
 
     render(<TrainerWorkbench />);
 
-    const actionTitle = await screen.findByRole("heading", { name: "ตอบรับคำขอจอง" });
-    const bookingHeading = screen.getByRole("heading", { name: "คำขอที่รอคำตอบ" });
-    expect(screen.getByTestId("next-action")).toHaveAttribute("data-state", "action");
-    expect(screen.getByRole("link", { name: "ตรวจคำขอ" })).toHaveAttribute("href", "/trainer#booking-BK-TEST");
+    const actionTitle = await screen.findByRole("heading", { name: "ตารางงานพร้อมแล้ว" });
+    const overviewHeading = screen.getByRole("heading", { name: "ภาพรวมตารางว่าง" });
+    expect(screen.getByRole("link", { name: "ดูตารางงาน" })).toHaveAttribute("href", "/trainer#schedule");
     expect(screen.queryByText("สถานที่")).not.toBeInTheDocument();
-    expect(actionTitle.compareDocumentPosition(bookingHeading) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    expect(actionTitle.compareDocumentPosition(overviewHeading) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
   });
 
   it("shows the application next action when the trainer has no profile", async () => {
@@ -90,6 +90,22 @@ describe("TrainerWorkbench", () => {
 
     expect(await screen.findByRole("heading", { name: "กรอกข้อมูลวิชาชีพให้ครบ" })).toBeInTheDocument();
     expect(screen.getByRole("link", { name: "กรอกข้อมูลวิชาชีพ" })).toHaveAttribute("href", "/trainer/apply");
+  });
+
+  it("shows held availability as read-only without booking decisions or quote fields", async () => {
+    vi.mocked(authenticatedRequest)
+      .mockResolvedValueOnce({
+        ...approvedWorkspace,
+        slots: [{ id: 71, startsAt: "2026-08-12T02:00:00.000Z", endsAt: "2026-08-12T03:00:00.000Z", state: "held" }],
+      })
+      .mockResolvedValueOnce([bookingFixture({ status: "awaiting_payment", quotedPrice: 1_200 })]);
+
+    render(<TrainerWorkbench />);
+
+    expect(await screen.findByText("ล็อกชั่วคราว")).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: /ตอบรับคำขอ|ปฏิเสธคำขอ/ })).not.toBeInTheDocument();
+    expect(screen.queryByLabelText(/ค่าฝึกสำหรับคำขอ/)).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: /ลบช่วงเวลา/ })).not.toBeInTheDocument();
   });
 
   it("reports a successfully loaded incomplete profile to the route guard", async () => {
@@ -131,8 +147,8 @@ describe("TrainerWorkbench", () => {
 
     fireEvent.click(within(alert).getByRole("button", { name: "ลองใหม่" }));
 
-    expect(await screen.findByRole("heading", { name: "ตอบรับคำขอจอง" })).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: "ตอบรับคำขอ BK-TEST" })).toBeInTheDocument();
+    expect(await screen.findByRole("heading", { name: "เพิ่มช่วงเวลาว่าง" })).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: /ตอบรับคำขอ|ปฏิเสธคำขอ/ })).not.toBeInTheDocument();
   });
 
   it("withholds combined advice and booking controls when bookings loading fails", async () => {
@@ -148,13 +164,12 @@ describe("TrainerWorkbench", () => {
     expect(alert).toHaveTextContent("โหลดคำขอจองไม่ได้");
     expect(screen.queryByTestId("next-action")).not.toBeInTheDocument();
     expect(screen.queryByRole("button", { name: /ตอบรับคำขอ|ปฏิเสธคำขอ|ฝึกเสร็จแล้ว/ })).not.toBeInTheDocument();
-    expect(screen.queryByText("ไม่มีคำขอที่รอคำตอบ")).not.toBeInTheDocument();
     expect(screen.queryByText("ยังไม่มีนัดที่ยืนยันแล้ว")).not.toBeInTheDocument();
 
     fireEvent.click(within(alert).getByRole("button", { name: "ลองใหม่" }));
 
-    expect(await screen.findByRole("heading", { name: "ตอบรับคำขอจอง" })).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: "ตอบรับคำขอ BK-TEST" })).toBeInTheDocument();
+    expect(await screen.findByRole("heading", { name: "เพิ่มช่วงเวลาว่าง" })).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: /ตอบรับคำขอ|ปฏิเสธคำขอ/ })).not.toBeInTheDocument();
   });
 
   it("keeps a pending application CTA on the visible approval status", async () => {
@@ -170,65 +185,6 @@ describe("TrainerWorkbench", () => {
     expect(screen.queryByRole("link", { name: "เพิ่มช่วงเวลาว่าง" })).not.toBeInTheDocument();
   });
 
-  it("keeps only three pending summaries mounted until the archive is opened", async () => {
-    const bookings = Array.from({ length: 4 }, (_, index) => bookingFixture({
-      id: `BK-${index + 1}`,
-      member: { displayName: `สมาชิก ${index + 1}` },
-    }));
-    vi.mocked(authenticatedRequest)
-      .mockResolvedValueOnce(approvedWorkspace)
-      .mockResolvedValueOnce(bookings);
-
-    render(<TrainerWorkbench />);
-
-    expect(await screen.findByRole("link", { name: "ตรวจคำขอ" })).toHaveAttribute("href", "/trainer#booking-BK-1");
-    expect(screen.getAllByTestId("trainer-booking-summary")).toHaveLength(3);
-    expect(document.getElementById("booking-BK-1")).toBeInTheDocument();
-    expect(document.getElementById("booking-BK-4")).not.toBeInTheDocument();
-
-    fireEvent.click(screen.getByText("ดูคำขอทั้งหมด"));
-
-    await waitFor(() => expect(screen.getAllByTestId("trainer-booking-summary")).toHaveLength(4));
-    for (const booking of bookings) {
-      expect(document.querySelectorAll(`#booking-${booking.id}`)).toHaveLength(1);
-      expect(document.querySelectorAll(`[aria-label="ตอบรับคำขอ ${booking.id}"]`)).toHaveLength(1);
-    }
-  });
-
-  it("mounts a selector target from source position four before the sole archive disclosure", async () => {
-    const bookings = Array.from({ length: 4 }, (_, index) => bookingFixture({ id: `BK-${index + 1}` }));
-    vi.spyOn(dashboardActions, "getTrainerNextAction").mockReturnValue({
-      title: "ตอบรับคำขอจอง",
-      description: "คำขอ BK-4",
-      href: "/trainer#booking-BK-4",
-      cta: "ตรวจคำขอ",
-      state: "action",
-    });
-    vi.mocked(authenticatedRequest)
-      .mockResolvedValueOnce(approvedWorkspace)
-      .mockResolvedValueOnce(bookings);
-
-    render(<TrainerWorkbench />);
-
-    await screen.findByRole("link", { name: "ตรวจคำขอ" });
-    expect(screen.getAllByTestId("trainer-booking-summary").map((summary) => summary.id)).toEqual([
-      "booking-BK-4",
-      "booking-BK-1",
-      "booking-BK-2",
-    ]);
-    const archive = document.querySelector<HTMLElement>(".trainer-list-disclosure");
-    const archiveSummary = archive?.querySelector<HTMLElement>(":scope > summary");
-    expect(document.querySelectorAll(".trainer-list-disclosure > summary")).toHaveLength(1);
-    expect(archiveSummary).toHaveAccessibleName("ดูคำขอทั้งหมด");
-
-    fireEvent.click(archiveSummary!);
-
-    await waitFor(() => expect(within(archive!).getByTestId("trainer-booking-summary")).toHaveAttribute("id", "booking-BK-3"));
-    for (const booking of bookings) {
-      expect(document.querySelectorAll(`#booking-${booking.id}`)).toHaveLength(1);
-    }
-  });
-
   it("shows the rejection reason and blocks slot creation", async () => {
     vi.mocked(authenticatedRequest).mockImplementation((path) => Promise.resolve(path === "/v1/trainer/me" ? rejectedWorkspace : []));
     render(<TrainerWorkbench />);
@@ -237,36 +193,6 @@ describe("TrainerWorkbench", () => {
     expect(screen.getByRole("link", { name: "แก้ไขใบสมัคร" })).toHaveAttribute("href", "/trainer/apply");
     expect(screen.queryByRole("link", { name: "เพิ่มช่วงเวลาว่าง" })).not.toBeInTheDocument();
     expect(screen.getByRole("button", { name: "เพิ่มช่วงเวลาว่าง" })).toBeDisabled();
-  });
-
-  it("requires a positive quote before accepting the selected pending booking", async () => {
-    const bookings = [bookingFixture()];
-    vi.mocked(authenticatedRequest)
-      .mockResolvedValueOnce(approvedWorkspace)
-      .mockResolvedValueOnce(bookings)
-      .mockResolvedValueOnce({ id: "BK-TEST", status: "awaiting_payment" })
-      .mockResolvedValueOnce(approvedWorkspace)
-      .mockResolvedValueOnce([]);
-
-    render(<TrainerWorkbench />);
-    await screen.findByText("สมาชิกทดสอบ");
-    const quoteInput = screen.getByLabelText("ค่าฝึกสำหรับคำขอ BK-TEST");
-    const acceptButton = screen.getByRole("button", { name: "ตอบรับคำขอ BK-TEST" });
-
-    expect(acceptButton).toBeDisabled();
-    for (const invalidQuote of ["0", "-100", "abc"]) {
-      fireEvent.change(quoteInput, { target: { value: invalidQuote } });
-      expect(acceptButton).toBeDisabled();
-    }
-
-    fireEvent.change(quoteInput, { target: { value: "1200" } });
-    expect(acceptButton).toBeEnabled();
-    fireEvent.click(acceptButton);
-    await waitFor(() => expect(authenticatedRequest).toHaveBeenCalledWith(
-      "/v1/bookings/BK-TEST/status",
-      { method: "PATCH", body: JSON.stringify({ status: "awaiting_payment", quotedPrice: "1200" }) },
-    ));
-    expect(await screen.findByRole("status")).toHaveTextContent("ตอบรับคำขอ BK-TEST แล้ว");
   });
 
   it("lets the trainer complete an eligible confirmed booking and refreshes bookings", async () => {

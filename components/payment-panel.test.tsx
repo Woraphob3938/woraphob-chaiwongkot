@@ -5,6 +5,8 @@ import { RoleDashboard } from "@/components/role-dashboard";
 import { authenticatedRequest } from "@/lib/api";
 import type { Booking } from "@/lib/types";
 
+vi.mock("next/navigation", () => ({ useRouter: () => ({ push: vi.fn() }) }));
+
 vi.mock("@/lib/api", () => ({
   authenticatedRequest: vi.fn(),
   ApiError: class ApiError extends Error {
@@ -75,6 +77,7 @@ describe("PaymentPanel", () => {
     expect(evidence).not.toHaveAttribute("open");
     expect(within(evidence as HTMLElement).getByText("ยอดที่เคยส่ง")).toBeInTheDocument();
     expect(status).not.toBeNull();
+    expect(screen.getByText("สลิปไม่ผ่าน กรุณาส่งใหม่ภายใน 10 นาที")).toBeInTheDocument();
     expect((status as Node).compareDocumentPosition(submit) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
     expect(submit.compareDocumentPosition(evidence as Node) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
   });
@@ -244,10 +247,11 @@ describe("member booking ledger", () => {
     const second = bookingFixture({
       id: "BK-SECOND",
       trainer: { id: 4, slug: "trainer-d", displayName: "เทรนเนอร์ ง." },
-      status: "pending_trainer",
-      quotedPrice: null,
+      status: "awaiting_payment",
+      quotedPrice: 1_200,
+      paymentDeadlineAt: "2099-08-10T02:10:00.000Z",
       chatRoomId: null,
-      actions: { ...bookingFixture().actions, canPay: false, canReadChat: false, canSendChat: false },
+      actions: { ...bookingFixture().actions, canPay: true, canReadChat: false, canSendChat: false },
     });
     vi.mocked(authenticatedRequest).mockResolvedValue([first, second]);
 

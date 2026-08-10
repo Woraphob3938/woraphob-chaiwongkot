@@ -170,7 +170,7 @@ export function PaymentPanel({ booking, onUpdated }: PaymentPanelProps) {
       {canUpload && (
         <form className="booking-fields payment-panel__form transaction-primary-action" onSubmit={submit} aria-busy={busy} noValidate>
           <div className="transaction-primary-action__heading">
-            <strong>ส่งหลักฐานการโอน</strong>
+            <strong>{booking.paymentStatus === "rejected" ? "สลิปไม่ผ่าน กรุณาส่งใหม่ภายใน 10 นาที" : "อัปโหลดสลิปภายใน 10 นาที"}</strong>
             <span>ผู้ดูแลจะตรวจหลักฐานด้วยตนเอง</span>
           </div>
           <div className="form-grid">
@@ -235,7 +235,7 @@ export function PaymentPanel({ booking, onUpdated }: PaymentPanelProps) {
       <DisclosureSection title="รายละเอียดหลักฐานเดิม" summary={booking.payment ? "มีหลักฐานที่เคยส่ง" : "ยังไม่มีหลักฐานเดิม"}>
         <div className="ledger-row"><span>รหัสคำขอ</span><strong>{booking.id}</strong></div>
         <div className="ledger-row"><span>เทรนเนอร์</span><strong>{booking.trainer.displayName}</strong></div>
-        <div className="ledger-row"><span>ค่าฝึกที่แจ้ง</span><strong>{formatAmount(booking.quotedPrice)}</strong></div>
+        <div className="ledger-row"><span>ค่าฝึกต่อครั้ง</span><strong>{formatAmount(booking.quotedPrice)}</strong></div>
         <div className="ledger-row"><span>ยอดที่เคยส่ง</span><strong>{formatAmount(booking.payment?.amount ?? null)}</strong></div>
       </DisclosureSection>
     </section>

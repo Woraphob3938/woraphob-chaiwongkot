@@ -4,6 +4,10 @@ import { AdminReviewQueue } from "@/components/admin-review-queue";
 import { ApiError, authenticatedRequest, openProtectedFile } from "@/lib/api";
 import type { AdminQueue } from "@/lib/types";
 
+const push = vi.fn();
+
+vi.mock("next/navigation", () => ({ useRouter: () => ({ push }) }));
+
 vi.mock("@/lib/api", async (importOriginal) => {
   const actual = await importOriginal<typeof import("@/lib/api")>();
   return {
@@ -62,6 +66,7 @@ async function openQueueDisclosure(label: "ใบสมัครเทรนเ�
 
 describe("AdminReviewQueue", () => {
   beforeEach(() => {
+    push.mockReset();
     vi.mocked(authenticatedRequest).mockReset();
     vi.mocked(openProtectedFile).mockReset();
   });
@@ -181,13 +186,31 @@ describe("AdminReviewQueue", () => {
     expect(screen.getByText("กรุณาระบุเหตุผลที่สลิปไม่ผ่าน")).toBeInTheDocument();
     expect(authenticatedRequest).toHaveBeenCalledTimes(1);
 
-    fireEvent.change(screen.getByLabelText("ผลตรวจสลิป PAY-000021"), { target: { value: "  ยอดโอนไม่ตรงกับราคาที่แจ้ง  " } });
+    fireEvent.change(screen.getByLabelText("ผลตรวจสลิป PAY-000021"), { target: { value: "  ยอดโอนไม่ตรงกับค่าฝึกต่อครั้ง  " } });
     fireEvent.click(screen.getByRole("button", { name: "ไม่อนุมัติสลิป PAY-000021" }));
 
     await waitFor(() => expect(authenticatedRequest).toHaveBeenCalledWith(
       "/v1/admin/payments/21/reject",
-      { method: "POST", body: JSON.stringify({ note: "ยอดโอนไม่ตรงกับราคาที่แจ้ง" }) },
+      { method: "POST", body: JSON.stringify({ note: "ยอดโอนไม่ตรงกับค่าฝึกต่อครั้ง" }) },
     ));
+  });
+
+  it.each([
+    ["awaiting_payment", "ให้สมาชิกส่งใหม่ภายใน 10 นาที"],
+    ["expired", "ปฏิเสธครั้งที่สองและคืนช่วงเวลาแล้ว"],
+  ] as const)("uses the server booking status after rejecting a payment: %s", async (bookingStatus, notice) => {
+    vi.mocked(authenticatedRequest)
+      .mockResolvedValueOnce(paymentQueue())
+      .mockResolvedValueOnce({ paymentId: 21, status: "rejected", bookingStatus, paymentDeadlineAt: bookingStatus === "awaiting_payment" ? "2099-08-10T02:10:00.000Z" : null })
+      .mockResolvedValueOnce(paymentQueue([]));
+
+    render(<AdminReviewQueue />);
+    await openQueueDisclosure("หลักฐานการชำระเงิน");
+    fireEvent.change(screen.getByLabelText("ผลตรวจสลิป PAY-000021"), { target: { value: "สลิปไม่ชัด" } });
+    fireEvent.click(screen.getByRole("button", { name: "ไม่อนุมัติสลิป PAY-000021" }));
+
+    await waitFor(() => expect(screen.queryByText("PAY-000021")).not.toBeInTheDocument());
+    expect(screen.getByRole("status")).toHaveTextContent(notice);
   });
 
   it("keeps rejection notes isolated by payment ID", async () => {

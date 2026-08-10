@@ -1,6 +1,7 @@
 "use client";
 
 import Link from "next/link";
+import { useRouter } from "next/navigation";
 import { useCallback, useEffect, useState } from "react";
 import {
   ArrowRight,
@@ -14,6 +15,7 @@ import { AdminReviewQueue } from "@/components/admin-review-queue";
 import { DashboardSection, NextActionCard } from "@/components/dashboard-primitives";
 import { DemoNotice } from "@/components/demo-notice";
 import { PaymentPanel } from "@/components/payment-panel";
+import { PaymentDeadline } from "@/components/payment-deadline";
 import { ReviewForm } from "@/components/review-form";
 import { StatusBadge } from "@/components/status-badge";
 import { TrainerWorkbench } from "@/components/trainer-workbench";
@@ -43,12 +45,12 @@ function formatAmount(amount: number | null): string {
 
 function nextStepCopy(booking: Booking): string {
   if (booking.review) return "รีวิวนี้เผยแพร่แล้ว";
-  if (booking.actions.canPay) return "ส่งหลักฐานการโอนให้ผู้ดูแลตรวจ";
+  if (booking.actions.canPay) return "ส่งหลักฐานให้ผู้ดูแลตรวจภายในเวลาที่เหลือ";
   if (booking.actions.canReview) return "เขียนรีวิวหลังการฝึก";
-  if (booking.status === "pending_trainer") return "รอเทรนเนอร์ตอบรับคำขอ";
   if (booking.status === "payment_review") return "รอผู้ดูแลตรวจหลักฐานด้วยตนเอง";
   if (booking.status === "confirmed") return "เตรียมตัวตามวันและเวลานัด";
   if (booking.status === "cancelled") return "คำขอนี้สิ้นสุดแล้ว";
+  if (booking.status === "expired") return "การจองหมดเวลา ช่วงเวลานี้ถูกคืนแล้ว";
   return "ยังไม่มีขั้นตอนที่ต้องทำในขณะนี้";
 }
 
@@ -60,11 +62,13 @@ function bookingIdFromActionHref(href: string): string | null {
 
 export function RoleDashboard({
   role,
-  navigate = (href) => window.location.assign(href),
+  navigate,
 }: {
   role: UserRole;
   navigate?: (href: string) => void;
 }) {
+  const router = useRouter();
+  const goTo = navigate ?? router.push;
   const copy = roleCopy[role];
   const [bookings, setBookings] = useState<Booking[]>([]);
   const [bookingError, setBookingError] = useState("");
@@ -124,13 +128,19 @@ export function RoleDashboard({
       <div className="ledger-row"><span><CalendarDays aria-hidden="true" size={17} /> เริ่มฝึก</span><strong>{formatDateTime(booking.startsAt)}</strong></div>
       <div className="ledger-row"><span><CalendarDays aria-hidden="true" size={17} /> สิ้นสุด</span><strong>{formatDateTime(booking.endsAt)}</strong></div>
       <div className="ledger-row"><span><UsersRound aria-hidden="true" size={17} /> เทรนเนอร์</span><strong>{booking.trainer.displayName}</strong></div>
-      <div className="ledger-row"><span>ค่าฝึกที่แจ้ง</span><strong>{formatAmount(booking.quotedPrice)}</strong></div>
+      <div className="ledger-row"><span>ค่าฝึกต่อครั้ง</span><strong>{formatAmount(booking.quotedPrice)}</strong></div>
       <div className="ledger-row"><span><ShieldCheck aria-hidden="true" size={17} /> การชำระ</span><strong>{paymentCopy[booking.paymentStatus]}</strong></div>
       <div className="ledger-row"><span>ยอดที่โอน</span><strong>{formatAmount(booking.payment?.amount ?? null)}</strong></div>
       {booking.payment?.status === "rejected" && booking.payment.reviewNote && (
         <div className="ledger-row"><span>หมายเหตุจากผู้ดูแล</span><strong>{booking.payment.reviewNote}</strong></div>
       )}
       <div className="ledger-row"><span>ขั้นตอนถัดไป</span><strong>{nextStepCopy(booking)}</strong></div>
+      {booking.actions.canPay && booking.paymentDeadlineAt && (
+        <div className="payment-deadline-row">
+          <span>{booking.paymentStatus === "rejected" ? "ส่งสลิปใหม่ภายใน" : "เวลาที่เหลือสำหรับส่งสลิป"}</span>
+          <PaymentDeadline deadlineAt={booking.paymentDeadlineAt} onExpired={() => void loadMemberBookings()} />
+        </div>
+      )}
       {booking.actions.canPay && <PaymentPanel booking={booking} onUpdated={loadMemberBookings} />}
       {booking.actions.canReview && <ReviewForm booking={booking} onUpdated={loadMemberBookings} />}
       {booking.review && (
@@ -235,7 +245,7 @@ export function RoleDashboard({
         </div>
       )}
 
-      {role === "trainer" && <TrainerWorkbench onIncompleteProfile={() => navigate("/trainer/apply")} />}
+      {role === "trainer" && <TrainerWorkbench onIncompleteProfile={() => goTo("/trainer/apply")} />}
 
       {role === "admin" && <AdminReviewQueue />}
     </main>

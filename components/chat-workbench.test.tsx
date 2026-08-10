@@ -672,6 +672,24 @@ describe("ChatWorkbench", () => {
     expect(screen.getByText("การจองนี้ถูกยกเลิกแล้ว จึงส่งข้อความเพิ่มไม่ได้")).toBeInTheDocument();
   });
 
+  it("keeps an expired room readable but disables new messages", async () => {
+    const expired = bookingFixture({
+      status: "expired",
+      actions: { ...bookingFixture().actions, canSendChat: false },
+    });
+    vi.mocked(authenticatedRequest)
+      .mockResolvedValueOnce([expired])
+      .mockResolvedValueOnce([messageFixture(3, "ประวัติยังอยู่")]);
+
+    render(<ChatWorkbench />);
+    await flushPromises();
+
+    expect(screen.getAllByText("หมดเวลาแล้ว")).toHaveLength(2);
+    expect(screen.getByText("ประวัติยังอยู่")).toBeInTheDocument();
+    expect(screen.queryByRole("form", { name: /เขียนข้อความถึง/ })).not.toBeInTheDocument();
+    expect(screen.getByText("การจองหมดเวลาแล้ว ประวัติยังอ่านได้แต่ส่งข้อความเพิ่มไม่ได้")).toBeInTheDocument();
+  });
+
   it("falls back from an unknown requested booking and shows a useful empty state when no room is available", async () => {
     vi.mocked(authenticatedRequest)
       .mockResolvedValueOnce([bookingFixture()])

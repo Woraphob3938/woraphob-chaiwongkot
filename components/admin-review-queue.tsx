@@ -1,5 +1,6 @@
 "use client";
 
+import { useRouter } from "next/navigation";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { FileText, RefreshCw } from "lucide-react";
 import { NextActionCard } from "@/components/dashboard-primitives";
@@ -30,14 +31,21 @@ function formatPaymentDifference(value: number | null) {
   return value > 0 ? `+${paymentCurrency.format(value)}` : paymentCurrency.format(value);
 }
 
-function leaveExpiredSession(error: unknown) {
+function leaveExpiredSession(error: unknown, navigate: (href: string) => void) {
   if (!(error instanceof ApiError) || error.status !== 401) return false;
   localStorage.removeItem("fitconnect_token");
-  window.location.assign("/login");
+  navigate("/login");
   return true;
 }
 
+type PaymentDecisionResponse = {
+  bookingStatus: "awaiting_payment" | "confirmed" | "expired";
+  paymentDeadlineAt: string | null;
+};
+
 export function AdminReviewQueue() {
+  const router = useRouter();
+  const navigate = router.push;
   const [queue, setQueue] = useState<AdminQueue | null>(null);
   const [notes, setNotes] = useState<Record<number, string>>({});
   const [paymentNotes, setPaymentNotes] = useState<Record<number, string>>({});
@@ -80,13 +88,13 @@ export function AdminReviewQueue() {
       return "applied" as const;
     } catch (error) {
       if (requestId !== queueRequestRef.current) return "superseded" as const;
-      if (leaveExpiredSession(error)) return "failed" as const;
+      if (leaveExpiredSession(error, navigate)) return "failed" as const;
       setLoadError(error instanceof Error ? error.message : "โหลดคิวตรวจสอบไม่สำเร็จ");
       return "failed" as const;
     } finally {
       if (requestId === queueRequestRef.current) setLoading(false);
     }
-  }, []);
+  }, [navigate]);
 
   useEffect(() => {
     void loadQueue();
@@ -103,7 +111,7 @@ export function AdminReviewQueue() {
     try {
       await openProtectedFile(path);
     } catch (error) {
-      if (leaveExpiredSession(error)) return;
+      if (leaveExpiredSession(error, navigate)) return;
       setRowErrors((current) => ({
         ...current,
         [rowKey]: error instanceof Error ? error.message : "เปิดไฟล์ไม่สำเร็จ",
@@ -139,7 +147,7 @@ export function AdminReviewQueue() {
         setNotice(`บันทึกผลใบสมัคร${trainerName}แล้ว แต่ยังโหลดคิวล่าสุดไม่ได้`);
       }
     } catch (error) {
-      if (leaveExpiredSession(error)) return;
+      if (leaveExpiredSession(error, navigate)) return;
       if (error instanceof ApiError && error.status === 409) {
         const refreshResult = await loadQueue();
         if (refreshResult === "applied") {
@@ -171,20 +179,26 @@ export function AdminReviewQueue() {
     setNotice("");
     setRowErrors((current) => ({ ...current, [rowKey]: "" }));
     try {
-      await authenticatedRequest(`/v1/admin/payments/${paymentId}/${decision}`, {
+      const result = await authenticatedRequest<PaymentDecisionResponse>(`/v1/admin/payments/${paymentId}/${decision}`, {
         method: "POST",
         body: JSON.stringify(decision === "approve" ? {} : { note }),
       });
       setResolvedPayments((current) => ({ ...current, [paymentId]: true }));
       const refreshResult = await loadQueue();
       if (refreshResult === "applied") {
-        setNotice(`${decision === "approve" ? "อนุมัติ" : "ไม่อนุมัติ"}สลิป ${paymentCode} แล้ว`);
+        if (decision === "approve") {
+          setNotice(`อนุมัติสลิป ${paymentCode} แล้ว`);
+        } else if (result.bookingStatus === "expired") {
+          setNotice(`สลิป ${paymentCode} ถูกปฏิเสธครั้งที่สองและคืนช่วงเวลาแล้ว`);
+        } else {
+          setNotice(`สลิป ${paymentCode} ไม่ผ่าน ให้สมาชิกส่งใหม่ภายใน 10 นาที`);
+        }
       } else if (refreshResult === "failed") {
         setRowErrors((current) => ({ ...current, [rowKey]: "บันทึกผลแล้ว แต่ยังโหลดคิวล่าสุดไม่ได้" }));
         setNotice(`บันทึกผลสลิป ${paymentCode} แล้ว แต่ยังโหลดคิวล่าสุดไม่ได้`);
       }
     } catch (error) {
-      if (leaveExpiredSession(error)) return;
+      if (leaveExpiredSession(error, navigate)) return;
       if (error instanceof ApiError && error.status === 409) {
         setResolvedPayments((current) => ({ ...current, [paymentId]: true }));
         const refreshResult = await loadQueue();
@@ -323,7 +337,7 @@ export function AdminReviewQueue() {
             ["สมาชิก", payment.memberName],
             ["เทรนเนอร์", payment.trainerName],
             ["วันและเวลานัด", appointment],
-            ["ราคาที่แจ้ง", formatPaymentAmount(payment.quotedPrice)],
+            ["ค่าฝึกต่อครั้ง", formatPaymentAmount(payment.quotedPrice)],
             ["ยอดที่โอน", formatPaymentAmount(payment.amount)],
             ["ส่วนต่าง", formatPaymentDifference(payment.difference)],
             ["ส่งหลักฐานเมื่อ", formatDateTime(payment.submittedAt)],

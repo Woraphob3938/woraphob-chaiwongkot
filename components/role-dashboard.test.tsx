@@ -5,6 +5,7 @@ import { authenticatedRequest } from "@/lib/api";
 import type { Booking } from "@/lib/types";
 
 vi.mock("@/lib/api", () => ({ authenticatedRequest: vi.fn() }));
+vi.mock("next/navigation", () => ({ useRouter: () => ({ push: vi.fn() }) }));
 vi.mock("@/components/admin-review-queue", () => ({ AdminReviewQueue: () => null }));
 vi.mock("@/components/trainer-workbench", () => ({
   TrainerWorkbench: ({ onIncompleteProfile }: { onIncompleteProfile?: () => void }) => (
@@ -20,7 +21,7 @@ function bookingFixture(id: string, overrides: Partial<Booking> = {}): Booking {
     endsAt: "2026-08-10T03:00:00.000Z",
     status: "awaiting_payment",
     paymentStatus: "not_submitted",
-    paymentDeadlineAt: "2026-08-10T02:10:00.000Z",
+    paymentDeadlineAt: "2099-08-10T02:10:00.000Z",
     quotedPrice: 1_200,
     chatRoomId: 7,
     payment: null,
@@ -54,7 +55,7 @@ const bookings = [
   }),
   bookingFixture("BK-OLDER", {
     trainer: { id: 6, slug: "trainer-f", displayName: "เทรนเนอร์ ฉ." },
-    status: "pending_trainer",
+    status: "expired",
     quotedPrice: null,
     chatRoomId: null,
     actions: { ...bookingFixture("unused").actions, canReadChat: false, canSendChat: false },
@@ -107,12 +108,29 @@ describe("member role dashboard", () => {
     expect(within(paymentSummary).getAllByText("เทรนเนอร์ ค.").length).toBeGreaterThan(0);
     expect(within(paymentSummary).getAllByText("1,200.00 บาท").length).toBeGreaterThan(0);
     expect(within(paymentSummary).getByRole("button", { name: "ส่งสลิปให้ตรวจ" })).toBeInTheDocument();
+    expect(within(paymentSummary).getByText("อัปโหลดสลิปภายใน 10 นาที")).toBeInTheDocument();
+    expect(within(paymentSummary).getByLabelText("เวลาที่เหลือสำหรับส่งสลิป")).toBeInTheDocument();
     expect(within(paymentSummary).getByRole("link", { name: "เปิดการสนทนา" })).toHaveAttribute("href", "/chat?booking=BK-PAY");
     expect(within(paymentSummary).getAllByRole("link", { name: "เปิดการสนทนา" })).toHaveLength(1);
 
     fireEvent.click(within(reviewSummary).getByText("ดูรายละเอียด"));
     expect(within(reviewSummary).getByRole("button", { name: "ส่งรีวิว" })).toBeInTheDocument();
     expect(within(reviewSummary).getAllByRole("button", { name: "ส่งรีวิว" })).toHaveLength(1);
+  });
+
+  it("explains an expired booking and never mounts the upload action", async () => {
+    vi.mocked(authenticatedRequest).mockResolvedValue([bookingFixture("BK-EXPIRED", {
+      status: "expired",
+      paymentDeadlineAt: null,
+      actions: { ...bookingFixture("unused").actions, canPay: false, canSendChat: false },
+    })]);
+
+    render(<RoleDashboard role="member" />);
+    const [summary] = await screen.findAllByTestId("booking-summary");
+    fireEvent.click(within(summary).getByText("ดูรายละเอียด"));
+
+    expect(within(summary).getByText("การจองหมดเวลา ช่วงเวลานี้ถูกคืนแล้ว")).toBeInTheDocument();
+    expect(within(summary).queryByLabelText("หลักฐานการโอน")).not.toBeInTheDocument();
   });
 
   it("mounts the next-action booking first and reveals every booking once through view-all", async () => {

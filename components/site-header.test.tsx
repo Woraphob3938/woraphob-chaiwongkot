@@ -1,6 +1,6 @@
 import { fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import { usePathname } from "next/navigation";
+import { usePathname, useRouter } from "next/navigation";
 import { apiRequest } from "@/lib/api";
 import { MobileRoleNav } from "@/components/mobile-role-nav";
 import { SiteHeader } from "@/components/site-header";
@@ -8,6 +8,7 @@ import type { AuthenticatedUser, UserRole } from "@/lib/types";
 
 vi.mock("next/navigation", () => ({
   usePathname: vi.fn(),
+  useRouter: vi.fn(),
 }));
 
 vi.mock("@/lib/api", async (importOriginal) => {
@@ -16,6 +17,8 @@ vi.mock("@/lib/api", async (importOriginal) => {
 });
 
 const mockedPathname = vi.mocked(usePathname);
+const push = vi.fn();
+vi.mocked(useRouter).mockReturnValue({ push } as unknown as ReturnType<typeof useRouter>);
 const mockedApiRequest = vi.mocked(apiRequest);
 
 function user(role: UserRole): AuthenticatedUser {
@@ -88,6 +91,7 @@ describe("SiteHeader", () => {
     localStorage.clear();
     mockedPathname.mockReturnValue("/");
     mockedApiRequest.mockReset();
+    push.mockReset();
   });
 
   it("keeps the authenticated account control and role workspace available", async () => {
@@ -105,6 +109,20 @@ describe("SiteHeader", () => {
     expect(screen.getByRole("link", { name: /พื้นที่ใช้งานของฉัน/ })).toHaveAttribute("href", "/member");
     expect(screen.getByRole("button", { name: /ออกจากระบบ/ })).toBeInTheDocument();
     await waitFor(() => expect(mockedApiRequest).toHaveBeenCalled());
+  });
+
+  it("signs out through Next navigation", async () => {
+    const member = user("member");
+    localStorage.setItem("fitconnect_token", "test-token");
+    localStorage.setItem("fitconnect_user", JSON.stringify(member));
+    mockedApiRequest.mockResolvedValue(member);
+
+    render(<SiteHeader />);
+    fireEvent.click(await screen.findByRole("button", { name: `เปิดเมนูบัญชีของ ${member.displayName}` }));
+    fireEvent.click(screen.getByRole("button", { name: /ออกจากระบบ/ }));
+
+    expect(push).toHaveBeenCalledWith("/");
+    expect(localStorage.getItem("fitconnect_token")).toBeNull();
   });
 
   it.each(["trainer", "admin"] as const)("hides member-only navigation from %s", async (role) => {

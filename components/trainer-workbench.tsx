@@ -1,6 +1,7 @@
 "use client";
 
 import Link from "next/link";
+import { useRouter } from "next/navigation";
 import { FormEvent, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { CalendarPlus, RefreshCw, Trash2 } from "lucide-react";
 import { NextActionCard } from "@/components/dashboard-primitives";
@@ -8,21 +9,30 @@ import { StatusBadge } from "@/components/status-badge";
 import { ApiError, authenticatedRequest } from "@/lib/api";
 import { getTrainerNextAction } from "@/lib/dashboard-actions";
 import { formatDateTime } from "@/lib/format";
-import type { Booking, TrainerAvailabilitySlot, TrainerWorkspace } from "@/lib/types";
+import type { Booking, SlotState, TrainerAvailabilitySlot, TrainerWorkspace } from "@/lib/types";
 
 function localInputValue(date: Date) {
   const pad = (value: number) => String(value).padStart(2, "0");
   return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())}T${pad(date.getHours())}:${pad(date.getMinutes())}`;
 }
 
-function leaveExpiredSession(error: unknown) {
+function leaveExpiredSession(error: unknown, navigate: (href: string) => void) {
   if (!(error instanceof ApiError) || error.status !== 401) return false;
   localStorage.removeItem("fitconnect_token");
-  window.location.assign("/login");
+  navigate("/login");
   return true;
 }
 
+const slotStateCopy: Record<SlotState, string> = {
+  available: "พร้อมจอง",
+  held: "ล็อกชั่วคราว",
+  booked: "ยืนยันแล้ว",
+  blocked: "ปิดช่วงเวลา",
+};
+
 export function TrainerWorkbench({ onIncompleteProfile }: { onIncompleteProfile?: () => void } = {}) {
+  const router = useRouter();
+  const navigate = router.push;
   const [workspace, setWorkspace] = useState<TrainerWorkspace | null>(null);
   const [bookings, setBookings] = useState<Booking[]>([]);
   const [workspaceError, setWorkspaceError] = useState("");
@@ -32,12 +42,10 @@ export function TrainerWorkbench({ onIncompleteProfile }: { onIncompleteProfile?
   const [availabilityError, setAvailabilityError] = useState("");
   const [fieldErrors, setFieldErrors] = useState<Record<string, string>>({});
   const [form, setForm] = useState({ startsAt: "", endsAt: "" });
-  const [quotedPrices, setQuotedPrices] = useState<Record<string, string>>({});
   const [busy, setBusy] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
   const [workspaceReady, setWorkspaceReady] = useState(false);
   const [bookingsReady, setBookingsReady] = useState(false);
-  const [showAllPending, setShowAllPending] = useState(false);
   const actionNoticeRef = useRef<HTMLParagraphElement>(null);
   const completionErrorRef = useRef<HTMLDivElement>(null);
   const onIncompleteProfileRef = useRef(onIncompleteProfile);
@@ -54,11 +62,11 @@ export function TrainerWorkbench({ onIncompleteProfile }: { onIncompleteProfile?
       setWorkspaceReady(true);
       if (data.profile === null) onIncompleteProfileRef.current?.();
     } catch (error) {
-      if (leaveExpiredSession(error)) return;
+      if (leaveExpiredSession(error, navigate)) return;
       setWorkspaceReady(false);
       setWorkspaceError(error instanceof Error ? error.message : "โหลดข้อมูลเทรนเนอร์ไม่สำเร็จ");
     }
-  }, []);
+  }, [navigate]);
 
   const refreshBookings = useCallback(async () => {
     try {
@@ -76,10 +84,10 @@ export function TrainerWorkbench({ onIncompleteProfile }: { onIncompleteProfile?
       await refreshBookings();
       setBookingError("");
     } catch (error) {
-      if (leaveExpiredSession(error)) return;
+      if (leaveExpiredSession(error, navigate)) return;
       setBookingError(error instanceof Error ? error.message : "โหลดคำขอจองไม่สำเร็จ");
     }
-  }, [refreshBookings]);
+  }, [navigate, refreshBookings]);
 
   useEffect(() => {
     const initialLoad = Promise.allSettled([
@@ -92,7 +100,7 @@ export function TrainerWorkbench({ onIncompleteProfile }: { onIncompleteProfile?
         setWorkspaceError("");
         setWorkspaceReady(true);
         if (workspaceResult.value.profile === null) onIncompleteProfileRef.current?.();
-      } else if (!leaveExpiredSession(workspaceResult.reason)) {
+      } else if (!leaveExpiredSession(workspaceResult.reason, navigate)) {
         setWorkspaceReady(false);
         setWorkspaceError(workspaceResult.reason instanceof Error ? workspaceResult.reason.message : "โหลดข้อมูลเทรนเนอร์ไม่สำเร็จ");
       }
@@ -101,13 +109,13 @@ export function TrainerWorkbench({ onIncompleteProfile }: { onIncompleteProfile?
         setBookings(bookingResult.value);
         setBookingError("");
         setBookingsReady(true);
-      } else if (!leaveExpiredSession(bookingResult.reason)) {
+      } else if (!leaveExpiredSession(bookingResult.reason, navigate)) {
         setBookingsReady(false);
         setBookingError(bookingResult.reason instanceof Error ? bookingResult.reason.message : "โหลดคำขอจองไม่สำเร็จ");
       }
       setLoading(false);
     });
-  }, []);
+  }, [navigate]);
 
   useEffect(() => {
     if (actionNotice) actionNoticeRef.current?.focus();
@@ -129,17 +137,8 @@ export function TrainerWorkbench({ onIncompleteProfile }: { onIncompleteProfile?
     return value;
   }, [now]);
   const approved = workspace?.profile?.approvalStatus === "approved";
-  const pendingBookings = bookingsReady ? bookings.filter((booking) => booking.status === "pending_trainer") : [];
   const confirmedBookings = bookingsReady ? bookings.filter((booking) => booking.status === "confirmed") : [];
   const nextAction = workspaceReady && bookingsReady ? getTrainerNextAction(workspace, bookings) : null;
-  const actionBookingId = nextAction?.href.match(/#booking-(.+)$/)?.[1];
-  const prioritizedPendingBookings = actionBookingId
-    ? [
-        ...pendingBookings.filter((booking) => booking.id === actionBookingId),
-        ...pendingBookings.filter((booking) => booking.id !== actionBookingId),
-      ]
-    : pendingBookings;
-  const visiblePendingBookings = showAllPending ? prioritizedPendingBookings : prioritizedPendingBookings.slice(0, 3);
   const slots = workspace?.slots ?? [];
   const todaySlotCount = slots.filter((slot) => {
     const startsAt = new Date(slot.startsAt);
@@ -168,7 +167,7 @@ export function TrainerWorkbench({ onIncompleteProfile }: { onIncompleteProfile?
       await loadWorkspace();
       setActionNotice("เพิ่มช่วงเวลาว่างแล้ว");
     } catch (error) {
-      if (leaveExpiredSession(error)) return;
+      if (leaveExpiredSession(error, navigate)) return;
       if (error instanceof ApiError) setFieldErrors(error.fields ?? {});
       setAvailabilityError(error instanceof Error ? error.message : "เพิ่มช่วงเวลาไม่สำเร็จ");
     } finally {
@@ -185,34 +184,8 @@ export function TrainerWorkbench({ onIncompleteProfile }: { onIncompleteProfile?
       await loadWorkspace();
       setActionNotice("ลบช่วงเวลาว่างแล้ว");
     } catch (error) {
-      if (leaveExpiredSession(error)) return;
+      if (leaveExpiredSession(error, navigate)) return;
       setAvailabilityError(error instanceof Error ? error.message : "ลบช่วงเวลาไม่สำเร็จ");
-    } finally {
-      setBusy(null);
-    }
-  }
-
-  async function decideBooking(bookingId: string, decision: "accept" | "reject") {
-    const target = decision === "accept" ? "awaiting_payment" : "cancelled";
-    setBusy(`booking-${bookingId}`);
-    setBookingError("");
-    setActionNotice("");
-    try {
-      await authenticatedRequest(`/v1/bookings/${encodeURIComponent(bookingId)}/status`, {
-        method: "PATCH",
-        body: JSON.stringify(decision === "accept"
-          ? { status: target, quotedPrice: quotedPrices[bookingId] ?? "" }
-          : { status: target }),
-      });
-      await Promise.all([loadWorkspace(), loadBookings()]);
-      setActionNotice(`${decision === "accept" ? "ตอบรับ" : "ปฏิเสธ"}คำขอ ${bookingId} แล้ว`);
-    } catch (error) {
-      if (leaveExpiredSession(error)) return;
-      setBookingError(error instanceof Error ? error.message : "บันทึกผลคำขอไม่สำเร็จ");
-      if (error instanceof ApiError && error.status === 409) {
-        setActionNotice("คำขอนี้ถูกเปลี่ยนสถานะแล้ว ระบบได้โหลดข้อมูลล่าสุดให้คุณ");
-        await Promise.all([loadWorkspace(), loadBookings()]);
-      }
     } finally {
       setBusy(null);
     }
@@ -235,13 +208,13 @@ export function TrainerWorkbench({ onIncompleteProfile }: { onIncompleteProfile?
         await refreshBookings();
         setBookingError("");
       } catch (error) {
-        if (leaveExpiredSession(error)) return;
+        if (leaveExpiredSession(error, navigate)) return;
         setCompletionError("บันทึกว่าฝึกเสร็จแล้ว แต่โหลดรายการล่าสุดไม่สำเร็จ กรุณาลองใหม่");
         return;
       }
       setActionNotice(`บันทึกว่าคำขอ ${bookingId} ฝึกเสร็จแล้ว`);
     } catch (error) {
-      if (leaveExpiredSession(error)) return;
+      if (leaveExpiredSession(error, navigate)) return;
       setCompletionError(error instanceof Error ? error.message : "บันทึกการฝึกเสร็จแล้วไม่สำเร็จ");
     } finally {
       setBusy(null);
@@ -258,59 +231,11 @@ export function TrainerWorkbench({ onIncompleteProfile }: { onIncompleteProfile?
       setCompletionError("");
       setActionNotice("โหลดรายการนัดหมายล่าสุดแล้ว");
     } catch (error) {
-      if (leaveExpiredSession(error)) return;
+      if (leaveExpiredSession(error, navigate)) return;
       setCompletionError("ยังโหลดรายการนัดหมายล่าสุดไม่สำเร็จ กรุณาลองใหม่");
     } finally {
       setBusy(null);
     }
-  }
-
-  function renderPendingBooking(booking: Booking) {
-    const isBusy = busy === `booking-${booking.id}`;
-    const rawQuote = quotedPrices[booking.id] ?? "";
-    const quoteAmount = Number(rawQuote);
-    const hasValidQuote = rawQuote.trim() !== "" && Number.isFinite(quoteAmount) && quoteAmount > 0;
-
-    return (
-      <details
-        className="trainer-booking-summary"
-        data-testid="trainer-booking-summary"
-        open={booking.id === actionBookingId || undefined}
-        id={`booking-${booking.id}`}
-        key={booking.id}
-      >
-        <summary>
-          <span><strong>{booking.member?.displayName ?? "สมาชิก FitConnect"}</strong><small>{booking.id}</small></span>
-          <span>{formatDateTime(booking.startsAt)}</span>
-          <span className="trainer-disclosure-label">ดูรายละเอียด</span>
-        </summary>
-        <article className="trainer-booking-card" aria-busy={isBusy}>
-          <dl>
-            <div><dt>วันและเวลา</dt><dd>{formatDateTime(booking.startsAt)}</dd></div>
-            <div><dt>หมายเหตุ</dt><dd>{booking.note || "ไม่มีหมายเหตุ"}</dd></div>
-          </dl>
-          <div>
-            <div className="field">
-              <label htmlFor={`quote-${booking.id}`}>ค่าฝึกสำหรับคำขอ {booking.id}</label>
-              <input
-                id={`quote-${booking.id}`}
-                type="number"
-                min="0.01"
-                step="0.01"
-                inputMode="decimal"
-                value={rawQuote}
-                disabled={isBusy}
-                onChange={(event) => setQuotedPrices((current) => ({ ...current, [booking.id]: event.target.value }))}
-              />
-            </div>
-            <div className="queue-actions">
-              <button type="button" disabled={isBusy || !hasValidQuote} aria-label={`ตอบรับคำขอ ${booking.id}`} onClick={() => void decideBooking(booking.id, "accept")}>{isBusy ? "กำลังบันทึก…" : "ตอบรับ"}</button>
-              <button type="button" disabled={isBusy} aria-label={`ปฏิเสธคำขอ ${booking.id}`} onClick={() => void decideBooking(booking.id, "reject")}>ปฏิเสธ</button>
-            </div>
-          </div>
-        </article>
-      </details>
-    );
   }
 
   function renderConfirmedBooking(booking: Booking) {
@@ -392,18 +317,7 @@ export function TrainerWorkbench({ onIncompleteProfile }: { onIncompleteProfile?
         <p>{upcomingSlots[0] ? `ช่วงเวลาถัดไป ${formatDateTime(upcomingSlots[0].startsAt)}` : "ยังไม่มีช่วงเวลาข้างหน้า"}</p>
       </section>
 
-      <section className="trainer-booking-list" aria-labelledby="trainer-requests-title">
-        <div className="section-line-heading"><div><h2 id="trainer-requests-title">คำขอที่รอคำตอบ</h2><p>เปิดรายละเอียดเฉพาะรายการที่ต้องตัดสินใจ</p></div><span className="queue-count">{bookingsReady ? String(pendingBookings.length).padStart(2, "0") : "—"}</span></div>
-        {bookingError && <div className="workbench-error" role="alert"><span>{bookingError}</span><button type="button" onClick={() => void loadBookings()}><RefreshCw aria-hidden="true" size={15} /> ลองใหม่</button></div>}
-        {visiblePendingBookings.slice(0, 3).map(renderPendingBooking)}
-        {pendingBookings.length > 3 && (
-          <details className="trainer-list-disclosure" onToggle={(event) => setShowAllPending(event.currentTarget.open)}>
-            <summary>ดูคำขอทั้งหมด</summary>
-            {showAllPending && visiblePendingBookings.slice(3).map(renderPendingBooking)}
-          </details>
-        )}
-        {bookingsReady && pendingBookings.length === 0 && <div className="empty-state"><strong>ไม่มีคำขอที่รอคำตอบ</strong><p>เมื่อสมาชิกส่งคำขอ รายละเอียดจะปรากฏที่นี่</p></div>}
-      </section>
+      {bookingError && <div className="workbench-error" role="alert"><span>{bookingError}</span><button type="button" onClick={() => void loadBookings()}><RefreshCw aria-hidden="true" size={15} /> ลองใหม่</button></div>}
 
       <details
         className="trainer-disclosure trainer-availability"
@@ -431,7 +345,7 @@ export function TrainerWorkbench({ onIncompleteProfile }: { onIncompleteProfile?
             const canDelete = slot.state === "available" && new Date(slot.startsAt).getTime() > now.getTime();
             return (
               <div className="trainer-slot-row" key={slot.id} aria-busy={busy === `slot-${slot.id}`}>
-                <span><strong>{formatDateTime(slot.startsAt)}</strong><small>{slot.state === "available" ? "สมาชิกจองได้" : "มีคำขอใช้ช่วงเวลานี้"}</small></span>
+                <span><strong>{formatDateTime(slot.startsAt)}</strong><small>{slotStateCopy[slot.state]}</small></span>
                 {canDelete && <button type="button" disabled={busy === `slot-${slot.id}`} onClick={() => void deleteSlot(slot.id)} aria-label={`ลบช่วงเวลา ${formatDateTime(slot.startsAt)}`}><Trash2 aria-hidden="true" size={16} /> ลบ</button>}
               </div>
             );

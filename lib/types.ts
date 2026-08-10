@@ -12,7 +12,6 @@ export type VerificationStatus = "verified" | "pending" | "rejected";
 export type TrainerApprovalStatus = "pending" | "approved" | "rejected";
 export type SlotState = "available" | "held" | "booked" | "blocked";
 export type BookingStatus =
-  | "pending_trainer"
   | "awaiting_payment"
   | "payment_review"
   | "confirmed"

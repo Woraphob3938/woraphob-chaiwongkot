@@ -4126,6 +4126,26 @@ body {
   border-top: 2px solid var(--color-ink);
 }
 
+.payment-deadline-row {
+  display: flex;
+  min-height: var(--size-control);
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-md);
+  padding: var(--space-sm) var(--space-lg);
+  color: var(--color-ink);
+  background: var(--color-paper-2);
+  border-top: 1px solid var(--color-rule);
+}
+
+.payment-deadline-row time,
+.payment-deadline-row [role="status"] {
+  margin: 0;
+  color: var(--color-focus);
+  font-family: var(--font-mono);
+  font-weight: 700;
+}
+
 .all-bookings-disclosure {
   scroll-margin-top: var(--space-xl);
 }
