@@ -39,7 +39,7 @@ ON DUPLICATE KEY UPDATE name = VALUES(name), issuer = VALUES(issuer), status = V
 
 INSERT INTO availability_slots (id, trainer_profile_id, starts_at, ends_at, state) VALUES
   (101, 1, '2026-08-03 02:00:00', '2026-08-03 03:00:00', 'available'),
-  (102, 1, '2026-08-03 10:00:00', '2026-08-03 11:00:00', 'held'),
+  (102, 1, '2026-08-03 10:00:00', '2026-08-03 11:00:00', 'available'),
   (103, 1, '2026-08-04 11:00:00', '2026-08-04 12:00:00', 'available'),
   (104, 1, '2026-08-05 03:00:00', '2026-08-05 04:00:00', 'available'),
   (201, 2, '2026-08-03 00:00:00', '2026-08-03 01:00:00', 'available'),
@@ -50,13 +50,13 @@ INSERT INTO availability_slots (id, trainer_profile_id, starts_at, ends_at, stat
 ON DUPLICATE KEY UPDATE state = VALUES(state);
 
 INSERT INTO bookings
-  (id, public_id, member_user_id, trainer_profile_id, availability_slot_id, starts_at, ends_at, member_note, status, payment_status, is_demo)
+  (id, public_id, member_user_id, trainer_profile_id, availability_slot_id, starts_at, ends_at, member_note, quoted_price, status, payment_status, payment_deadline_at, cancellation_reason, is_demo)
 VALUES
-  (1, 'BK-DEMO-001', 1, 1, 102, '2026-08-03 10:00:00', '2026-08-03 11:00:00', 'ข้อมูลสาธิต', 'awaiting_payment', 'not_submitted', 1)
-ON DUPLICATE KEY UPDATE status = VALUES(status), payment_status = VALUES(payment_status), is_demo = 1;
+  (1, 'BK-DEMO-001', 1, 1, 102, '2026-08-03 10:00:00', '2026-08-03 11:00:00', 'ข้อมูลสาธิต', 650, 'expired', 'not_submitted', '2026-08-03 10:10:00', 'หมดเวลาส่งหลักฐานการชำระเงิน', 1)
+ON DUPLICATE KEY UPDATE quoted_price = VALUES(quoted_price), status = VALUES(status), payment_status = VALUES(payment_status), payment_deadline_at = VALUES(payment_deadline_at), cancellation_reason = VALUES(cancellation_reason), is_demo = 1;
 
 INSERT IGNORE INTO booking_status_history (id, booking_id, from_status, to_status, changed_by_user_id, note)
-VALUES (1, 1, NULL, 'pending_trainer', 1, 'ข้อมูลสาธิต'), (2, 1, 'pending_trainer', 'awaiting_payment', 2, 'เทรนเนอร์สาธิตตอบรับ');
+VALUES (1, 1, NULL, 'awaiting_payment', 1, 'ข้อมูลสาธิต'), (2, 1, 'awaiting_payment', 'expired', NULL, 'หมดเวลาส่งหลักฐานการชำระเงิน');
 
 INSERT IGNORE INTO chat_rooms (id, booking_id) VALUES (1, 1);
 INSERT IGNORE INTO messages (id, chat_room_id, sender_user_id, message_text)
