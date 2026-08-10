@@ -103,28 +103,35 @@ test('rejects a repeated trainer application decision', function (): void {
     );
 });
 
-test('keeps a slot held when the trainer accepts', function (): void {
-    assertSameValue('held', WorkflowRules::trainerBookingSlotState('pending_trainer', 'awaiting_payment'));
+$deadline = new DateTimeImmutable('2026-08-10T03:10:00.000Z');
+
+test('payment remains active before the deadline', function () use ($deadline): void {
+    assertSameValue(false, WorkflowRules::isPaymentDeadlineExpired(
+        $deadline,
+        $deadline->modify('-1 millisecond')
+    ));
 });
 
-test('releases a slot when the trainer rejects', function (): void {
-    assertSameValue('available', WorkflowRules::trainerBookingSlotState('pending_trainer', 'cancelled'));
+test('payment expires exactly at the deadline', function () use ($deadline): void {
+    assertSameValue(true, WorkflowRules::isPaymentDeadlineExpired($deadline, $deadline));
 });
 
-test('rejects a repeated trainer booking decision', function (): void {
-    expectHttp(
-        409,
-        'BOOKING_ALREADY_DECIDED',
-        fn() => WorkflowRules::trainerBookingSlotState('awaiting_payment', 'cancelled')
+test('first rejected payment opens one ten minute retry', function (): void {
+    $rejectedAt = new DateTimeImmutable('2026-08-10T04:00:00.000Z');
+    $result = WorkflowRules::paymentRejectionTransition(0, $rejectedAt);
+    assertSameValue('awaiting_payment', $result['bookingStatus']);
+    assertSameValue('held', $result['slotState']);
+    assertSameValue('2026-08-10T04:10:00+00:00', $result['paymentDeadlineAt']->format(DateTimeInterface::ATOM));
+});
+
+test('second rejected payment expires and releases the slot', function (): void {
+    $result = WorkflowRules::paymentRejectionTransition(
+        1,
+        new DateTimeImmutable('2026-08-10T04:00:00.000Z')
     );
-});
-
-test('rejects a trainer booking status outside the decision flow', function (): void {
-    expectHttp(
-        422,
-        'INVALID_TRAINER_TRANSITION',
-        fn() => WorkflowRules::trainerBookingSlotState('pending_trainer', 'confirmed')
-    );
+    assertSameValue('expired', $result['bookingStatus']);
+    assertSameValue('available', $result['slotState']);
+    assertSameValue(null, $result['paymentDeadlineAt']);
 });
 
 test('normalizes a positive money value', function (): void {

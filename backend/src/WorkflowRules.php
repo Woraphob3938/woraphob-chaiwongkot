@@ -83,6 +83,32 @@ final class WorkflowRules
         return $target === 'cancelled' ? 'available' : 'held';
     }
 
+    public static function isPaymentDeadlineExpired(
+        DateTimeImmutable $deadline,
+        DateTimeImmutable $now
+    ): bool {
+        return $now >= $deadline;
+    }
+
+    public static function paymentRejectionTransition(
+        int $priorRejectedCount,
+        DateTimeImmutable $now
+    ): array {
+        if ($priorRejectedCount === 0) {
+            return [
+                'bookingStatus' => 'awaiting_payment',
+                'slotState' => 'held',
+                'paymentDeadlineAt' => $now->modify('+10 minutes'),
+            ];
+        }
+
+        return [
+            'bookingStatus' => 'expired',
+            'slotState' => 'available',
+            'paymentDeadlineAt' => null,
+        ];
+    }
+
     public static function normalizeMoney(mixed $value, string $field): string
     {
         $raw = trim((string) $value);
