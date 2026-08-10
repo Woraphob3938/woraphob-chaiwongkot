@@ -29,6 +29,7 @@ const bookingStatusCopy: Record<Booking["status"], string> = {
   confirmed: "ยืนยันการชำระแล้ว",
   completed: "ฝึกเสร็จแล้ว",
   cancelled: "ยกเลิกแล้ว",
+  expired: "หมดเวลาแล้ว",
 };
 
 const paymentStatusCopy: Record<Booking["paymentStatus"], string> = {

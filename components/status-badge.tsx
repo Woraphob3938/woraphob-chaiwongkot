@@ -13,6 +13,7 @@ const labels: Record<Status, string> = {
   confirmed: "ยืนยันการชำระแล้ว",
   completed: "ฝึกเสร็จแล้ว",
   cancelled: "ยกเลิกแล้ว",
+  expired: "หมดเวลาแล้ว",
   reviewing: "กำลังตรวจสอบ",
   approved: "อนุมัติแล้ว",
 };
@@ -29,13 +30,14 @@ const iconByStatus: Record<Status, LucideIcon> = {
   reviewing: Clock3,
   rejected: CircleX,
   cancelled: CircleX,
+  expired: CircleX,
 };
 
 export function StatusBadge({ status }: { status: Status }) {
   const Icon = iconByStatus[status];
   const tone = ["verified", "approved", "confirmed", "completed"].includes(status)
     ? "success"
-    : ["rejected", "cancelled"].includes(status)
+    : ["rejected", "cancelled", "expired"].includes(status)
       ? "error"
       : "warning";
 

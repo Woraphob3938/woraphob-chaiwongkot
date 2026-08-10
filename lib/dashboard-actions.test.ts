@@ -44,7 +44,7 @@ describe("getMemberNextAction", () => {
       pendingBooking,
       { ...booking, id: "BK-PAYMENT", status: "payment_review" },
       { ...booking, id: "BK-CONFIRMED", status: "confirmed" },
-    ])).toMatchObject({ href: "/member#booking-BK-PAY", cta: "อัปโหลดสลิป", state: "action" });
+    ])).toMatchObject({ href: "/member#booking-BK-PAY", cta: "อัปโหลดสลิป", description: "ส่งสลิปก่อนหมดเวลา · คำขอ BK-PAY", state: "action" });
   });
 
   it("prioritizes an actionable review over all lower member states", () => {
@@ -56,12 +56,12 @@ describe("getMemberNextAction", () => {
     ])).toMatchObject({ href: "/member#booking-BK-REVIEW", cta: "เขียนรีวิว", state: "action" });
   });
 
-  it("shows pending trainer before payment review and confirmed appointments", () => {
+  it("ignores the transitional pending trainer state and shows payment review", () => {
     expect(getMemberNextAction([
       { ...booking, id: "BK-PAYMENT", status: "payment_review" },
       { ...booking, id: "BK-CONFIRMED", status: "confirmed" },
       pendingBooking,
-    ])).toMatchObject({ href: "/member#booking-BK-PENDING", cta: "ดูคำขอ", state: "waiting" });
+    ])).toMatchObject({ href: "/member#booking-BK-PAYMENT", cta: "ดูสถานะ", state: "waiting" });
   });
 
   it("shows payment review before a confirmed appointment", () => {
@@ -81,8 +81,8 @@ describe("getTrainerNextAction", () => {
     expect(getTrainerNextAction(null, [])).toMatchObject({ href: "/trainer/apply", cta: "กรอกข้อมูลวิชาชีพ" });
   });
 
-  it("prioritizes a pending booking over missing availability", () => {
-    expect(getTrainerNextAction({ ...workspace, slots: [] }, [pendingBooking])).toMatchObject({ href: "/trainer#booking-BK-PENDING", state: "action" });
+  it("does not ask trainers to accept transitional pending bookings", () => {
+    expect(getTrainerNextAction({ ...workspace, slots: [] }, [pendingBooking])).toMatchObject({ href: "/trainer#availability", state: "action" });
   });
 
   it("keeps a pending application in a reachable waiting state", () => {

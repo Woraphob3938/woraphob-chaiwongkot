@@ -89,6 +89,7 @@ export const demoBookings: Booking[] = [
     endsAt: trainers[0].slots[1].endsAt,
     status: "payment_review",
     paymentStatus: "reviewing",
+    paymentDeadlineAt: null,
     quotedPrice: 850,
     chatRoomId: null,
     payment: {

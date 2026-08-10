@@ -17,7 +17,8 @@ export type BookingStatus =
   | "payment_review"
   | "confirmed"
   | "completed"
-  | "cancelled";
+  | "cancelled"
+  | "expired";
 
 export type PaymentSummary = {
   id: number;
@@ -158,6 +159,7 @@ export type Booking = {
   endsAt: string;
   status: BookingStatus;
   paymentStatus: "not_submitted" | "reviewing" | "approved" | "rejected";
+  paymentDeadlineAt: string | null;
   quotedPrice: number | null;
   chatRoomId: number | null;
   payment: PaymentSummary | null;
@@ -167,6 +169,13 @@ export type Booking = {
   demo: boolean;
   member?: { displayName: string };
   note?: string;
+};
+
+export type CreateBookingResponse = {
+  id: string;
+  status: "awaiting_payment";
+  quotedPrice: number;
+  paymentDeadlineAt: string;
 };
 
 export type ApiEnvelope<T> = {

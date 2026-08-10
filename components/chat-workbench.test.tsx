@@ -20,6 +20,7 @@ function bookingFixture(overrides: Partial<Booking> = {}): Booking {
     note: "เน้นฝึกท่าพื้นฐาน",
     status: "confirmed",
     paymentStatus: "approved",
+    paymentDeadlineAt: null,
     quotedPrice: 1_200,
     chatRoomId: 11,
     payment: null,

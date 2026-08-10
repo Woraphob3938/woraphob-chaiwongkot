@@ -22,6 +22,7 @@ function bookingFixture(overrides: Partial<Booking> = {}): Booking {
     endsAt: "2026-08-10T03:00:00.000Z",
     status: "awaiting_payment",
     paymentStatus: "not_submitted",
+    paymentDeadlineAt: "2026-08-10T02:10:00.000Z",
     quotedPrice: 1_200,
     chatRoomId: 7,
     payment: null,

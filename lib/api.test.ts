@@ -11,6 +11,7 @@ const expandedBooking: Booking = {
   note: "มีอาการเจ็บเข่า",
   status: "payment_review",
   paymentStatus: "reviewing",
+  paymentDeadlineAt: null,
   quotedPrice: 1_200,
   chatRoomId: 8,
   payment: {

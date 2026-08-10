@@ -8,6 +8,7 @@ describe("StatusBadge", () => {
     ["payment_review", "รอตรวจสลิป"],
     ["confirmed", "ยืนยันการชำระแล้ว"],
     ["completed", "ฝึกเสร็จแล้ว"],
+    ["expired", "หมดเวลาแล้ว"],
   ] as const)("renders the exact workflow label for %s", (status, label) => {
     const { container } = render(<StatusBadge status={status} />);
 

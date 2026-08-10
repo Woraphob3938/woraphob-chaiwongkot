@@ -36,6 +36,7 @@ function bookingFixture(overrides: Partial<Booking> = {}): Booking {
     note: "มีอาการเจ็บเข่า",
     status: "pending_trainer",
     paymentStatus: "not_submitted",
+    paymentDeadlineAt: null,
     quotedPrice: null,
     chatRoomId: null,
     payment: null,

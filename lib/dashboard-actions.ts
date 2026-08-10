@@ -10,13 +10,10 @@ export type DashboardAction = {
 
 export function getMemberNextAction(bookings: Booking[]): DashboardAction {
   const payment = bookings.find((booking) => booking.actions.canPay);
-  if (payment) return { title: "ส่งหลักฐานการชำระเงิน", description: `คำขอ ${payment.id}`, href: `/member#booking-${payment.id}`, cta: "อัปโหลดสลิป", state: "action" };
+  if (payment) return { title: "ส่งหลักฐานการชำระเงิน", description: `ส่งสลิปก่อนหมดเวลา · คำขอ ${payment.id}`, href: `/member#booking-${payment.id}`, cta: "อัปโหลดสลิป", state: "action" };
 
   const review = bookings.find((booking) => booking.actions.canReview);
   if (review) return { title: "แบ่งปันผลการฝึก", description: `คำขอ ${review.id}`, href: `/member#booking-${review.id}`, cta: "เขียนรีวิว", state: "action" };
-
-  const pending = bookings.find((booking) => booking.status === "pending_trainer");
-  if (pending) return { title: "รอเทรนเนอร์ตอบรับ", description: `คำขอ ${pending.id}`, href: `/member#booking-${pending.id}`, cta: "ดูคำขอ", state: "waiting" };
 
   const paymentReview = bookings.find((booking) => booking.status === "payment_review");
   if (paymentReview) return { title: "รอผู้ดูแลตรวจหลักฐาน", description: `คำขอ ${paymentReview.id}`, href: `/member#booking-${paymentReview.id}`, cta: "ดูสถานะ", state: "waiting" };
@@ -28,6 +25,7 @@ export function getMemberNextAction(bookings: Booking[]): DashboardAction {
 }
 
 export function getTrainerNextAction(workspace: TrainerWorkspace | null, bookings: Booking[]): DashboardAction {
+  void bookings;
   if (!workspace?.profile) {
     return { title: "กรอกข้อมูลวิชาชีพให้ครบ", description: "บัญชีพร้อมแล้ว เหลือข้อมูลการให้บริการและใบรับรอง", href: "/trainer/apply", cta: "กรอกข้อมูลวิชาชีพ", state: "action" };
   }
@@ -51,9 +49,6 @@ export function getTrainerNextAction(workspace: TrainerWorkspace | null, booking
       state: "action",
     };
   }
-
-  const pending = bookings.find((booking) => booking.status === "pending_trainer");
-  if (pending) return { title: "ตอบรับคำขอจอง", description: `คำขอ ${pending.id}`, href: `/trainer#booking-${pending.id}`, cta: "ตรวจคำขอ", state: "action" };
 
   if (workspace.slots.length === 0) {
     return { title: "เพิ่มช่วงเวลาว่าง", description: "กำหนดตารางเพื่อให้สมาชิกจองได้", href: "/trainer#availability", cta: "เพิ่มช่วงเวลาว่าง", state: "action" };
