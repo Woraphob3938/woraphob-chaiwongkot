@@ -6,6 +6,7 @@ import { CircleAlert, LoaderCircle, RefreshCw } from "lucide-react";
 import { ProfileIdentity } from "@/components/profile-identity";
 import { MemberProfileForm } from "@/components/member-profile-form";
 import { TrainerAccountForm } from "@/components/trainer-account-form";
+import { PasswordForm } from "@/components/password-form";
 import { authenticatedRequest } from "@/lib/api";
 import type { AccountProfile } from "@/lib/types";
 
@@ -96,6 +97,7 @@ export function ProfileWorkbench() {
       {state.profile.role === "member"
         ? <MemberProfileForm profile={state.profile} onSaved={updateProfile} />
         : <TrainerAccountForm profile={state.profile} onSaved={updateProfile} />}
+      <PasswordForm />
     </main>
   );
 }

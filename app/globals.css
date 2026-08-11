@@ -662,6 +662,10 @@ body {
   overflow-wrap: anywhere;
 }
 
+.password-section {
+  max-width: 52rem;
+}
+
 @media (max-width: 48rem) {
   .profile-section__heading,
   .profile-readonly-block > div,

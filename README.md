@@ -31,6 +31,20 @@ npm run dev
 
 สคริปต์ตรวจสอบตำแหน่งทั้งหมดก่อนทำงานและจะไม่เขียนทับ `C:\xampp\htdocs\fitconnect-api` หากมีของเดิมอยู่แล้ว
 
+### เตรียมข้อมูลโปรไฟล์
+
+เปิด Apache และ MySQL ก่อน จากนั้นรัน migration หนึ่งครั้ง สคริปต์จะสำรองฐานข้อมูลไว้สำหรับกู้คืนก่อนแก้โครงสร้างตาราง:
+
+```powershell
+npm run migrate:member-profile
+```
+
+ตรวจการแก้โปรไฟล์ อัปโหลดรูป เปลี่ยนรหัสผ่าน และข้อมูลที่บันทึกจริงใน MySQL:
+
+```powershell
+powershell -NoProfile -ExecutionPolicy Bypass -File scripts/api-profile-smoke.ps1 -Scenario all
+```
+
 ก่อนใช้ระบบจองแบบล็อกเวลา 10 นาที ให้ตรวจและอัปเกรดฐานข้อมูล คำสั่ง migration จะสร้างไฟล์สำรองไว้นอก repository ที่ `C:\xampp\fitconnect-backups` ก่อนแก้ schema:
 
 ```powershell

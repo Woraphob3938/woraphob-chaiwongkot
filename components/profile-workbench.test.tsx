@@ -58,6 +58,7 @@ describe("ProfileWorkbench", () => {
     expect(screen.getByText("กำลังโหลดโปรไฟล์")).toBeInTheDocument();
     expect(await screen.findByRole("heading", { name: heading })).toBeInTheDocument();
     expect(screen.getByText(profile.user.email)).toBeInTheDocument();
+    expect(screen.getByRole("heading", { name: "ความปลอดภัย" })).toBeInTheDocument();
     expect(authenticatedRequest).toHaveBeenCalledWith("/v1/profile");
   });
 
