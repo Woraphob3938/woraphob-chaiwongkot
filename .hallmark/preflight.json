@@ -1,19 +1,28 @@
 {
-  "scannedAt": "2026-07-31",
-  "projectState": "empty-greenfield",
-  "framework": null,
-  "packageManager": null,
-  "designSystem": null,
-  "tokens": null,
+  "scannedAt": "2026-08-11",
+  "projectState": "established-design-system",
+  "framework": "Next.js 16.3 App Router with React 19 and TypeScript",
+  "packageManager": "npm",
+  "designSystem": "FitConnect Athlete Credential (DESIGN.md)",
+  "tokens": "tokens.css imported by app/globals.css",
   "motionLibrary": null,
-  "signals": [],
-  "preserve": [],
-  "introduce": [
-    "full token system",
-    "macrostructure",
-    "microinteraction discipline",
-    "responsive and accessibility gates",
-    "slop-test gates"
+  "signals": [
+    "next/font: Chakra Petch, Bai Jamjuree, JetBrains Mono",
+    "locked forest, lime, paper and status tokens",
+    "4-point semantic spacing scale",
+    "native disclosure and shadcn/Radix primitives"
   ],
-  "note": "No pre-flight signals — proceeding with full Hallmark stack."
+  "preserve": [
+    "locked typography",
+    "locked palette and tokens",
+    "existing spacing scale",
+    "restrained native motion",
+    "role-aware dashboard hierarchy"
+  ],
+  "introduce": [
+    "weekly trainer schedule composition",
+    "three-zone admin review workbench",
+    "responsive and accessibility regression coverage"
+  ],
+  "note": "Established FitConnect world detected; dashboard work extends the locked system."
 }

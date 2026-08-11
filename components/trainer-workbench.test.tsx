@@ -82,6 +82,47 @@ describe("TrainerWorkbench", () => {
     expect(actionTitle.compareDocumentPosition(overviewHeading) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
   });
 
+  it("shows availability and confirmed appointments in a seven-day weekly workspace", async () => {
+    const startsAt = new Date();
+    startsAt.setDate(startsAt.getDate() + 1);
+    startsAt.setHours(9, 0, 0, 0);
+    const endsAt = new Date(startsAt);
+    endsAt.setHours(10, 0, 0, 0);
+    const bookingStartsAt = new Date(startsAt);
+    bookingStartsAt.setHours(11, 0, 0, 0);
+    const bookingEndsAt = new Date(startsAt);
+    bookingEndsAt.setHours(12, 0, 0, 0);
+    vi.mocked(authenticatedRequest)
+      .mockResolvedValueOnce({
+        ...approvedWorkspace,
+        slots: [
+          { id: 80, startsAt: startsAt.toISOString(), endsAt: endsAt.toISOString(), state: "available" },
+          { id: 81, startsAt: startsAt.toISOString(), endsAt: endsAt.toISOString(), state: "held" },
+        ],
+      })
+      .mockResolvedValueOnce([
+        bookingFixture({
+          id: "BK-WEEK",
+          startsAt: bookingStartsAt.toISOString(),
+          endsAt: bookingEndsAt.toISOString(),
+          status: "confirmed",
+          paymentStatus: "approved",
+        }),
+      ]);
+
+    render(<TrainerWorkbench />);
+
+    const weeklySchedule = await screen.findByRole("region", { name: "ตารางรายสัปดาห์" });
+    expect(within(weeklySchedule).getAllByRole("group")).toHaveLength(7);
+    expect(within(weeklySchedule).getAllByText("พร้อมจอง")).not.toHaveLength(0);
+    expect(within(weeklySchedule).getAllByText("ล็อกชั่วคราว")).not.toHaveLength(0);
+    expect(within(weeklySchedule).getByText("สมาชิกทดสอบ")).toBeInTheDocument();
+    expect(within(weeklySchedule).getByText("BK-WEEK")).toBeInTheDocument();
+    expect(within(weeklySchedule).getByRole("button", { name: "สัปดาห์ก่อนหน้า" })).toBeInTheDocument();
+    expect(within(weeklySchedule).getByRole("button", { name: "สัปดาห์ถัดไป" })).toBeInTheDocument();
+
+  });
+
   it("shows the application next action when the trainer has no profile", async () => {
     vi.mocked(authenticatedRequest)
       .mockResolvedValueOnce({ profile: null, certificates: [], slots: [] })
@@ -103,7 +144,7 @@ describe("TrainerWorkbench", () => {
 
     render(<TrainerWorkbench />);
 
-    expect(await screen.findByText("ล็อกชั่วคราว")).toBeInTheDocument();
+    expect(await screen.findAllByText("ล็อกชั่วคราว")).not.toHaveLength(0);
     expect(screen.queryByRole("button", { name: /ตอบรับคำขอ|ปฏิเสธคำขอ/ })).not.toBeInTheDocument();
     expect(screen.queryByLabelText(/ค่าฝึกสำหรับคำขอ/)).not.toBeInTheDocument();
     expect(screen.queryByRole("button", { name: /ลบช่วงเวลา/ })).not.toBeInTheDocument();

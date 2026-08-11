@@ -54,6 +54,7 @@ export function AdminReviewQueue() {
   const [loadError, setLoadError] = useState("");
   const [notice, setNotice] = useState("");
   const [busyRows, setBusyRows] = useState<Record<string, "file" | "approve" | "reject" | "refresh">>({});
+  const [selectedReviewKey, setSelectedReviewKey] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
   const noticeRef = useRef<HTMLParagraphElement>(null);
   const queueRequestRef = useRef(0);
@@ -78,6 +79,11 @@ export function AdminReviewQueue() {
       const nextQueue = await authenticatedRequest<AdminQueue>("/v1/admin/review-queue");
       if (requestId !== queueRequestRef.current) return "superseded" as const;
       setQueue(nextQueue);
+      const availableKeys = [
+        ...nextQueue.trainers.map((trainer) => `trainer-${trainer.id}`),
+        ...nextQueue.payments.map((payment) => `payment-${payment.id}`),
+      ];
+      setSelectedReviewKey((current) => current && availableKeys.includes(current) ? current : (availableKeys[0] ?? null));
       setResolvedPayments((current) => {
         const next = { ...current };
         for (const id of Object.keys(next)) {
@@ -248,6 +254,36 @@ export function AdminReviewQueue() {
   }
 
   const currentQueue = queue ?? { trainers: [], payments: [] };
+  const reviewItems = [
+    ...currentQueue.trainers.map((trainer) => ({
+      key: `trainer-${trainer.id}`,
+      id: trainer.id,
+      type: "trainer" as const,
+      code: `TR-${String(trainer.id).padStart(6, "0")}`,
+      title: trainer.displayName,
+      detail: `${trainer.certificates.length} เอกสาร`,
+      submittedAt: trainer.submittedAt,
+    })),
+    ...currentQueue.payments.map((payment) => ({
+      key: `payment-${payment.id}`,
+      id: payment.id,
+      type: "payment" as const,
+      code: `PAY-${String(payment.id).padStart(6, "0")}`,
+      title: `คำขอจอง ${payment.bookingId}`,
+      detail: payment.memberName,
+      submittedAt: payment.submittedAt,
+    })),
+  ];
+  const activeReviewKey = selectedReviewKey && reviewItems.some((item) => item.key === selectedReviewKey)
+    ? selectedReviewKey
+    : (reviewItems[0]?.key ?? null);
+  const selectedTrainer = activeReviewKey?.startsWith("trainer-")
+    ? currentQueue.trainers.find((trainer) => `trainer-${trainer.id}` === activeReviewKey) ?? null
+    : null;
+  const selectedPayment = activeReviewKey?.startsWith("payment-")
+    ? currentQueue.payments.find((payment) => `payment-${payment.id}` === activeReviewKey) ?? null
+    : null;
+  const selectedRowBusy = activeReviewKey ? busyRows[activeReviewKey] : undefined;
 
   return (
     <div className="admin-board">
@@ -258,175 +294,153 @@ export function AdminReviewQueue() {
         <div><span>สลิปรอตรวจ</span><strong>{String(currentQueue.payments.length).padStart(2, "0")}</strong></div>
       </section>
 
-      <section id="review-queue" className="verification-queue" aria-labelledby="review-queue-title">
-        <div className="section-line-heading">
-          <div><h2 id="review-queue-title">รายการที่ต้องตัดสินใจ</h2></div>
+      <section id="review-queue" className="admin-review-workbench" aria-labelledby="review-queue-title">
+        <header className="admin-review-workbench__heading">
+          <div>
+            <h2 id="review-queue-title">โต๊ะตรวจสอบ</h2>
+            <p>เลือกหนึ่งรายการ ตรวจหลักฐาน แล้วบันทึกคำตัดสิน</p>
+          </div>
           <span>{loading ? "กำลังอัปเดต" : "ข้อมูลจากระบบ"}</span>
-        </div>
+        </header>
         {notice && <p ref={noticeRef} className="queue-notice" role="status" tabIndex={-1}>{notice}</p>}
 
-        <details className="admin-queue-disclosure">
-          <summary>
-            <span><strong>ใบสมัครเทรนเนอร์</strong><small>ตรวจคุณสมบัติและเอกสารรับรอง</small></span>
-            <span>{currentQueue.trainers.length} รายการ</span>
-          </summary>
-          <div className="admin-queue-disclosure__content">
-            {currentQueue.trainers.map((trainer) => {
-          const rowKey = `trainer-${trainer.id}`;
-          const isBusy = Boolean(busyRows[rowKey]);
-          return (
-            <article className="verification-row verification-row--trainer" key={rowKey} aria-busy={isBusy}>
-              <div className="review-applicant">
-                <span>TR-{String(trainer.id).padStart(6, "0")}</span>
-                <strong>{trainer.displayName}</strong>
-                <small>ส่งเมื่อ {formatDateTime(trainer.submittedAt)}</small>
-                <ul className="certificate-list" aria-label={`เอกสารของ${trainer.displayName}`}>
-                  {trainer.certificates.map((certificate) => (
-                    <li key={certificate.id}>
-                      <div>
-                        <FileText aria-hidden="true" size={17} />
-                        <span><strong>{certificate.name}</strong><small>{certificate.issuer} · {formatDateTime(certificate.submittedAt)}</small></span>
-                      </div>
-                      <button className="certificate-action" type="button" disabled={isBusy} onClick={() => void openFile(certificate.fileUrl, rowKey)}>
-                        เปิด PDF
+        {reviewItems.length > 0 ? (
+          <div className="admin-workbench-grid">
+            <nav className="admin-workbench-queue" aria-label="คิวรายการรอตรวจ">
+              <header><h3>คิวรายการรอตรวจ</h3><span>{reviewItems.length}</span></header>
+              <ol>
+                {reviewItems.map((item) => (
+                  <li key={item.key}>
+                    <button
+                      type="button"
+                      aria-label={item.type === "trainer" ? `เลือกตรวจใบสมัคร ${item.title}` : `เลือกตรวจสลิป ${item.code}`}
+                      aria-current={activeReviewKey === item.key ? "true" : undefined}
+                      disabled={Boolean(busyRows[item.key]) || (item.type === "payment" && Boolean(resolvedPayments[item.id]))}
+                      onClick={() => setSelectedReviewKey(item.key)}
+                    >
+                      <span><strong>{item.code}</strong><small>{item.type === "trainer" ? "ใบสมัครเทรนเนอร์" : "หลักฐานการชำระเงิน"}</small></span>
+                      <span><strong>{item.title}</strong><small>{item.detail} · {formatDateTime(item.submittedAt)}</small></span>
+                    </button>
+                  </li>
+                ))}
+              </ol>
+            </nav>
+
+            {selectedTrainer && (() => {
+              const rowKey = `trainer-${selectedTrainer.id}`;
+              const isBusy = Boolean(busyRows[rowKey]);
+              return (
+                <>
+                  <section className="admin-evidence-panel" aria-label={`หลักฐานของ${selectedTrainer.displayName}`} aria-busy={isBusy}>
+                    <header>
+                      <div><span>TR-{String(selectedTrainer.id).padStart(6, "0")}</span><h3>{selectedTrainer.displayName}</h3></div>
+                      <StatusBadge status="pending" />
+                    </header>
+                    <dl className="admin-evidence-facts">
+                      <div><dt>ส่งใบสมัครเมื่อ</dt><dd>{formatDateTime(selectedTrainer.submittedAt)}</dd></div>
+                      <div><dt>เอกสารรับรอง</dt><dd>{selectedTrainer.certificates.length} รายการ</dd></div>
+                    </dl>
+                    <ul className="certificate-list" aria-label={`เอกสารของ${selectedTrainer.displayName}`}>
+                      {selectedTrainer.certificates.map((certificate) => (
+                        <li key={certificate.id}>
+                          <div>
+                            <FileText aria-hidden="true" size={17} />
+                            <span><strong>{certificate.name}</strong><small>{certificate.issuer} · {formatDateTime(certificate.submittedAt)}</small></span>
+                          </div>
+                          <button className="certificate-action" type="button" disabled={isBusy} onClick={() => void openFile(certificate.fileUrl, rowKey)}>
+                            {busyRows[rowKey] === "file" ? "กำลังเปิด…" : "เปิด PDF"}
+                          </button>
+                        </li>
+                      ))}
+                    </ul>
+                    {selectedTrainer.certificates.length === 0 && <div className="empty-state"><strong>ไม่มีเอกสารรับรอง</strong></div>}
+                  </section>
+                  <aside className="admin-decision-panel" aria-label={`คำตัดสินสำหรับ${selectedTrainer.displayName}`} aria-busy={isBusy}>
+                    <header><h3>คำตัดสิน</h3><StatusBadge status="pending" /></header>
+                    <label className="review-note">
+                      <span>หมายเหตุสำหรับ{selectedTrainer.displayName}</span>
+                      <textarea
+                        value={notes[selectedTrainer.id] ?? ""}
+                        onChange={(event) => setNotes((current) => ({ ...current, [selectedTrainer.id]: event.target.value }))}
+                        disabled={isBusy}
+                        rows={5}
+                        placeholder="ใช้แจ้งเหตุผลเมื่อปฏิเสธ หรือบันทึกประกอบการอนุมัติ"
+                      />
+                    </label>
+                    {rowErrors[rowKey] && <p className="row-error" role="alert">{rowErrors[rowKey]}</p>}
+                    <div className="queue-actions">
+                      <button type="button" disabled={isBusy} onClick={() => void decideTrainer(selectedTrainer.id, "approve")}>{selectedRowBusy === "approve" ? "กำลังบันทึก…" : "อนุมัติ"}</button>
+                      <button type="button" disabled={isBusy} onClick={() => void decideTrainer(selectedTrainer.id, "reject")}>{selectedRowBusy === "reject" ? "กำลังบันทึก…" : "ปฏิเสธ"}</button>
+                    </div>
+                  </aside>
+                </>
+              );
+            })()}
+
+            {selectedPayment && (() => {
+              const rowKey = `payment-${selectedPayment.id}`;
+              const paymentCode = `PAY-${String(selectedPayment.id).padStart(6, "0")}`;
+              const busyAction = busyRows[rowKey];
+              const isBusy = Boolean(busyAction);
+              const isResolved = Boolean(resolvedPayments[selectedPayment.id]);
+              const evidence = [
+                ["สมาชิก", selectedPayment.memberName],
+                ["เทรนเนอร์", selectedPayment.trainerName],
+                ["วันและเวลานัด", `${formatDateTime(selectedPayment.startsAt)} ถึง ${formatDateTime(selectedPayment.endsAt)}`],
+                ["ค่าฝึกต่อครั้ง", formatPaymentAmount(selectedPayment.quotedPrice)],
+                ["ยอดที่โอน", formatPaymentAmount(selectedPayment.amount)],
+                ["ส่วนต่าง", formatPaymentDifference(selectedPayment.difference)],
+                ["ส่งหลักฐานเมื่อ", formatDateTime(selectedPayment.submittedAt)],
+                ["สถานะ", "รอตรวจหลักฐาน"],
+              ];
+              return (
+                <>
+                  <section className="admin-evidence-panel" aria-label={`หลักฐานของสลิป ${paymentCode}`} aria-busy={isBusy}>
+                    <article aria-label={`ตรวจสลิป ${paymentCode}`}>
+                      <header>
+                        <div><span>{paymentCode}</span><h3 style={wrapAnywhereStyle}>คำขอจอง {selectedPayment.bookingId}</h3></div>
+                        <StatusBadge status="reviewing" />
+                      </header>
+                      <p>ผู้ดูแลกำลังตรวจหลักฐาน</p>
+                      <dl className="admin-evidence-facts admin-evidence-facts--payment">
+                        {evidence.map(([label, value]) => (
+                          <div key={label}><dt>{label}</dt><dd style={wrapAnywhereStyle}>{value}</dd></div>
+                        ))}
+                      </dl>
+                      <button className="certificate-action admin-slip-action" type="button" aria-label={`เปิดสลิป ${paymentCode}`} disabled={isBusy || isResolved} onClick={() => void openFile(selectedPayment.fileUrl, rowKey)}>
+                        {busyAction === "file" ? "กำลังเปิด…" : "เปิดสลิป"}
                       </button>
-                    </li>
-                  ))}
-                </ul>
-                <label className="review-note">
-                  <span>หมายเหตุสำหรับ{trainer.displayName}</span>
-                  <textarea
-                    value={notes[trainer.id] ?? ""}
-                    onChange={(event) => setNotes((current) => ({ ...current, [trainer.id]: event.target.value }))}
-                    disabled={isBusy}
-                    rows={3}
-                    placeholder="ใช้แจ้งเหตุผลเมื่อปฏิเสธ หรือบันทึกประกอบการอนุมัติ"
-                  />
-                </label>
-                {rowErrors[rowKey] && <p className="row-error" role="alert">{rowErrors[rowKey]}</p>}
-              </div>
-              <StatusBadge status="pending" />
-              <div className="queue-actions">
-                <button type="button" disabled={isBusy} onClick={() => void decideTrainer(trainer.id, "approve")}>{isBusy ? "กำลังบันทึก…" : "อนุมัติ"}</button>
-                <button type="button" disabled={isBusy} onClick={() => void decideTrainer(trainer.id, "reject")}>ปฏิเสธ</button>
-              </div>
-            </article>
-          );
-        })}
-
-          {currentQueue.trainers.length === 0 && (
-            <div className="empty-state"><strong>ไม่มีใบสมัครเทรนเนอร์รอตรวจ</strong></div>
-          )}
+                    </article>
+                  </section>
+                  <aside className="admin-decision-panel" aria-label={`คำตัดสินสำหรับสลิป ${paymentCode}`} aria-busy={isBusy}>
+                    <header><h3>คำตัดสิน</h3><StatusBadge status="reviewing" /></header>
+                    <label className="review-note">
+                      <span>ผลตรวจสลิป {paymentCode}</span>
+                      <textarea
+                        value={paymentNotes[selectedPayment.id] ?? ""}
+                        onChange={(event) => setPaymentNotes((current) => ({ ...current, [selectedPayment.id]: event.target.value }))}
+                        disabled={isBusy || isResolved}
+                        rows={5}
+                        placeholder="ระบุเหตุผลเมื่อสลิปไม่ผ่าน"
+                      />
+                    </label>
+                    {isResolved && <p className="queue-notice" role="status">บันทึกผลแล้ว รอคิวอัปเดต</p>}
+                    {rowErrors[rowKey] && <p className="row-error" role="alert">{rowErrors[rowKey]}</p>}
+                    <div className="queue-actions">
+                      <button type="button" aria-label={`อนุมัติสลิป ${paymentCode}`} disabled={isBusy || isResolved} onClick={() => void decidePayment(selectedPayment.id, "approve")}>{busyAction === "approve" ? "กำลังบันทึก…" : "อนุมัติ"}</button>
+                      <button type="button" aria-label={`ไม่อนุมัติสลิป ${paymentCode}`} disabled={isBusy || isResolved} onClick={() => void decidePayment(selectedPayment.id, "reject")}>{busyAction === "reject" ? "กำลังบันทึก…" : "ไม่อนุมัติ"}</button>
+                      {isResolved && (
+                        <button type="button" aria-label={`ลองโหลดคิว ${paymentCode} อีกครั้ง`} disabled={isBusy} onClick={() => void retryPaymentRefresh(selectedPayment.id)}>
+                          {busyAction === "refresh" ? "กำลังโหลด…" : "ลองโหลดคิวอีกครั้ง"}
+                        </button>
+                      )}
+                    </div>
+                  </aside>
+                </>
+              );
+            })()}
           </div>
-        </details>
-
-        <details className="admin-queue-disclosure">
-          <summary>
-            <span><strong>หลักฐานการชำระเงิน</strong><small>ตรวจยอดและหลักฐานการโอน</small></span>
-            <span>{currentQueue.payments.length} รายการ</span>
-          </summary>
-          <div className="admin-queue-disclosure__content">
-            {currentQueue.payments.map((payment) => {
-          const rowKey = `payment-${payment.id}`;
-          const paymentCode = `PAY-${String(payment.id).padStart(6, "0")}`;
-          const busyAction = busyRows[rowKey];
-          const isBusy = Boolean(busyAction);
-          const isResolved = Boolean(resolvedPayments[payment.id]);
-          const appointment = `${formatDateTime(payment.startsAt)} ถึง ${formatDateTime(payment.endsAt)}`;
-          const evidence = [
-            ["สมาชิก", payment.memberName],
-            ["เทรนเนอร์", payment.trainerName],
-            ["วันและเวลานัด", appointment],
-            ["ค่าฝึกต่อครั้ง", formatPaymentAmount(payment.quotedPrice)],
-            ["ยอดที่โอน", formatPaymentAmount(payment.amount)],
-            ["ส่วนต่าง", formatPaymentDifference(payment.difference)],
-            ["ส่งหลักฐานเมื่อ", formatDateTime(payment.submittedAt)],
-            ["สถานะ", "รอตรวจหลักฐาน"],
-          ];
-          return (
-            <article
-              className="verification-row verification-row--trainer"
-              key={rowKey}
-              aria-label={`ตรวจสลิป ${paymentCode}`}
-              aria-busy={isBusy}
-            >
-              <div className="review-applicant">
-                <span>{paymentCode}</span>
-                <strong style={wrapAnywhereStyle}>คำขอจอง {payment.bookingId}</strong>
-                <small>ผู้ดูแลกำลังตรวจหลักฐาน</small>
-                <ul className="certificate-list" aria-label={`ข้อมูลประกอบสลิป ${paymentCode}`}>
-                  {evidence.map(([label, value]) => (
-                    <li key={label}>
-                      <div>
-                        <span>
-                          <small>{label}</small>
-                          <strong style={wrapAnywhereStyle}>{value}</strong>
-                        </span>
-                      </div>
-                    </li>
-                  ))}
-                </ul>
-                <label className="review-note">
-                  <span>ผลตรวจสลิป {paymentCode}</span>
-                  <textarea
-                    value={paymentNotes[payment.id] ?? ""}
-                    onChange={(event) => setPaymentNotes((current) => ({ ...current, [payment.id]: event.target.value }))}
-                    disabled={isBusy || isResolved}
-                    rows={3}
-                    placeholder="ระบุเหตุผลเมื่อสลิปไม่ผ่าน"
-                  />
-                </label>
-                {isResolved && <p className="queue-notice" role="status">บันทึกผลแล้ว รอคิวอัปเดต</p>}
-                {rowErrors[rowKey] && <p className="row-error" role="alert">{rowErrors[rowKey]}</p>}
-              </div>
-              <StatusBadge status="reviewing" />
-              <div className="queue-actions">
-                <button
-                  type="button"
-                  aria-label={`เปิดสลิป ${paymentCode}`}
-                  disabled={isBusy || isResolved}
-                  onClick={() => void openFile(payment.fileUrl, rowKey)}
-                >
-                  {busyAction === "file" ? "กำลังเปิด…" : "เปิดสลิป"}
-                </button>
-                <button
-                  type="button"
-                  aria-label={`อนุมัติสลิป ${paymentCode}`}
-                  disabled={isBusy || isResolved}
-                  onClick={() => void decidePayment(payment.id, "approve")}
-                >
-                  {busyAction === "approve" ? "กำลังบันทึก…" : "อนุมัติ"}
-                </button>
-                <button
-                  type="button"
-                  aria-label={`ไม่อนุมัติสลิป ${paymentCode}`}
-                  disabled={isBusy || isResolved}
-                  onClick={() => void decidePayment(payment.id, "reject")}
-                >
-                  {busyAction === "reject" ? "กำลังบันทึก…" : "ไม่อนุมัติ"}
-                </button>
-                {isResolved && (
-                  <button
-                    type="button"
-                    aria-label={`ลองโหลดคิว ${paymentCode} อีกครั้ง`}
-                    disabled={isBusy}
-                    onClick={() => void retryPaymentRefresh(payment.id)}
-                  >
-                    {busyAction === "refresh" ? "กำลังโหลด…" : "ลองโหลดคิวอีกครั้ง"}
-                  </button>
-                )}
-              </div>
-            </article>
-          );
-        })}
-
-          {currentQueue.payments.length === 0 && (
-            <div className="empty-state"><strong>ไม่มีหลักฐานการชำระเงินรอตรวจ</strong></div>
-          )}
-          </div>
-        </details>
-
-        {currentQueue.trainers.length + currentQueue.payments.length === 0 && (
+        ) : (
           <div className="empty-state"><strong>ไม่มีรายการรอตรวจ</strong><p>คิวตรวจสอบเป็นปัจจุบันแล้ว</p></div>
         )}
       </section>

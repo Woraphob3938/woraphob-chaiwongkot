@@ -3,7 +3,7 @@
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { FormEvent, useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { CalendarPlus, RefreshCw, Trash2 } from "lucide-react";
+import { CalendarPlus, ChevronLeft, ChevronRight, RefreshCw, Trash2 } from "lucide-react";
 import { NextActionCard } from "@/components/dashboard-primitives";
 import { StatusBadge } from "@/components/status-badge";
 import { Button } from "@/components/ui/button";
@@ -40,6 +40,43 @@ const slotStateCopy: Record<SlotState, string> = {
   blocked: "ปิดช่วงเวลา",
 };
 
+const dayNameFormatter = new Intl.DateTimeFormat("th-TH", { weekday: "short" });
+const dayDateFormatter = new Intl.DateTimeFormat("th-TH", { day: "numeric", month: "short" });
+const weekDateFormatter = new Intl.DateTimeFormat("th-TH", { day: "numeric", month: "short", year: "numeric" });
+const timeFormatter = new Intl.DateTimeFormat("th-TH", { hour: "2-digit", minute: "2-digit", hour12: false });
+
+function startOfWeek(value: Date) {
+  const date = new Date(value);
+  const day = date.getDay();
+  date.setDate(date.getDate() - (day === 0 ? 6 : day - 1));
+  date.setHours(0, 0, 0, 0);
+  return date;
+}
+
+function addDays(value: Date, days: number) {
+  const date = new Date(value);
+  date.setDate(date.getDate() + days);
+  return date;
+}
+
+function localDateKey(value: Date) {
+  return `${value.getFullYear()}-${String(value.getMonth() + 1).padStart(2, "0")}-${String(value.getDate()).padStart(2, "0")}`;
+}
+
+function formatTimeRange(startsAt: string, endsAt: string) {
+  return `${timeFormatter.format(new Date(startsAt))}–${timeFormatter.format(new Date(endsAt))} น.`;
+}
+
+type WeeklyScheduleItem = {
+  key: string;
+  startsAt: string;
+  endsAt: string;
+  kind: "slot" | "booking";
+  state: SlotState | "confirmed";
+  title: string;
+  detail: string;
+};
+
 export function TrainerWorkbench({ onIncompleteProfile }: { onIncompleteProfile?: () => void } = {}) {
   const router = useRouter();
   const navigate = router.push;
@@ -54,6 +91,7 @@ export function TrainerWorkbench({ onIncompleteProfile }: { onIncompleteProfile?
   const [form, setForm] = useState({ startsAt: "", endsAt: "" });
   const [busy, setBusy] = useState<string | null>(null);
   const [slotToDelete, setSlotToDelete] = useState<TrainerAvailabilitySlot | null>(null);
+  const [weekOffset, setWeekOffset] = useState(0);
   const [loading, setLoading] = useState(true);
   const [workspaceReady, setWorkspaceReady] = useState(false);
   const [bookingsReady, setBookingsReady] = useState(false);
@@ -160,6 +198,41 @@ export function TrainerWorkbench({ onIncompleteProfile }: { onIncompleteProfile?
   const upcomingSlots = slots
     .filter((slot) => new Date(slot.startsAt).getTime() >= now.getTime())
     .sort((left, right) => new Date(left.startsAt).getTime() - new Date(right.startsAt).getTime());
+  const weekStart = addDays(startOfWeek(now), weekOffset * 7);
+  const weekDays = Array.from({ length: 7 }, (_, index) => addDays(weekStart, index));
+  const weekEnd = addDays(weekStart, 7);
+  const confirmedPeriods = new Set(confirmedBookings.map((booking) => `${booking.startsAt}|${booking.endsAt}`));
+  const weeklySchedule: WeeklyScheduleItem[] = [
+    ...slots
+      .filter((slot) => {
+        const startsAt = new Date(slot.startsAt);
+        const duplicatesConfirmedBooking = slot.state === "booked" && confirmedPeriods.has(`${slot.startsAt}|${slot.endsAt}`);
+        return !duplicatesConfirmedBooking && startsAt >= weekStart && startsAt < weekEnd;
+      })
+      .map((slot) => ({
+        key: `slot-${slot.id}`,
+        startsAt: slot.startsAt,
+        endsAt: slot.endsAt,
+        kind: "slot" as const,
+        state: slot.state,
+        title: slotStateCopy[slot.state],
+        detail: "ช่วงเวลาว่าง",
+      })),
+    ...confirmedBookings
+      .filter((booking) => {
+        const startsAt = new Date(booking.startsAt);
+        return startsAt >= weekStart && startsAt < weekEnd;
+      })
+      .map((booking) => ({
+        key: `booking-${booking.id}`,
+        startsAt: booking.startsAt,
+        endsAt: booking.endsAt,
+        kind: "booking" as const,
+        state: "confirmed" as const,
+        title: booking.member?.displayName ?? "สมาชิก FitConnect",
+        detail: booking.id,
+      })),
+  ].sort((left, right) => new Date(left.startsAt).getTime() - new Date(right.startsAt).getTime());
 
   async function createSlot(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -318,7 +391,7 @@ export function TrainerWorkbench({ onIncompleteProfile }: { onIncompleteProfile?
       {nextAction && <NextActionCard action={nextAction} />}
       {actionNotice && <p ref={actionNoticeRef} className="queue-notice workbench-success" role="status" tabIndex={-1}>{actionNotice}</p>}
 
-      <section className="trainer-overview" id="schedule" aria-labelledby="trainer-overview-title">
+      <section className="trainer-overview" aria-labelledby="trainer-overview-title">
         <div><h2 id="trainer-overview-title">ภาพรวมตารางว่าง</h2><p>ข้อมูลจากตารางและนัดหมายปัจจุบัน</p></div>
         <dl>
           <div><dt>ช่วงเวลาวันนี้</dt><dd>{todaySlotCount}</dd></div>
@@ -326,6 +399,56 @@ export function TrainerWorkbench({ onIncompleteProfile }: { onIncompleteProfile?
           <div><dt>นัดยืนยันแล้ว</dt><dd>{bookingsReady ? confirmedBookings.length : "—"}</dd></div>
         </dl>
         <p>{upcomingSlots[0] ? `ช่วงเวลาถัดไป ${formatDateTime(upcomingSlots[0].startsAt)}` : "ยังไม่มีช่วงเวลาข้างหน้า"}</p>
+      </section>
+
+      <section className="trainer-week" id="schedule" aria-labelledby="trainer-week-title">
+        <header className="trainer-week__heading">
+          <div>
+            <h2 id="trainer-week-title">ตารางรายสัปดาห์</h2>
+            <p>ช่วงเวลาว่างและนัดยืนยันในมุมมองเดียว</p>
+          </div>
+          <div className="trainer-week__controls" aria-label="เปลี่ยนสัปดาห์">
+            <button type="button" aria-label="สัปดาห์ก่อนหน้า" onClick={() => setWeekOffset((current) => current - 1)}>
+              <ChevronLeft aria-hidden="true" size={18} />
+            </button>
+            <button type="button" onClick={() => setWeekOffset(0)} disabled={weekOffset === 0}>สัปดาห์นี้</button>
+            <button type="button" aria-label="สัปดาห์ถัดไป" onClick={() => setWeekOffset((current) => current + 1)}>
+              <ChevronRight aria-hidden="true" size={18} />
+            </button>
+          </div>
+          <p className="trainer-week__range" aria-live="polite">
+            {weekDateFormatter.format(weekStart)} – {weekDateFormatter.format(addDays(weekEnd, -1))}
+          </p>
+        </header>
+        <div className="trainer-week__grid">
+          {weekDays.map((day) => {
+            const dayItems = weeklySchedule.filter((item) => localDateKey(new Date(item.startsAt)) === localDateKey(day));
+            const dayLabel = `${dayNameFormatter.format(day)} ${dayDateFormatter.format(day)}`;
+            return (
+              <section className="trainer-week__day" role="group" aria-label={dayLabel} key={localDateKey(day)}>
+                <header>
+                  <span>{dayNameFormatter.format(day)}</span>
+                  <strong>{dayDateFormatter.format(day)}</strong>
+                </header>
+                <div className="trainer-week__events">
+                  {dayItems.map((item) => (
+                    <article className={`trainer-week-event trainer-week-event--${item.kind} trainer-week-event--${item.state}`} key={item.key}>
+                      <time dateTime={item.startsAt}>{formatTimeRange(item.startsAt, item.endsAt)}</time>
+                      <strong>{item.title}</strong>
+                      <span>{item.detail}</span>
+                    </article>
+                  ))}
+                  {dayItems.length === 0 && <p className="trainer-week__empty">ไม่มีรายการ</p>}
+                </div>
+              </section>
+            );
+          })}
+        </div>
+        <footer className="trainer-week__legend" aria-label="คำอธิบายสถานะตาราง">
+          <span><i className="is-available" aria-hidden="true" /> พร้อมจอง</span>
+          <span><i className="is-held" aria-hidden="true" /> ล็อกชั่วคราว</span>
+          <span><i className="is-confirmed" aria-hidden="true" /> นัดยืนยันแล้ว</span>
+        </footer>
       </section>
 
       {bookingError && <div className="workbench-error" role="alert"><span>{bookingError}</span><button type="button" onClick={() => void loadBookings()}><RefreshCw aria-hidden="true" size={15} /> ลองใหม่</button></div>}
