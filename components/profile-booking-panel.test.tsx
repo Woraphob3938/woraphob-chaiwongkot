@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { fireEvent, render, screen, within } from "@testing-library/react";
+import { fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { describe, expect, it, vi } from "vitest";
 import { ProfileBookingPanel } from "@/components/profile-booking-panel";
 import { trainers } from "@/lib/demo-data";
@@ -17,7 +17,7 @@ function BookingPanelHarness({ trainer }: { trainer: Trainer }) {
 }
 
 describe("ProfileBookingPanel", () => {
-  it("chooses a calendar slot, shows its summary, and exposes the existing booking URL", () => {
+  it("chooses a calendar slot, shows its summary, and exposes the existing booking URL", async () => {
     const trainer = { ...trainers[0], demo: false };
     render(<BookingPanelHarness trainer={trainer} />);
 
@@ -37,6 +37,9 @@ describe("ProfileBookingPanel", () => {
     expect(screen.getByText("เลือกเวลาแล้ว")).toBeInTheDocument();
     expect(screen.getByText(/09:00 ถึง 10:00 น./)).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "เปลี่ยนเวลา" })).toBeInTheDocument();
+    await waitFor(() => {
+      expect(screen.getByRole("button", { name: "เปลี่ยนเวลา" })).toHaveFocus();
+    });
     expect(screen.getByRole("link", { name: "จองเวลานี้" })).toHaveAttribute(
       "href",
       `/booking?trainer=${trainer.slug}&slot=${trainer.slots[0].id}`,

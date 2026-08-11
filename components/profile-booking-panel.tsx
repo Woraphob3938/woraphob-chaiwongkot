@@ -1,4 +1,7 @@
+"use client";
+
 import Link from "next/link";
+import { useEffect, useRef } from "react";
 import { ArrowRight, CalendarDays, Clock3, ShieldCheck } from "lucide-react";
 import { SlotCalendarDialog } from "@/components/slot-calendar-dialog";
 import { Button } from "@/components/ui/button";
@@ -15,6 +18,15 @@ export function ProfileBookingPanel({ trainer, selectedSlot, onSelectSlot }: Pro
   const availableSlots = trainer.slots.filter((slot) => slot.available);
   const hasPrice = typeof trainer.priceFrom === "number" && trainer.priceFrom > 0;
   const canBook = trainer.verification === "verified" && hasPrice && selectedSlot;
+  const changeTimeButtonRef = useRef<HTMLButtonElement>(null);
+  const previousSlotId = useRef(selectedSlot?.id ?? null);
+
+  useEffect(() => {
+    const currentSlotId = selectedSlot?.id ?? null;
+    const isFirstSelection = previousSlotId.current === null && currentSlotId !== null;
+    previousSlotId.current = currentSlotId;
+    if (isFirstSelection) changeTimeButtonRef.current?.focus();
+  }, [selectedSlot]);
 
   return (
     <aside className="profile-booking-panel" aria-label="เลือกเวลาฝึก">
@@ -51,7 +63,9 @@ export function ProfileBookingPanel({ trainer, selectedSlot, onSelectSlot }: Pro
             selectedSlot={selectedSlot}
             onConfirm={onSelectSlot}
           >
-            <Button type="button" variant="outline">เปลี่ยนเวลา</Button>
+            <Button ref={changeTimeButtonRef} type="button" variant="outline">
+              เปลี่ยนเวลา
+            </Button>
           </SlotCalendarDialog>
         </div>
       ) : (
