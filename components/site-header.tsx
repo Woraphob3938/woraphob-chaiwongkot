@@ -144,6 +144,15 @@ export function SiteHeader() {
   }, []);
 
   useEffect(() => {
+    function expandSidebarAfterPageShow() {
+      setSidebarCollapsed(false);
+    }
+
+    window.addEventListener("pageshow", expandSidebarAfterPageShow);
+    return () => window.removeEventListener("pageshow", expandSidebarAfterPageShow);
+  }, []);
+
+  useEffect(() => {
     if (user?.role !== "member" || pathname === "/trainers") return;
 
     function openMemberSearch(event: KeyboardEvent) {

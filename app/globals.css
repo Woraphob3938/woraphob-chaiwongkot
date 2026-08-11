@@ -5470,6 +5470,19 @@ body:has(.app-sidebar[data-collapsed="true"]) {
   grid-template-columns: 4.75rem minmax(0, 1fr);
 }
 
+@media (prefers-reduced-motion: reduce) {
+  body:has(.app-sidebar) {
+    transition-duration: var(--dur-short) !important;
+  }
+
+  .app-sidebar__nav-label,
+  .app-sidebar .brand__label,
+  .app-sidebar .profile-trigger__name,
+  .app-sidebar .profile-trigger > svg {
+    transition-duration: var(--dur-short) !important;
+  }
+}
+
 body:has(.app-sidebar) #main-content {
   grid-column: 2;
   grid-row: 1;

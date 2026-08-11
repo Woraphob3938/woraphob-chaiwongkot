@@ -160,6 +160,24 @@ describe("SiteHeader", () => {
     expect(within(sidebar).getByRole("button", { name: "ย่อแถบเมนู" })).toHaveAttribute("aria-expanded", "true");
   });
 
+  it("returns the side rail to its expanded state after a page refresh", async () => {
+    const member = user("member");
+    localStorage.setItem("fitconnect_token", "test-token");
+    localStorage.setItem("fitconnect_user", JSON.stringify(member));
+    mockedApiRequest.mockResolvedValue(member);
+
+    render(<SiteHeader />);
+
+    const sidebar = await screen.findByRole("complementary", { name: "แถบนำทาง FitConnect" });
+    fireEvent.click(within(sidebar).getByRole("button", { name: "ย่อแถบเมนู" }));
+    expect(sidebar).toHaveAttribute("data-collapsed", "true");
+
+    fireEvent(window, new Event("pageshow"));
+
+    expect(sidebar).toHaveAttribute("data-collapsed", "false");
+    expect(within(sidebar).getByRole("button", { name: "ย่อแถบเมนู" })).toHaveAttribute("aria-expanded", "true");
+  });
+
   it("signs out through Next navigation", async () => {
     const member = user("member");
     localStorage.setItem("fitconnect_token", "test-token");
