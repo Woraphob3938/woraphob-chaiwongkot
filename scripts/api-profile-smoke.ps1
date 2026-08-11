@@ -1,5 +1,5 @@
 param(
-    [ValidateSet('profile', 'all')]
+    [ValidateSet('profile', 'image', 'all')]
     [string]$Scenario = 'all',
     [string]$ApiBase = 'http://localhost/fitconnect-api',
     [string]$DatabaseUser = 'root'
@@ -9,6 +9,8 @@ $ErrorActionPreference = 'Stop'
 $mysqlExe = (Resolve-Path 'C:\xampp\mysql\bin\mysql.exe').Path
 $memberId = 0
 $trainerId = 0
+$uploadedPaths = @()
+$fixtureRoot = Join-Path ([IO.Path]::GetTempPath()) "fitconnect-profile-smoke-$PID"
 
 function Invoke-Api([string]$Method, [string]$Path, [object]$Body = $null, [string]$Token = '') {
     $headers = @{}
@@ -40,6 +42,17 @@ function Register-User([string]$Role, [string]$Email, [string]$DisplayName) {
         password = 'profile-pass-123'
         role = $Role
     }
+}
+
+function Invoke-Multipart([string]$Token, [string]$FilePath, [string]$Mime) {
+    $arguments = @('--silent', '--show-error', '--request', 'POST', '--write-out', "`n%{http_code}")
+    if ($Token) { $arguments += @('-H', "Authorization: Bearer $Token") }
+    $arguments += @('-F', "image=@$FilePath;type=$Mime", "$ApiBase/v1/profile/image")
+    $lines = @(& curl.exe @arguments)
+    if ($LASTEXITCODE -ne 0) { throw "curl upload failed: $($lines -join "`n")" }
+    $status = [int]$lines[-1]
+    $body = if ($lines.Count -gt 1) { ($lines[0..($lines.Count - 2)] -join "`n") } else { '' }
+    return [pscustomobject]@{ Status = $status; Body = $body }
 }
 
 $stamp = [DateTimeOffset]::UtcNow.ToUnixTimeMilliseconds()
@@ -112,10 +125,65 @@ INSERT INTO trainer_training_types (trainer_profile_id, training_type_id) VALUES
 
         Write-Output 'PASS profile GET/PATCH and database audit'
     }
+
+    if ($Scenario -in @('image', 'all')) {
+        New-Item -ItemType Directory -Path $fixtureRoot -Force | Out-Null
+        $pngFixture = Join-Path $fixtureRoot 'avatar.png'
+        $pdfFixture = Join-Path $fixtureRoot 'not-an-image.pdf'
+        $largeFixture = Join-Path $fixtureRoot 'oversize.png'
+        [IO.File]::WriteAllBytes($pngFixture, [Convert]::FromBase64String('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII='))
+        [IO.File]::WriteAllText($pdfFixture, '%PDF-1.4 profile smoke')
+        $largeStream = [IO.File]::Open($largeFixture, [IO.FileMode]::Create, [IO.FileAccess]::Write)
+        try { $largeStream.SetLength((5 * 1024 * 1024) + 1) } finally { $largeStream.Dispose() }
+
+        $memberUpload = Invoke-Multipart $memberToken $pngFixture 'image/png'
+        Assert-Equal 200 $memberUpload.Status 'valid member PNG upload status'
+        $memberUploadPayload = $memberUpload.Body | ConvertFrom-Json
+        Assert-Equal "/v1/profile-images/member/$memberId" $memberUploadPayload.data.imageUrl 'member image URL'
+        $memberImageRows = @(Invoke-Sql "SELECT image_path FROM member_profiles WHERE user_id=$memberId;")
+        $memberImagePath = [string]$memberImageRows[0]
+        $uploadedPaths += $memberImagePath
+
+        $publicImage = Invoke-WebRequest -UseBasicParsing -Uri "$ApiBase$($memberUploadPayload.data.imageUrl)"
+        Assert-Equal 200 $publicImage.StatusCode 'public member image status'
+        Assert-Equal 'image/png' $publicImage.Headers['Content-Type'] 'public member image MIME'
+
+        $invalidUpload = Invoke-Multipart $memberToken $pdfFixture 'application/pdf'
+        Assert-Equal 422 $invalidUpload.Status 'PDF upload rejection status'
+        Assert-Equal 'VALIDATION_FAILED' (($invalidUpload.Body | ConvertFrom-Json).error.code) 'PDF upload error code'
+        Assert-Equal $memberImagePath (@(Invoke-Sql "SELECT image_path FROM member_profiles WHERE user_id=$memberId;"))[0] 'failed upload keeps member image'
+
+        $oversizeUpload = Invoke-Multipart $memberToken $largeFixture 'image/png'
+        Assert-Equal 422 $oversizeUpload.Status 'oversize upload rejection status'
+
+        $unauthenticatedUpload = Invoke-Multipart '' $pngFixture 'image/png'
+        Assert-Equal 401 $unauthenticatedUpload.Status 'unauthenticated upload status'
+
+        $trainerUpload = Invoke-Multipart $trainerToken $pngFixture 'image/png'
+        Assert-Equal 200 $trainerUpload.Status 'valid trainer PNG upload status'
+        Assert-Equal "/v1/profile-images/trainer/$trainerId" (($trainerUpload.Body | ConvertFrom-Json).data.imageUrl) 'trainer image URL'
+        $trainerImageRows = @(Invoke-Sql "SELECT image_path FROM trainer_profiles WHERE user_id=$trainerId;")
+        $uploadedPaths += [string]$trainerImageRows[0]
+        $trainerPublic = Invoke-Api 'GET' "/v1/trainers/profile-smoke-$trainerId"
+        Assert-Equal "/v1/profile-images/trainer/$trainerId" $trainerPublic.data.image 'public trainer image URL'
+
+        Write-Output 'PASS profile image upload, validation and delivery'
+    }
 }
 finally {
     if ($memberId -gt 0 -or $trainerId -gt 0) {
         $ids = @($memberId, $trainerId) | Where-Object { $_ -gt 0 }
         Invoke-Sql ("DELETE FROM users WHERE id IN (" + ($ids -join ',') + ');') | Out-Null
+    }
+    $uploadRoot = [IO.Path]::GetFullPath((Join-Path (Split-Path $PSScriptRoot -Parent) 'backend\uploads\profile-images'))
+    foreach ($relativePath in $uploadedPaths) {
+        if (-not $relativePath) { continue }
+        $target = [IO.Path]::GetFullPath((Join-Path (Join-Path (Split-Path $PSScriptRoot -Parent) 'backend') $relativePath))
+        if ($target.StartsWith($uploadRoot + '\', [StringComparison]::OrdinalIgnoreCase) -and (Test-Path -LiteralPath $target -PathType Leaf)) {
+            Remove-Item -LiteralPath $target
+        }
+    }
+    if ((Test-Path -LiteralPath $fixtureRoot) -and $fixtureRoot.StartsWith([IO.Path]::GetTempPath(), [StringComparison]::OrdinalIgnoreCase)) {
+        Remove-Item -LiteralPath $fixtureRoot -Recurse -Force
     }
 }

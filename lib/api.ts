@@ -3,6 +3,13 @@ import type { ApiEnvelope, ApiErrorEnvelope, Trainer, TrainingType } from "@/lib
 
 export const API_URL = process.env.NEXT_PUBLIC_FITCONNECT_API_URL ?? "http://localhost/fitconnect-api";
 
+export function apiAssetUrl(path: string | null): string | null {
+  if (!path) return null;
+  if (/^https?:\/\//.test(path)) return path;
+  if (path.startsWith("/v1/")) return `${API_URL}${path}`;
+  return path.startsWith("/") ? path : `/${path}`;
+}
+
 export class ApiError extends Error {
   constructor(
     message: string,

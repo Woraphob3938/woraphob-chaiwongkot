@@ -36,6 +36,7 @@ try {
     if ($method === 'GET' && $path === '/v1/me') $handlers->me();
     if ($method === 'GET' && $path === '/v1/profile') $handlers->profile();
     if ($method === 'PATCH' && $path === '/v1/profile') $handlers->updateProfile();
+    if ($method === 'POST' && $path === '/v1/profile/image') $handlers->uploadProfileImage();
     if ($method === 'POST' && $path === '/v1/trainer-applications') $handlers->trainerApplication();
     if ($method === 'GET' && $path === '/v1/trainer/me') $handlers->trainerMe();
     if ($method === 'PATCH' && $path === '/v1/trainer/me') $handlers->updateTrainerMe();
@@ -47,6 +48,7 @@ try {
     if ($method === 'GET' && $path === '/v1/admin/review-queue') $handlers->adminReviewQueue();
 
     if ($method === 'GET' && preg_match('#^/v1/trainers/([^/]+)$#', $path, $matches) === 1) $handlers->trainer(urldecode($matches[1]));
+    if ($method === 'GET' && preg_match('#^/v1/profile-images/(member|trainer)/(\d+)$#', $path, $matches) === 1) $handlers->profileImage($matches[1], $matches[2]);
     if ($method === 'DELETE' && preg_match('#^/v1/availability-slots/(\d+)$#', $path, $matches) === 1) $handlers->deleteAvailabilitySlot($matches[1]);
     if ($method === 'POST' && preg_match('#^/v1/bookings/([^/]+)/cancel$#', $path, $matches) === 1) $handlers->cancelMemberBooking(urldecode($matches[1]));
     if ($method === 'PATCH' && preg_match('#^/v1/bookings/([^/]+)/status$#', $path, $matches) === 1) $handlers->updateBookingStatus(urldecode($matches[1]));

@@ -37,7 +37,7 @@ final class Handlers
     {
         $this->expireAwaitingPayments();
         $rows = $this->database->fetchAll(
-            'SELECT tp.id, tp.slug, tp.headline, tp.bio, tp.years_experience, tp.service_mode,
+            'SELECT tp.id, tp.user_id, tp.slug, tp.headline, tp.bio, tp.years_experience, tp.service_mode,
                     tp.gym_name, tp.price_from, tp.approval_status, tp.image_path, tp.is_demo,
                     u.display_name,
                     AVG(r.rating) AS rating, COUNT(r.id) AS review_count
@@ -310,6 +310,94 @@ final class Handlers
         }
 
         Http::json($this->accountProfilePayload(['id' => $user['id'], 'role' => $user['role']]));
+    }
+
+    public function uploadProfileImage(): never
+    {
+        $user = $this->auth->requireUser(['member', 'trainer']);
+        try {
+            $upload = $this->saveUpload(
+                'image',
+                ['image/jpeg', 'image/png', 'image/webp'],
+                5 * 1024 * 1024,
+                'profile-images'
+            );
+        } catch (HttpException $error) {
+            if (in_array($error->status, [413, 415], true)) {
+                throw new HttpException(422, $error->getMessage(), 'VALIDATION_FAILED', [
+                    'image' => $error->getMessage(),
+                ]);
+            }
+            throw $error;
+        }
+        if ($upload === null) {
+            throw new HttpException(422, 'กรุณาเลือกรูปโปรไฟล์', 'FILE_REQUIRED', [
+                'image' => 'จำเป็นต้องเลือกรูป',
+            ]);
+        }
+
+        $table = $user['role'] === 'member' ? 'member_profiles' : 'trainer_profiles';
+        try {
+            $oldPath = $this->database->transaction(function (PDO $pdo) use ($user, $upload, $table): ?string {
+                $statement = $pdo->prepare("SELECT image_path FROM {$table} WHERE user_id = ? FOR UPDATE");
+                $statement->execute([$user['id']]);
+                $row = $statement->fetch();
+                if (!$row) {
+                    throw new HttpException(404, 'ไม่พบโปรไฟล์สำหรับบันทึกรูป', 'PROFILE_NOT_FOUND');
+                }
+                $pdo->prepare("UPDATE {$table} SET image_path = ?, updated_at = UTC_TIMESTAMP() WHERE user_id = ?")
+                    ->execute([$upload['path'], $user['id']]);
+                return $row['image_path'] === null ? null : (string) $row['image_path'];
+            });
+        } catch (Throwable $error) {
+            $this->removeUpload($upload['path']);
+            throw $error;
+        }
+        if ($oldPath !== null) {
+            $this->removeUpload($oldPath);
+        }
+
+        Http::json([
+            'imageUrl' => '/v1/profile-images/' . $user['role'] . '/' . $user['id'],
+        ]);
+    }
+
+    public function profileImage(string $role, string $userId): never
+    {
+        if (!in_array($role, ['member', 'trainer'], true) || (int) $userId <= 0) {
+            throw new HttpException(404, 'ไม่พบรูปโปรไฟล์', 'PROFILE_IMAGE_NOT_FOUND');
+        }
+        $table = $role === 'member' ? 'member_profiles' : 'trainer_profiles';
+        $record = $this->database->fetchOne(
+            "SELECT image_path FROM {$table} WHERE user_id = ?",
+            [(int) $userId]
+        );
+        if (!$record || !str_starts_with((string) ($record['image_path'] ?? ''), 'uploads/profile-images/')) {
+            throw new HttpException(404, 'ไม่พบรูปโปรไฟล์', 'PROFILE_IMAGE_NOT_FOUND');
+        }
+
+        $uploadRoot = realpath(dirname(__DIR__) . '/uploads/profile-images');
+        $target = realpath(dirname(__DIR__) . '/' . ltrim((string) $record['image_path'], '/\\'));
+        if (
+            $uploadRoot === false
+            || $target === false
+            || !str_starts_with($target, $uploadRoot . DIRECTORY_SEPARATOR)
+            || !is_file($target)
+        ) {
+            throw new HttpException(404, 'ไม่พบรูปโปรไฟล์', 'PROFILE_IMAGE_NOT_FOUND');
+        }
+
+        $mime = (new finfo(FILEINFO_MIME_TYPE))->file($target);
+        if (!in_array($mime, ['image/jpeg', 'image/png', 'image/webp'], true)) {
+            throw new HttpException(404, 'ไม่พบรูปโปรไฟล์', 'PROFILE_IMAGE_NOT_FOUND');
+        }
+        header('Content-Type: ' . $mime);
+        header('Content-Length: ' . filesize($target));
+        header('Content-Disposition: inline; filename="fitconnect-profile-' . $role . '-' . (int) $userId . '"');
+        header('Cache-Control: public, max-age=86400');
+        header('X-Content-Type-Options: nosniff');
+        readfile($target);
+        exit;
     }
 
     public function trainerApplication(): never
@@ -1158,7 +1246,7 @@ final class Handlers
             return [
                 'role' => 'member',
                 'user' => ['displayName' => $row['display_name'], 'email' => $row['email']],
-                'imageUrl' => $row['image_path'],
+                'imageUrl' => self::accountImageUrl('member', (int) $user['id'], $row['image_path']),
                 'member' => [
                     'firstName' => $firstName === '' ? $row['display_name'] : $firstName,
                     'lastName' => $row['last_name'] ?? '',
@@ -1195,7 +1283,7 @@ final class Handlers
         return [
             'role' => 'trainer',
             'user' => ['displayName' => $row['display_name'], 'email' => $row['email']],
-            'imageUrl' => $row['image_path'],
+            'imageUrl' => self::accountImageUrl('trainer', (int) $user['id'], $row['image_path']),
             'trainer' => [
                 'legalName' => $row['legal_name'] ?? '',
                 'phone' => $row['phone'] ?? '',
@@ -1224,10 +1312,20 @@ final class Handlers
         return $value === '' ? null : $value;
     }
 
+    private static function accountImageUrl(string $role, int $userId, mixed $path): ?string
+    {
+        if ($path === null || trim((string) $path) === '') return null;
+        $path = (string) $path;
+        if (str_starts_with($path, 'uploads/profile-images/')) {
+            return "/v1/profile-images/{$role}/{$userId}";
+        }
+        return $path;
+    }
+
     private function trainerRow(string $where, array $params): ?array
     {
         return $this->database->fetchOne(
-            'SELECT tp.id, tp.slug, tp.headline, tp.bio, tp.years_experience, tp.service_mode,
+            'SELECT tp.id, tp.user_id, tp.slug, tp.headline, tp.bio, tp.years_experience, tp.service_mode,
                     tp.gym_name, tp.price_from, tp.approval_status, tp.image_path, tp.is_demo,
                     u.display_name,
                     AVG(r.rating) AS rating, COUNT(r.id) AS review_count
@@ -1282,7 +1380,7 @@ final class Handlers
                 'id' => (int) $slot['id'], 'startsAt' => $this->iso($slot['starts_at']), 'endsAt' => $this->iso($slot['ends_at']),
                 'available' => true,
             ], $slots),
-            'image' => $row['image_path'],
+            'image' => self::accountImageUrl('trainer', (int) $row['user_id'], $row['image_path']),
             'demo' => (bool) $row['is_demo'],
         ];
     }
