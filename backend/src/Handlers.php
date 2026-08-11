@@ -40,10 +40,12 @@ final class Handlers
             'SELECT tp.id, tp.user_id, tp.slug, tp.headline, tp.bio, tp.years_experience, tp.service_mode,
                     tp.gym_name, tp.price_from, tp.approval_status, tp.image_path, tp.is_demo,
                     u.display_name,
-                    AVG(r.rating) AS rating, COUNT(r.id) AS review_count
+                    AVG(CASE WHEN review_booking.id IS NOT NULL THEN r.rating END) AS rating,
+                    COUNT(review_booking.id) AS review_count
              FROM trainer_profiles tp
              JOIN users u ON u.id = tp.user_id
              LEFT JOIN reviews r ON r.trainer_profile_id = tp.id AND r.status = "published"
+             LEFT JOIN bookings review_booking ON review_booking.id = r.booking_id AND review_booking.status = "completed"
              WHERE tp.approval_status = "approved" AND u.status = "active"
              GROUP BY tp.id
              ORDER BY tp.is_demo ASC, tp.updated_at DESC'
@@ -58,7 +60,21 @@ final class Handlers
         if (!$row || $row['approval_status'] !== 'approved') {
             throw new HttpException(404, 'ไม่พบโปรไฟล์เทรนเนอร์', 'TRAINER_NOT_FOUND');
         }
-        Http::json($this->trainerPayload($row));
+        $payload = $this->trainerPayload($row);
+        $reviews = $this->database->fetchAll(
+            'SELECT r.rating, r.comment, r.created_at
+             FROM reviews r
+             JOIN bookings b ON b.id = r.booking_id AND b.status = "completed"
+             WHERE r.trainer_profile_id = ? AND r.status = "published"
+             ORDER BY r.created_at DESC, r.id DESC',
+            [(int) $row['id']]
+        );
+        $payload['reviews'] = array_map(fn(array $review): array => [
+            'rating' => (int) $review['rating'],
+            'comment' => $review['comment'],
+            'createdAt' => $this->iso($review['created_at']),
+        ], $reviews);
+        Http::json($payload);
     }
 
     public function updateTrainerMe(): never
@@ -1333,10 +1349,12 @@ final class Handlers
             'SELECT tp.id, tp.user_id, tp.slug, tp.headline, tp.bio, tp.years_experience, tp.service_mode,
                     tp.gym_name, tp.price_from, tp.approval_status, tp.image_path, tp.is_demo,
                     u.display_name,
-                    AVG(r.rating) AS rating, COUNT(r.id) AS review_count
+                    AVG(CASE WHEN review_booking.id IS NOT NULL THEN r.rating END) AS rating,
+                    COUNT(review_booking.id) AS review_count
              FROM trainer_profiles tp
              JOIN users u ON u.id = tp.user_id
              LEFT JOIN reviews r ON r.trainer_profile_id = tp.id AND r.status = "published"
+             LEFT JOIN bookings review_booking ON review_booking.id = r.booking_id AND review_booking.status = "completed"
              WHERE ' . $where . ' GROUP BY tp.id LIMIT 1',
             $params
         );

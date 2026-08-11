@@ -11,7 +11,24 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { authenticatedRequest } from "@/lib/api";
 import { formatMoney } from "@/lib/format";
-import type { AvailabilitySlot, Trainer, TrainerWorkspace } from "@/lib/types";
+import type { AvailabilitySlot, PublicTrainerReview, Trainer, TrainerWorkspace } from "@/lib/types";
+
+const reviewDate = new Intl.DateTimeFormat("th-TH", {
+  day: "numeric",
+  month: "short",
+  year: "numeric",
+  timeZone: "Asia/Bangkok",
+});
+
+function TrainerReview({ review }: { review: PublicTrainerReview }) {
+  return (
+    <article className="trainer-review">
+      <strong>{review.rating} จาก 5 ดาว</strong>
+      <time dateTime={review.createdAt}>{reviewDate.format(new Date(review.createdAt))}</time>
+      <p>{review.comment}</p>
+    </article>
+  );
+}
 
 export function TrainerDetail({ trainer }: { trainer: Trainer }) {
   const [slot, setSlot] = useState<AvailabilitySlot | null>(null);
@@ -27,6 +44,12 @@ export function TrainerDetail({ trainer }: { trainer: Trainer }) {
     ? priceOverride.value
     : (trainer.priceFrom ?? null);
   const canEditPrice = editableTrainerId === trainer.id;
+  const reviews = trainer.reviews ?? [];
+  const visibleReviews = reviews.slice(0, 3);
+  const additionalReviews = reviews.slice(3);
+  const reviewSummary = trainer.reviewCount > 0 && trainer.rating != null
+    ? `${trainer.rating} จาก 5 · ${trainer.reviewCount} รีวิว`
+    : "ยังไม่มีรีวิวจากการฝึกที่เสร็จแล้ว";
 
   useEffect(() => {
     let active = true;
@@ -96,17 +119,17 @@ export function TrainerDetail({ trainer }: { trainer: Trainer }) {
                 sizes="(max-width: 768px) 50vw, 31vw"
               />
             )}
+            {trainer.demo && <span className="trainer-demo-label">ภาพสาธิต</span>}
           </div>
         </section>
 
         <section className="trainer-detail-copy trainer-profile-summary" aria-labelledby={headingId}>
-          <p className="profile-id">โปรไฟล์เทรนเนอร์ #{String(trainer.id).padStart(3, "0")}</p>
           <h1 id={headingId}>{trainer.displayName}</h1>
           <p className="lead">{trainer.headline}</p>
           <p>{trainer.bio}</p>
           <div className="trainer-detail-status"><StatusBadge status={trainer.verification} /></div>
           <div className="detail-meta">
-            <span><MessageSquareText aria-hidden="true" size={17} /> ยังไม่มีรีวิวจริง</span>
+            <span><MessageSquareText aria-hidden="true" size={17} /> {reviewSummary}</span>
             <div className="price-session">
               <span className="label">ค่าฝึกต่อครั้ง</span>
               <div className="price-editor-inline">
@@ -167,6 +190,36 @@ export function TrainerDetail({ trainer }: { trainer: Trainer }) {
 
         <ProfileBookingPanel trainer={currentTrainer} selectedSlot={slot} onSelectSlot={setSlot} />
       </div>
+      {reviews.length > 0 && (
+        <section className="trainer-reviews" aria-labelledby="trainer-reviews-heading">
+          <header className="trainer-reviews__heading">
+            <div>
+              <h2 id="trainer-reviews-heading">รีวิวจากสมาชิก</h2>
+              <p>เฉพาะรีวิวจากการจองที่ฝึกเสร็จแล้ว</p>
+            </div>
+            <strong>{reviewSummary}</strong>
+          </header>
+
+          <div className="trainer-review-list">
+            {visibleReviews.map((review) => (
+              <TrainerReview key={`${review.createdAt}-${review.comment}`} review={review} />
+            ))}
+          </div>
+
+          {additionalReviews.length > 0 && (
+            <details className="trainer-reviews__more">
+              <summary>ดูรีวิวเพิ่มเติม ({additionalReviews.length})</summary>
+              <div className="trainer-review-list">
+                {additionalReviews.map((review) => (
+                  <TrainerReview key={`${review.createdAt}-${review.comment}`} review={review} />
+                ))}
+              </div>
+            </details>
+          )}
+
+          <a className="trainer-reviews__booking-link" href="#booking-panel">กลับไปเลือกเวลา</a>
+        </section>
+      )}
     </>
   );
 }

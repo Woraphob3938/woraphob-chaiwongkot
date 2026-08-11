@@ -29,7 +29,7 @@ export function ProfileBookingPanel({ trainer, selectedSlot, onSelectSlot }: Pro
   }, [selectedSlot]);
 
   return (
-    <aside className="profile-booking-panel" aria-label="เลือกเวลาฝึก">
+    <aside id="booking-panel" className="profile-booking-panel" aria-label="เลือกเวลาฝึก">
       <div className="profile-booking-panel__heading">
         <p className="label">จองโดยตรง</p>
         <h2>เลือกเวลาฝึก</h2>

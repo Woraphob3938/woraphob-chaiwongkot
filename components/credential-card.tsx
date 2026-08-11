@@ -8,7 +8,7 @@ export function CredentialCard({ trainer }: { trainer: Trainer }) {
       <div className="credential-heading">
         <div>
           <p className="label">บัตรคุณสมบัติเทรนเนอร์</p>
-          <h3>คุณสมบัติและประสบการณ์</h3>
+          <h2>คุณสมบัติและประสบการณ์</h2>
           <p>{trainer.headline}</p>
         </div>
         <StatusBadge status={trainer.verification} />

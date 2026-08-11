@@ -196,11 +196,18 @@ export type Trainer = {
   priceFrom?: number | null;
   rating?: number;
   reviewCount: number;
+  reviews?: PublicTrainerReview[];
   verification: VerificationStatus;
   certificates: Certificate[];
   slots: AvailabilitySlot[];
   image?: string;
   demo: boolean;
+};
+
+export type PublicTrainerReview = {
+  rating: number;
+  comment: string;
+  createdAt: string;
 };
 
 export type Booking = {

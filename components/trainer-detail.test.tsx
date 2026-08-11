@@ -67,7 +67,49 @@ describe("TrainerDetail", () => {
 
     rerender(<TrainerDetail trainer={trainers[0]} />);
     expect(screen.getByRole("img", { name: `รูปโปรไฟล์ของ${trainers[0].displayName}` })).toBeInTheDocument();
-    expect(screen.queryByText("ภาพสังเคราะห์ · สาธิต")).not.toBeInTheDocument();
+    expect(screen.getByText("ภาพสาธิต")).toBeInTheDocument();
+  });
+
+  it("shows completed-booking review evidence without exposing internal profile IDs", () => {
+    const trainer = {
+      ...trainers[0],
+      rating: 4.8,
+      reviewCount: 5,
+      reviews: [
+        { rating: 5, comment: "แนะนำท่าชัดเจนและดูแลตลอดการฝึก", createdAt: "2026-08-11T11:14:23Z" },
+        { rating: 5, comment: "ตรงเวลาและวางแผนให้เหมาะกับเป้าหมาย", createdAt: "2026-08-10T04:18:15Z" },
+        { rating: 4, comment: "อธิบายเข้าใจง่ายและปรับท่าให้ทันที", createdAt: "2026-08-09T03:00:00Z" },
+        { rating: 5, comment: "ติดตามผลหลังฝึกดี", createdAt: "2026-08-08T03:00:00Z" },
+        { rating: 5, comment: "บรรยากาศการฝึกเป็นกันเอง", createdAt: "2026-08-07T03:00:00Z" },
+      ],
+    };
+    const { container } = render(<TrainerDetail trainer={trainer} />);
+
+    expect(screen.getAllByText("4.8 จาก 5 · 5 รีวิว")).toHaveLength(2);
+    expect(screen.queryByText(/ยังไม่มีรีวิว/)).not.toBeInTheDocument();
+    expect(screen.queryByText(/#001/)).not.toBeInTheDocument();
+
+    const reviews = screen.getByRole("region", { name: "รีวิวจากสมาชิก" });
+    expect(within(reviews).getByText("เฉพาะรีวิวจากการจองที่ฝึกเสร็จแล้ว")).toBeInTheDocument();
+    expect(within(reviews).getAllByRole("article")).toHaveLength(5);
+    expect(within(reviews).getByText("แนะนำท่าชัดเจนและดูแลตลอดการฝึก")).toBeInTheDocument();
+    expect(within(reviews).getByText("ติดตามผลหลังฝึกดี").closest("details")).not.toHaveAttribute("open");
+    expect(within(reviews).getByText("ดูรีวิวเพิ่มเติม (2)")).toBeInTheDocument();
+    expect(within(reviews).getByText("กลับไปเลือกเวลา")).toHaveAttribute("href", "#booking-panel");
+    expect(within(reviews).getByText("แนะนำท่าชัดเจนและดูแลตลอดการฝึก").closest("article")?.querySelector("time"))
+      .toHaveAttribute("datetime", "2026-08-11T11:14:23Z");
+
+    const commerceLayout = container.querySelector(".trainer-commerce-layout");
+    expect(commerceLayout).not.toBeNull();
+    expect(appearsBefore(commerceLayout as Element, reviews)).toBe(true);
+    expect(screen.getAllByRole("heading").slice(0, 3).map((heading) => heading.tagName)).toEqual(["H1", "H2", "H3"]);
+  });
+
+  it("uses a factual empty review state only when the published count is zero", () => {
+    render(<TrainerDetail trainer={{ ...trainers[0], rating: undefined, reviewCount: 0, reviews: [] }} />);
+
+    expect(screen.getAllByText("ยังไม่มีรีวิวจากการฝึกที่เสร็จแล้ว").length).toBeGreaterThan(0);
+    expect(screen.queryByText("รีวิวจากสมาชิก")).not.toBeInTheDocument();
   });
 
   it("lets a trainer update only their own profile price after the API succeeds", async () => {

@@ -5035,6 +5035,19 @@ body {
   border-right: 1px solid var(--color-rule);
 }
 
+.trainer-demo-label {
+  position: absolute;
+  right: var(--space-sm);
+  bottom: var(--space-sm);
+  z-index: 1;
+  padding: var(--space-2xs) var(--space-xs);
+  color: var(--color-paper);
+  background: var(--color-ink);
+  border: 1px solid color-mix(in srgb, var(--color-paper) 45%, transparent);
+  font-size: var(--text-xs);
+  font-weight: 700;
+}
+
 .trainer-commerce-layout .trainer-detail-copy {
   min-height: 28rem;
   justify-content: flex-start;
@@ -5132,6 +5145,76 @@ body {
   background: var(--color-error-soft);
   border: 1px solid var(--color-error);
   font-size: var(--text-sm);
+}
+
+.trainer-reviews {
+  margin-top: var(--space-lg);
+  background: var(--color-paper);
+  border: 1px solid var(--color-rule);
+}
+
+.trainer-reviews__heading {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: var(--space-lg);
+  padding: var(--space-lg);
+  border-bottom: 2px solid var(--color-ink);
+}
+
+.trainer-reviews__heading > div {
+  display: grid;
+  gap: var(--space-xs);
+}
+
+.trainer-reviews__heading p,
+.trainer-review time {
+  color: var(--color-muted);
+  font-size: var(--text-sm);
+}
+
+.trainer-reviews__heading > strong {
+  color: var(--color-ink);
+  white-space: nowrap;
+}
+
+.trainer-review-list {
+  display: grid;
+}
+
+.trainer-review {
+  display: grid;
+  grid-template-columns: minmax(7rem, 0.2fr) minmax(8rem, 0.2fr) minmax(0, 1fr);
+  align-items: start;
+  gap: var(--space-lg);
+  padding: var(--space-md) var(--space-lg);
+  border-bottom: 1px solid var(--color-rule);
+}
+
+.trainer-review p {
+  max-width: 72ch;
+  overflow-wrap: anywhere;
+}
+
+.trainer-reviews__more > summary {
+  min-height: var(--size-control);
+  padding: var(--space-md) var(--space-lg);
+  font-weight: 700;
+  cursor: pointer;
+}
+
+.trainer-reviews__more[open] > summary {
+  border-bottom: 1px solid var(--color-rule);
+}
+
+.trainer-reviews__booking-link {
+  display: inline-flex;
+  min-height: var(--size-control);
+  align-items: center;
+  margin: var(--space-md) var(--space-lg) var(--space-lg);
+  font-weight: 700;
+  text-decoration: underline;
+  text-underline-offset: 0.22em;
 }
 
 .profile-booking-calendar-trigger {
@@ -5454,6 +5537,43 @@ body {
 }
 
 @media (max-width: 48rem) {
+  .trainer-commerce-layout {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .trainer-detail-media,
+  .profile-booking-panel {
+    position: static;
+  }
+
+  .trainer-commerce-layout .trainer-detail-photo {
+    min-height: 24rem;
+    border-right: 0;
+    border-bottom: 1px solid var(--color-rule);
+  }
+
+  .profile-booking-panel {
+    border-top: 1px solid var(--color-rule);
+    border-left: 0;
+  }
+
+  .trainer-reviews__heading,
+  .trainer-review {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .trainer-reviews__heading {
+    display: grid;
+  }
+
+  .trainer-reviews__heading > strong {
+    white-space: normal;
+  }
+
+  .trainer-review {
+    gap: var(--space-xs);
+  }
+
   .slot-calendar-dialog {
     width: calc(100% - 2rem);
     max-height: calc(100svh - 2rem);
@@ -5489,10 +5609,6 @@ body {
 @media (max-width: 40rem) {
   .profile-shell {
     padding-bottom: calc(5rem + env(safe-area-inset-bottom));
-  }
-
-  .trainer-commerce-layout {
-    grid-template-columns: minmax(0, 1fr);
   }
 
   .trainer-commerce-layout .trainer-detail-photo {

@@ -788,6 +788,16 @@ VALUES
     Assert-True ($reviewedBooking.review.status -eq 'published') 'Booking aggregate must expose the published review status'
     Assert-True ($reviewedBooking.actions.canReview -eq $false) 'Member must not be able to review again after publication'
 
+    $publicTrainer = (Invoke-RestMethod -Method Get -Uri "$ApiUrl/v1/trainers/demo-trainer-a").data
+    Assert-True ($publicTrainer.reviews.Count -eq $publicTrainer.reviewCount) 'Public trainer review detail count must match the aggregate'
+    Assert-True ($publicTrainer.reviews.Count -gt 0) 'Public trainer detail must expose completed-booking reviews'
+    $latestPublicReview = $publicTrainer.reviews[0]
+    Assert-True ($latestPublicReview.comment -eq $trimmedComment) 'Newest public review must be ordered first'
+    Assert-True ($latestPublicReview.rating -eq 5) 'Public review must expose its numeric rating'
+    Assert-True (-not [string]::IsNullOrWhiteSpace($latestPublicReview.createdAt)) 'Public review must expose its creation date'
+    $publicReviewFields = @($latestPublicReview.PSObject.Properties.Name | Sort-Object)
+    Assert-True (($publicReviewFields -join ',') -eq 'comment,createdAt,rating') 'Public reviews must not expose internal IDs or member identity'
+
     Write-Host "Review smoke fixtures: completed=$completedBookingId confirmed=$confirmedBookingId outsider=review.outsider@fitconnect.local"
 }
 
