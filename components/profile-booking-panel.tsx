@@ -1,7 +1,6 @@
 import Link from "next/link";
-import { ArrowRight, Clock3, ShieldCheck } from "lucide-react";
-import { AvailabilityPanel } from "@/components/availability-panel";
-import { DisclosureSection } from "@/components/disclosure-section";
+import { ArrowRight, CalendarDays, Clock3, ShieldCheck } from "lucide-react";
+import { SlotCalendarDialog } from "@/components/slot-calendar-dialog";
 import { Button } from "@/components/ui/button";
 import { formatDay, formatMoney, formatTime } from "@/lib/format";
 import type { AvailabilitySlot, Trainer } from "@/lib/types";
@@ -38,32 +37,52 @@ export function ProfileBookingPanel({ trainer, selectedSlot, onSelectSlot }: Pro
         </p>
       )}
 
-      <DisclosureSection
-        title="ตารางว่างทั้งหมด"
-        summary={`${availableSlots.length} ช่วงพร้อมจอง`}
-        defaultOpen
-        className="profile-booking-schedule"
-      >
-        <AvailabilityPanel
-          trainer={trainer}
-          selectedSlot={selectedSlot}
-          onSelectSlot={onSelectSlot}
-        />
-      </DisclosureSection>
-
-      {selectedSlot && (
+      {selectedSlot ? (
         <div className="profile-booking-selection" aria-live="polite">
           <Clock3 aria-hidden="true" size={18} />
           <span>
-            <strong>{formatDay(selectedSlot.startsAt)}</strong>
-            {formatTime(selectedSlot.startsAt)}–{formatTime(selectedSlot.endsAt)} น.
+            <strong>เลือกเวลาแล้ว</strong>
+            {formatDay(selectedSlot.startsAt)} · {formatTime(selectedSlot.startsAt)} ถึง{" "}
+            {formatTime(selectedSlot.endsAt)} น.
           </span>
+          <SlotCalendarDialog
+            trainerName={trainer.displayName}
+            slots={availableSlots}
+            selectedSlot={selectedSlot}
+            onConfirm={onSelectSlot}
+          >
+            <Button type="button" variant="outline">เปลี่ยนเวลา</Button>
+          </SlotCalendarDialog>
         </div>
+      ) : (
+        <SlotCalendarDialog
+          trainerName={trainer.displayName}
+          slots={availableSlots}
+          selectedSlot={selectedSlot}
+          onConfirm={onSelectSlot}
+        >
+          <Button
+            type="button"
+            variant="outline"
+            className="profile-booking-calendar-trigger"
+            disabled={availableSlots.length === 0}
+          >
+            <CalendarDays aria-hidden="true" />
+            <span>
+              <strong>
+                {availableSlots.length > 0
+                  ? "ดูตารางว่างทั้งหมด"
+                  : "ยังไม่มีเวลาว่างให้จอง"}
+              </strong>
+              <small>{availableSlots.length} ช่วงพร้อมจอง</small>
+            </span>
+          </Button>
+        </SlotCalendarDialog>
       )}
 
       <div className="profile-booking-policy">
         <ShieldCheck aria-hidden="true" size={18} />
-        <p>ระบบจะเก็บเวลาที่เลือกไว้ 10 นาทีหลังยืนยัน</p>
+        <p>เวลา 10 นาทีเริ่มหลังยืนยันการจองในขั้นตอนถัดไป</p>
       </div>
 
       {canBook ? (

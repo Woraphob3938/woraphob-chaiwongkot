@@ -30,27 +30,30 @@ describe("TrainerDetail", () => {
     expect(within(summary).queryByText(/สกลนคร|นครพนม|พื้นที่ให้บริการ/)).not.toBeInTheDocument();
     expect(credentials).not.toHaveAttribute("open");
     expect(appearsBefore(summary, bookingPanel)).toBe(true);
-    expect(within(bookingPanel).getByText("ระบบจะเก็บเวลาที่เลือกไว้ 10 นาทีหลังยืนยัน")).toBeInTheDocument();
+    expect(
+      within(bookingPanel).getByText("เวลา 10 นาทีเริ่มหลังยืนยันการจองในขั้นตอนถัดไป"),
+    ).toBeInTheDocument();
   });
 
-  it("mounts credentials and the complete schedule once, then exposes the booking link", () => {
+  it("opens the complete schedule in a dialog, then exposes the booking link", async () => {
     const trainer = { ...trainers[0], demo: false };
     render(<TrainerDetail trainer={trainer} />);
 
     const credentials = screen.getByText("ใบรับรองและคุณสมบัติ").closest("details") as HTMLElement;
-    const schedule = screen.getByText("ตารางว่างทั้งหมด").closest("details") as HTMLElement;
     expect(screen.getAllByText(trainer.certificates[0].name)).toHaveLength(1);
-    expect(screen.getAllByRole("region", { name: `ตารางว่างของ ${trainer.displayName}` })).toHaveLength(1);
+    expect(screen.queryByRole("dialog", { name: "เลือกวันและเวลาฝึก" })).not.toBeInTheDocument();
 
-    expect(schedule).toHaveAttribute("open");
-    const firstSlot = within(schedule).getAllByRole("button")[0];
-    fireEvent.click(firstSlot);
+    fireEvent.click(screen.getByRole("button", { name: /ดูตารางว่างทั้งหมด/ }));
+    const schedule = screen.getByRole("dialog", { name: "เลือกวันและเวลาฝึก" });
+    fireEvent.click(within(schedule).getByRole("button", { name: "09:00 ถึง 10:00" }));
+    fireEvent.click(within(schedule).getByRole("button", { name: "ยืนยันเวลานี้" }));
 
     expect(screen.getAllByRole("link", { name: "จองเวลานี้" })).toHaveLength(1);
     expect(screen.getByRole("link", { name: "จองเวลานี้" })).toHaveAttribute(
       "href",
       `/booking?trainer=${trainer.slug}&slot=${trainer.slots[0].id}`,
     );
+    await waitFor(() => expect(screen.queryByRole("dialog")).not.toBeInTheDocument());
     expect(credentials).not.toHaveAttribute("open");
   });
 
