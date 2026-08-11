@@ -252,7 +252,7 @@ describe("ChatWorkbench", () => {
     expect(disclosure).toHaveAttribute("open");
   });
 
-  it("keeps the desktop booking facts open by default with a visible native disclosure control", async () => {
+  it("keeps desktop booking facts closed by default with a visible native disclosure control", async () => {
     stubDesktopFacts(true);
     const booking = bookingFixture();
     vi.mocked(authenticatedRequest)
@@ -276,20 +276,46 @@ describe("ChatWorkbench", () => {
     expect(summary).toBeVisible();
     expect(summary.tagName).toBe("SUMMARY");
     expect(summary.tabIndex).toBeGreaterThanOrEqual(0);
-    expect(disclosure).toHaveAttribute("open");
+    expect(disclosure).not.toHaveAttribute("open");
 
     summary.focus();
     expect(summary).toHaveFocus();
     fireEvent.click(summary);
     await flushPromises();
-    expect(disclosure).not.toHaveAttribute("open");
+    expect(disclosure).toHaveAttribute("open");
 
     summary.focus();
     fireEvent.keyDown(summary, { key: "Enter", code: "Enter" });
     fireEvent.keyUp(summary, { key: "Enter", code: "Enter" });
     fireEvent.click(summary); // Native keyboard activation dispatches the same click action in browsers.
     await flushPromises();
+    expect(disclosure).not.toHaveAttribute("open");
+  });
+
+  it("collapses booking facts again when the member changes rooms", async () => {
+    const second = bookingFixture({
+      id: "BK-CHAT-002",
+      chatRoomId: 22,
+      trainer: { id: 4, slug: "trainer-d", displayName: "เทรนเนอร์ ด." },
+    });
+    vi.mocked(authenticatedRequest).mockImplementation((path) => {
+      if (path === "/v1/bookings") return Promise.resolve([bookingFixture(), second]);
+      if (path.includes("/messages?afterId=0")) return Promise.resolve([]);
+      return Promise.reject(new Error(`unexpected ${path}`));
+    });
+
+    render(<ChatWorkbench />);
+    await flushPromises();
+    const summary = screen.getByText("รายละเอียดนัดหมาย", { selector: "summary" });
+    const disclosure = summary.closest("details");
+    fireEvent.click(summary);
+    await flushPromises();
     expect(disclosure).toHaveAttribute("open");
+
+    fireEvent.click(screen.getByRole("button", { name: /เทรนเนอร์ ด\./ }));
+    await flushPromises();
+    const switchedDisclosure = screen.getByText("รายละเอียดนัดหมาย", { selector: "summary" }).closest("details");
+    expect(switchedDisclosure).not.toHaveAttribute("open");
   });
 
   it("announces the active conversation before secondary facts and keeps the composer after the message log", async () => {

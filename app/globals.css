@@ -5330,6 +5330,7 @@ body {
   color: var(--color-paper);
   background: var(--color-ink);
   border-inline-end: 1px solid var(--color-ink-2);
+  overflow: hidden;
 }
 
 .app-sidebar .brand {
@@ -5390,14 +5391,24 @@ body {
 }
 
 .app-sidebar__nav-label,
-.brand__label {
+.brand__label,
+.profile-trigger__name,
+.app-sidebar .profile-trigger > svg {
+  max-width: 12rem;
   overflow: hidden;
+  opacity: 1;
   text-overflow: ellipsis;
+  transform: translateX(0);
+  visibility: visible;
   white-space: nowrap;
+  transition:
+    max-width var(--dur-short) var(--ease-in-out),
+    opacity var(--dur-short) var(--ease-out),
+    transform var(--dur-short) var(--ease-in-out),
+    visibility 0s;
 }
 
 .app-sidebar[data-collapsed="true"] {
-  width: 4.75rem;
   gap: var(--space-lg);
   padding-inline: var(--space-sm);
 }
@@ -5410,7 +5421,11 @@ body {
 .app-sidebar[data-collapsed="true"] .app-sidebar__nav-label,
 .app-sidebar[data-collapsed="true"] .profile-trigger__name,
 .app-sidebar[data-collapsed="true"] .profile-trigger > svg {
-  display: none;
+  max-width: 0;
+  opacity: 0;
+  transform: translateX(calc(var(--space-xs) * -1));
+  visibility: hidden;
+  transition-delay: 0s, 0s, 0s, var(--dur-short);
 }
 
 .app-sidebar[data-collapsed="true"] .desktop-nav a,

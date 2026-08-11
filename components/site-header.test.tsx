@@ -56,9 +56,9 @@ describe("MobileRoleNav", () => {
   });
 
   it.each([
-    ["member", "/member", "การจองของฉัน", ["หน้าแรก", "ค้นหาเทรนเนอร์", "การจองของฉัน", "แชต"]],
-    ["trainer", "/trainer", "พื้นที่เทรนเนอร์", ["หน้าแรก", "พื้นที่เทรนเนอร์", "แชต"]],
-    ["admin", "/admin", "พื้นที่แอดมิน", ["หน้าแรก", "พื้นที่แอดมิน"]],
+    ["member", "/member", "การจองของฉัน", ["ค้นหาเทรนเนอร์", "การจองของฉัน", "แชต"]],
+    ["trainer", "/trainer", "พื้นที่เทรนเนอร์", ["พื้นที่เทรนเนอร์", "แชต"]],
+    ["admin", "/admin", "พื้นที่แอดมิน", ["พื้นที่แอดมิน"]],
   ] as const)("routes %s users to their role workspace", (role, workspaceHref, workspaceLabel, expectedLabels) => {
     mockedPathname.mockReturnValue(workspaceHref);
     render(<MobileRoleNav user={user(role)} />);
@@ -68,7 +68,7 @@ describe("MobileRoleNav", () => {
 
     expect(links).toHaveLength(expectedLabels.length);
     expect(links.map((link) => link.textContent)).toEqual(expectedLabels);
-    expect(within(nav).getByRole("link", { name: "หน้าแรก" })).toHaveAttribute("href", "/");
+    expect(within(nav).queryByRole("link", { name: "หน้าแรก" })).not.toBeInTheDocument();
     expect(within(nav).getByRole("link", { name: workspaceLabel })).toHaveAttribute("href", workspaceHref);
     expect(within(nav).getByRole("link", { name: workspaceLabel })).toHaveAttribute("aria-current", "page");
     if (role !== "admin") expect(within(nav).getByRole("link", { name: "แชต" })).toHaveAttribute("href", "/chat");
@@ -82,7 +82,7 @@ describe("MobileRoleNav", () => {
     render(<MobileRoleNav user={user("trainer")} />);
 
     expect(screen.getByRole("link", { name: "พื้นที่เทรนเนอร์" })).toHaveAttribute("aria-current", "page");
-    expect(screen.getByRole("link", { name: "หน้าแรก" })).not.toHaveAttribute("aria-current");
+    expect(screen.queryByRole("link", { name: "หน้าแรก" })).not.toBeInTheDocument();
   });
 });
 
@@ -112,9 +112,9 @@ describe("SiteHeader", () => {
   });
 
   it.each([
-    ["member", "/member", ["หน้าแรก", "ค้นหาเทรนเนอร์", "การจองของฉัน", "แชต"]],
-    ["trainer", "/trainer", ["หน้าแรก", "พื้นที่เทรนเนอร์", "แชต"]],
-    ["admin", "/admin", ["หน้าแรก", "พื้นที่แอดมิน"]],
+    ["member", "/member", ["ค้นหาเทรนเนอร์", "การจองของฉัน", "แชต"]],
+    ["trainer", "/trainer", ["พื้นที่เทรนเนอร์", "แชต"]],
+    ["admin", "/admin", ["พื้นที่แอดมิน"]],
   ] as const)("moves %s navigation into the authenticated side rail", async (role, pathname, labels) => {
     const signedInUser = user(role);
     mockedPathname.mockReturnValue(pathname);
@@ -127,6 +127,7 @@ describe("SiteHeader", () => {
     const nav = await screen.findByRole("navigation", { name: "เมนูหลักด้านข้าง" });
     const links = within(nav).getAllByRole("link");
     expect(links.map((link) => link.textContent)).toEqual(labels);
+    expect(within(nav).queryByRole("link", { name: "หน้าแรก" })).not.toBeInTheDocument();
     expect(links.find((link) => link.getAttribute("href") === pathname)).toHaveAttribute("aria-current", "page");
     for (const link of links) {
       expect(link.querySelector('.app-sidebar__nav-icon[aria-hidden="true"]')).not.toBeNull();

@@ -128,15 +128,6 @@ export function ChatWorkbench({ initialBookingId }: ChatWorkbenchProps) {
   }, []);
 
   useEffect(() => {
-    if (typeof window.matchMedia !== "function") return;
-    const desktop = window.matchMedia(DESKTOP_FACTS_QUERY);
-    const syncFactsDisclosure = () => setFactsOpen(desktop.matches);
-    syncFactsDisclosure();
-    desktop.addEventListener("change", syncFactsDisclosure);
-    return () => desktop.removeEventListener("change", syncFactsDisclosure);
-  }, []);
-
-  useEffect(() => {
     if (!selectedBookingId || typeof window.matchMedia !== "function") return;
     if (window.matchMedia(DESKTOP_FACTS_QUERY).matches) return;
     selectedRoomRef.current?.scrollIntoView?.({ block: "nearest" });
@@ -464,7 +455,10 @@ export function ChatWorkbench({ initialBookingId }: ChatWorkbenchProps) {
               key={booking.id}
               ref={booking.id === selectedBooking.id ? selectedRoomRef : undefined}
               aria-pressed={booking.id === selectedBooking.id}
-              onClick={() => setSelectedBookingId(booking.id)}
+              onClick={() => {
+                setFactsOpen(false);
+                setSelectedBookingId(booking.id);
+              }}
             >
               <span aria-hidden="true">{initials(booking.trainer.displayName)}</span>
               <div>
@@ -487,6 +481,7 @@ export function ChatWorkbench({ initialBookingId }: ChatWorkbenchProps) {
           </header>
 
           <details
+            key={selectedBooking.id}
             className="trainer-booking-list chat-booking-facts"
             open={factsOpen}
             onToggle={(event) => setFactsOpen(event.currentTarget.open)}
