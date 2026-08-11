@@ -15,6 +15,9 @@
     "smoke:trainer-onboarding": "powershell -NoProfile -ExecutionPolicy Bypass -File scripts/api-trainer-onboarding-smoke.ps1",
     "smoke:postbooking": "powershell -NoProfile -ExecutionPolicy Bypass -File scripts/api-payment-chat-review-smoke.ps1 -Scenario all",
     "audit:booking": "powershell -NoProfile -ExecutionPolicy Bypass -File scripts/audit-booking.ps1",
+    "booking-expiry:run": "C:\\xampp\\php\\php.exe backend/scripts/expire-bookings.php",
+    "booking-expiry:install": "powershell -NoProfile -ExecutionPolicy Bypass -File scripts/install-booking-expiry-task.ps1",
+    "test:booking-expiry-installer": "powershell -NoProfile -ExecutionPolicy Bypass -File scripts/install-booking-expiry-task.test.ps1",
     "check": "npm run lint && npm run typecheck && npm run build",
     "xampp:connect": "powershell -NoProfile -ExecutionPolicy Bypass -File scripts/connect-xampp.ps1"
   },

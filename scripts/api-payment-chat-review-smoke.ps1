@@ -193,19 +193,24 @@ if ($Scenario -eq 'all') {
 
     $expirySetup = @(Invoke-AllFlowSql "UPDATE bookings SET payment_deadline_at = DATE_SUB(UTC_TIMESTAMP(), INTERVAL 1 SECOND) WHERE public_id = '$($expiryBooking.id)' AND status = 'awaiting_payment'; SELECT ROW_COUNT();")
     Assert-True ([int]$expirySetup[-1] -eq 1) 'Expiry setup must update exactly one awaiting-payment booking'
-    $expiredBookings = (Invoke-RestMethod -Method Get -Uri "$ApiUrl/v1/bookings" -Headers $memberHeaders).data
-    $expiredBooking = $expiredBookings | Where-Object { $_.id -eq $expiryBooking.id } | Select-Object -First 1
-    Assert-Equal 'expired' $expiredBooking.status 'Reading bookings must expire the overdue hold'
+    $phpExe = (Resolve-Path 'C:\xampp\php\php.exe').Path
+    $expiryCommand = (Resolve-Path (Join-Path $PSScriptRoot '..\backend\scripts\expire-bookings.php')).Path
+    $expiryCommandOutput = @(& $phpExe $expiryCommand 2>&1)
+    Assert-True ($LASTEXITCODE -eq 0) "Booking expiry command failed: $expiryCommandOutput"
+    $expiryCommandResult = ([string]$expiryCommandOutput[-1]) | ConvertFrom-Json
+    Assert-True ([int]$expiryCommandResult.expired -ge 1) 'Booking expiry command must expire at least the overdue fixture'
 
     $expiryAuditSql = @"
 SELECT
+  (SELECT status FROM bookings WHERE public_id = '$($expiryBooking.id)'),
   (SELECT COUNT(*) FROM booking_status_history h JOIN bookings b ON b.id = h.booking_id WHERE b.public_id = '$($expiryBooking.id)' AND h.from_status = 'awaiting_payment' AND h.to_status = 'expired'),
   (SELECT s.state FROM availability_slots s WHERE s.id = $($expirySlot.id));
 "@
     $expiryAuditOutput = @(Invoke-AllFlowSql $expiryAuditSql)
     $expiryAudit = ([string]$expiryAuditOutput[-1]) -split "`t"
-    Assert-True ([int]$expiryAudit[0] -eq 1) 'Expiry must write exactly one awaiting_payment to expired history row'
-    Assert-Equal 'available' $expiryAudit[1] 'Expiry must release the original slot'
+    Assert-Equal 'expired' $expiryAudit[0] 'Background command must expire the overdue booking'
+    Assert-True ([int]$expiryAudit[1] -eq 1) 'Expiry must write exactly one awaiting_payment to expired history row'
+    Assert-Equal 'available' $expiryAudit[2] 'Expiry must release the original slot'
 
     $rebookBody = @{
         trainerId = 1

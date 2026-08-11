@@ -971,9 +971,14 @@ final class Handlers
         exit;
     }
 
-    private function expireAwaitingPayments(?int $slotId = null): void
+    public function expireAwaitingPaymentsForScheduler(): int
     {
-        $this->database->transaction(
+        return count($this->expireAwaitingPayments());
+    }
+
+    private function expireAwaitingPayments(?int $slotId = null): array
+    {
+        return $this->database->transaction(
             fn(PDO $pdo): array => $this->expireAwaitingPaymentsInTransaction($pdo, $slotId)
         );
     }

@@ -7,9 +7,12 @@ PHP REST API แบบไม่พึ่ง Composer สำหรับ Apache +
 1. คัดลอก `.env.example` เป็น `.env` และแก้รหัสผ่านฐานข้อมูลถ้ามี
 2. เปิด Apache และ MySQL ใน XAMPP Control Panel
 3. จากโฟลเดอร์โปรเจกต์ รัน `npm run xampp:connect`
-4. ตรวจ `http://localhost/fitconnect-api/v1/health`
+4. รัน `npm run booking-expiry:install` หนึ่งครั้ง เพื่อตรวจการจองที่หมดเวลาทุกหนึ่งนาที
+5. ตรวจ `http://localhost/fitconnect-api/v1/health`
 
 สคริปต์เชื่อมต่อจะสร้าง junction จาก `C:\xampp\htdocs\fitconnect-api` มาที่โฟลเดอร์นี้โดยไม่คัดลอกหรือเขียนทับโฟลเดอร์เดิม จากนั้นนำเข้า `database/schema.sql` และ `database/seed.sql`
+
+Windows Task Scheduler จะเก็บงานชื่อ `FitConnect-ExpireBookings` ไว้ งานนี้เรียกคำสั่ง PHP ทุกหนึ่งนาทีเพื่อเปลี่ยนการจองที่เกินกำหนด 10 นาทีเป็น `expired` และคืนช่วงเวลาให้สมาชิกคนอื่นจองได้ งานยังทำต่อเมื่อเครื่องใช้แบตเตอรี่ หากย้ายโฟลเดอร์โปรเจกต์ ให้รันคำสั่งติดตั้งอีกครั้ง คุณสามารถตรวจคำสั่งด้วยตัวเองโดยรัน `npm run booking-expiry:run`
 
 ## เส้นทางหลัก
 
@@ -25,7 +28,7 @@ PHP REST API แบบไม่พึ่ง Composer สำหรับ Apache +
 - `POST /v1/availability-slots`
 - `DELETE /v1/availability-slots/{id}`
 - `GET|POST /v1/bookings`
-- `PATCH /v1/bookings/{publicId}/status` — เทรนเนอร์ตอบรับพร้อมราคาสุทธิ ยกเลิก หรือจบการฝึกตามสิทธิ์
+- `PATCH /v1/bookings/{publicId}/status` — เทรนเนอร์บันทึกว่าฝึกเสร็จแล้ว หรือแอดมินยืนยันและยกเลิกตามสิทธิ์
 - `POST /v1/payments` — สมาชิกส่งหลักฐานการชำระเงินแบบ multipart
 - `GET|POST /v1/chat-rooms/{id}/messages` — อ่านและส่งข้อความหรือไฟล์แนบในห้องของการจอง
 - `GET /v1/chat-rooms/{id}/messages/{messageId}/attachment` — ดาวน์โหลดไฟล์แนบสำหรับคู่สนทนาเท่านั้น
@@ -46,7 +49,7 @@ PHP REST API แบบไม่พึ่ง Composer สำหรับ Apache +
 rtk powershell -NoProfile -ExecutionPolicy Bypass -File scripts/api-workflow-smoke.ps1 -Scenario all
 ```
 
-การทดสอบครอบคลุมการอนุมัติเทรนเนอร์ การสร้าง/ลบช่วงเวลาว่าง การจองพร้อมกัน การตอบรับ และการปฏิเสธ สคริปต์เปลี่ยนแปลงเฉพาะฐานข้อมูลสำหรับพัฒนาในเครื่อง และ `npm run xampp:connect` จะคืนสถานะข้อมูลตั้งต้นก่อนเริ่มรอบสะอาดอีกครั้ง
+การทดสอบครอบคลุมการอนุมัติเทรนเนอร์ การสร้างและลบช่วงเวลาว่าง การจองพร้อมกัน การตรวจชำระเงิน และการปฏิเสธ สคริปต์เปลี่ยนแปลงเฉพาะฐานข้อมูลสำหรับพัฒนาในเครื่อง และ `npm run xampp:connect` จะคืนสถานะข้อมูลตั้งต้นก่อนเริ่มรอบสะอาดอีกครั้ง
 
 ## ย้ายฐานข้อมูลเดิมเพื่อลบจังหวัดและสถานที่นัดฝึก
 
