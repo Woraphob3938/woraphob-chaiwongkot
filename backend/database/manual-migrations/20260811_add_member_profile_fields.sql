@@ -1,0 +1,9 @@
+USE fitconnect;
+
+ALTER TABLE member_profiles
+  ADD COLUMN IF NOT EXISTS first_name VARCHAR(100) NULL AFTER user_id,
+  ADD COLUMN IF NOT EXISTS last_name VARCHAR(100) NULL AFTER first_name,
+  ADD COLUMN IF NOT EXISTS experience_level VARCHAR(50) NULL AFTER goals,
+  ADD COLUMN IF NOT EXISTS weight DECIMAL(5, 2) NULL AFTER experience_level,
+  ADD COLUMN IF NOT EXISTS height DECIMAL(5, 2) NULL AFTER weight,
+  ADD COLUMN IF NOT EXISTS image_path VARCHAR(500) NULL AFTER height;
