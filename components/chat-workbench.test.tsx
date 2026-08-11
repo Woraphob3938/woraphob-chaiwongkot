@@ -31,6 +31,7 @@ function bookingFixture(overrides: Partial<Booking> = {}): Booking {
       canSendChat: true,
       canComplete: false,
       canReview: false,
+      canCancel: false,
     },
     createdAt: "2026-08-01T00:00:00.000Z",
     demo: false,

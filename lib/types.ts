@@ -40,6 +40,7 @@ export type BookingActions = {
   canSendChat: boolean;
   canComplete: boolean;
   canReview: boolean;
+  canCancel: boolean;
 };
 
 export type ChatAttachment = {

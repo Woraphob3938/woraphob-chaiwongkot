@@ -32,6 +32,7 @@ function bookingFixture(id: string, overrides: Partial<Booking> = {}): Booking {
       canSendChat: true,
       canComplete: false,
       canReview: false,
+      canCancel: false,
     },
     createdAt: "2026-08-01T00:00:00.000Z",
     demo: false,
@@ -140,6 +141,54 @@ describe("member role dashboard", () => {
 
     expect(within(summary).getByText("การจองหมดเวลา ช่วงเวลานี้ถูกคืนแล้ว")).toBeInTheDocument();
     expect(within(summary).queryByLabelText("หลักฐานการโอน")).not.toBeInTheDocument();
+  });
+
+  it("confirms an unpaid cancellation and reloads the member ledger", async () => {
+    const cancellable = bookingFixture("BK-CANCEL", {
+      actions: { ...bookingFixture("unused").actions, canCancel: true } as Booking["actions"],
+    });
+    const cancelled = bookingFixture("BK-CANCEL", {
+      status: "cancelled",
+      paymentDeadlineAt: null,
+      actions: { ...bookingFixture("unused").actions, canReadChat: true, canSendChat: false },
+    });
+    vi.mocked(authenticatedRequest)
+      .mockResolvedValueOnce([cancellable])
+      .mockResolvedValueOnce({ id: "BK-CANCEL", status: "cancelled" })
+      .mockResolvedValueOnce([cancelled]);
+
+    render(<RoleDashboard role="member" />);
+    const summary = await screen.findByTestId("booking-summary");
+    fireEvent.click(within(summary).getByText("ดูรายละเอียด"));
+    fireEvent.click(within(summary).getByRole("button", { name: "ยกเลิกการจอง" }));
+
+    expect(screen.getByRole("dialog", { name: "ยกเลิกการจองนี้?" })).toBeInTheDocument();
+    expect(screen.getByText("ช่วงเวลาจะถูกคืนให้สมาชิกคนอื่นทันที")).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "ยืนยันยกเลิกการจอง" }));
+
+    await waitFor(() => expect(authenticatedRequest).toHaveBeenCalledWith("/v1/bookings/BK-CANCEL/cancel", {
+      method: "POST",
+    }));
+    await waitFor(() => expect(screen.getByText("คำขอนี้สิ้นสุดแล้ว")).toBeInTheDocument());
+    expect(screen.queryByRole("button", { name: "ยกเลิกการจอง" })).not.toBeInTheDocument();
+  });
+
+  it("returns focus after dismissing the cancellation dialog", async () => {
+    const cancellable = bookingFixture("BK-CANCEL-FOCUS", {
+      actions: { ...bookingFixture("unused").actions, canCancel: true } as Booking["actions"],
+    });
+    vi.mocked(authenticatedRequest).mockResolvedValue([cancellable]);
+
+    render(<RoleDashboard role="member" />);
+    const summary = await screen.findByTestId("booking-summary");
+    fireEvent.click(within(summary).getByText("ดูรายละเอียด"));
+    const cancelButton = within(summary).getByRole("button", { name: "ยกเลิกการจอง" });
+    cancelButton.focus();
+    fireEvent.click(cancelButton);
+    fireEvent.keyDown(document, { key: "Escape" });
+
+    await waitFor(() => expect(cancelButton).toHaveFocus());
+    expect(authenticatedRequest).toHaveBeenCalledTimes(1);
   });
 
   it("mounts the next-action booking first and reveals every booking once through view-all", async () => {

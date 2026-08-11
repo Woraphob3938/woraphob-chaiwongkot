@@ -128,6 +128,17 @@ final class WorkflowRules
         }
     }
 
+    public static function assertMemberCancellation(string $bookingStatus, string $paymentStatus): void
+    {
+        if ($bookingStatus !== 'awaiting_payment' || !in_array($paymentStatus, ['not_submitted', 'rejected'], true)) {
+            throw new HttpException(
+                409,
+                'ยกเลิกได้ก่อนส่งหลักฐานการชำระเงินเท่านั้น',
+                'MEMBER_CANCELLATION_NOT_ALLOWED'
+            );
+        }
+    }
+
     public static function assertTrainerCompletion(
         string $bookingStatus,
         string $paymentStatus,

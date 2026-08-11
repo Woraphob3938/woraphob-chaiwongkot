@@ -158,6 +158,24 @@ test('blocks chat after an unpaid booking expires', function (): void {
     expectHttp(409, 'CHAT_READ_ONLY', fn() => WorkflowRules::assertChatWritable('expired'));
 });
 
+test('allows a member to cancel before submitting payment evidence', function (): void {
+    WorkflowRules::assertMemberCancellation('awaiting_payment', 'not_submitted');
+    WorkflowRules::assertMemberCancellation('awaiting_payment', 'rejected');
+});
+
+test('blocks member cancellation after payment evidence is submitted', function (): void {
+    expectHttp(
+        409,
+        'MEMBER_CANCELLATION_NOT_ALLOWED',
+        fn() => WorkflowRules::assertMemberCancellation('payment_review', 'reviewing')
+    );
+    expectHttp(
+        409,
+        'MEMBER_CANCELLATION_NOT_ALLOWED',
+        fn() => WorkflowRules::assertMemberCancellation('confirmed', 'approved')
+    );
+});
+
 test('allows completion after a paid appointment ends', function (): void {
     WorkflowRules::assertTrainerCompletion(
         'confirmed',

@@ -28,6 +28,7 @@ Windows Task Scheduler จะเก็บงานชื่อ `FitConnect-Expir
 - `POST /v1/availability-slots`
 - `DELETE /v1/availability-slots/{id}`
 - `GET|POST /v1/bookings`
+- `POST /v1/bookings/{publicId}/cancel` — สมาชิกยกเลิกคำขอที่ยังไม่ส่งสลิป ระบบคืนช่วงเวลาให้จองต่อทันที
 - `PATCH /v1/bookings/{publicId}/status` — เทรนเนอร์บันทึกว่าฝึกเสร็จแล้ว หรือแอดมินยืนยันและยกเลิกตามสิทธิ์
 - `POST /v1/payments` — สมาชิกส่งหลักฐานการชำระเงินแบบ multipart
 - `GET|POST /v1/chat-rooms/{id}/messages` — อ่านและส่งข้อความหรือไฟล์แนบในห้องของการจอง

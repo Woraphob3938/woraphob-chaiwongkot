@@ -6,6 +6,7 @@ import { useCallback, useEffect, useState } from "react";
 import {
   ArrowRight,
   CalendarDays,
+  CalendarX2,
   MessageSquareText,
   RefreshCw,
   ShieldCheck,
@@ -13,6 +14,17 @@ import {
 } from "lucide-react";
 import { AdminReviewQueue } from "@/components/admin-review-queue";
 import { DashboardSection, NextActionCard } from "@/components/dashboard-primitives";
+import { Button } from "@/components/ui/button";
+import {
+  Dialog,
+  DialogClose,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+  DialogTrigger,
+} from "@/components/ui/dialog";
 import { PaymentPanel } from "@/components/payment-panel";
 import { PaymentDeadline } from "@/components/payment-deadline";
 import { ReviewForm } from "@/components/review-form";
@@ -57,6 +69,65 @@ function bookingIdFromActionHref(href: string): string | null {
   const marker = "#booking-";
   const markerIndex = href.indexOf(marker);
   return markerIndex === -1 ? null : href.slice(markerIndex + marker.length);
+}
+
+function BookingCancellationAction({
+  booking,
+  onUpdated,
+}: {
+  booking: Booking;
+  onUpdated: () => Promise<void>;
+}) {
+  const [open, setOpen] = useState(false);
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState("");
+
+  async function cancelBooking() {
+    if (busy) return;
+    setBusy(true);
+    setError("");
+    try {
+      await authenticatedRequest(`/v1/bookings/${encodeURIComponent(booking.id)}/cancel`, { method: "POST" });
+      setOpen(false);
+      await onUpdated();
+    } catch (requestError) {
+      setError(requestError instanceof Error ? requestError.message : "ยกเลิกการจองไม่สำเร็จ กรุณาลองใหม่");
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  return (
+    <Dialog open={open} onOpenChange={(nextOpen) => {
+      if (busy) return;
+      setOpen(nextOpen);
+      if (nextOpen) setError("");
+    }}>
+      <DialogTrigger asChild>
+        <Button variant="destructive">
+          <CalendarX2 aria-hidden="true" /> ยกเลิกการจอง
+        </Button>
+      </DialogTrigger>
+      <DialogContent>
+        <DialogHeader>
+          <DialogTitle>ยกเลิกการจองนี้?</DialogTitle>
+          <DialogDescription className="grid gap-1">
+            <span>ช่วงเวลาจะถูกคืนให้สมาชิกคนอื่นทันที</span>
+            <span>คำสั่งนี้ใช้ได้ก่อนส่งหลักฐานการชำระเงินเท่านั้น</span>
+          </DialogDescription>
+        </DialogHeader>
+        {error && <p className="form-error" role="alert">{error}</p>}
+        <DialogFooter>
+          <DialogClose asChild>
+            <Button type="button" variant="outline" disabled={busy}>กลับไป</Button>
+          </DialogClose>
+          <Button type="button" variant="destructive" disabled={busy} onClick={() => void cancelBooking()}>
+            {busy ? "กำลังยกเลิก…" : "ยืนยันยกเลิกการจอง"}
+          </Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
+  );
 }
 
 export function RoleDashboard({
@@ -146,6 +217,9 @@ export function RoleDashboard({
         </div>
       )}
       <div className="ledger-actions">
+        {booking.actions.canCancel && (
+          <BookingCancellationAction booking={booking} onUpdated={loadMemberBookings} />
+        )}
         {booking.actions.canReadChat && (
           <Link href={`/chat?booking=${encodeURIComponent(booking.id)}`}><MessageSquareText aria-hidden="true" size={17} /> เปิดการสนทนา</Link>
         )}

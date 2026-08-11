@@ -106,6 +106,7 @@ export const demoBookings: Booking[] = [
       canSendChat: true,
       canComplete: false,
       canReview: false,
+      canCancel: false,
     },
     createdAt: "2026-07-30T03:20:00.000Z",
     demo: true,

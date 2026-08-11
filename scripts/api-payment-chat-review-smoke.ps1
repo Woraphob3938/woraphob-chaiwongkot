@@ -225,6 +225,32 @@ SELECT
     $rebookSlotOutput = @(Invoke-AllFlowSql "SELECT state FROM availability_slots WHERE id = $($expirySlot.id);")
     Assert-Equal 'held' ([string]$rebookSlotOutput[-1]) 'Rebooked slot must be held by the new booking'
 
+    Expect-Status 404 {
+        Invoke-RestMethod -Method Post -Uri "$ApiUrl/v1/bookings/$($rebookedBooking.id)/cancel" -Headers $memberHeaders
+    }
+    $cancelledRebooking = (
+        Invoke-RestMethod -Method Post -Uri "$ApiUrl/v1/bookings/$($rebookedBooking.id)/cancel" -Headers $secondMemberHeaders
+    ).data
+    Assert-Equal 'cancelled' $cancelledRebooking.status 'The member must be able to cancel their unpaid booking'
+
+    $cancellationAuditOutput = @(Invoke-AllFlowSql @"
+SELECT
+  b.status,
+  IF(b.payment_deadline_at IS NULL, 1, 0),
+  b.cancellation_reason,
+  s.state,
+  (SELECT COUNT(*) FROM booking_status_history h WHERE h.booking_id = b.id AND h.from_status = 'awaiting_payment' AND h.to_status = 'cancelled')
+FROM bookings b
+JOIN availability_slots s ON s.id = b.availability_slot_id
+WHERE b.public_id = '$($rebookedBooking.id)';
+"@)
+    $cancellationAudit = ([string]$cancellationAuditOutput[-1]) -split "`t"
+    Assert-Equal 'cancelled' $cancellationAudit[0] 'Cancellation must persist the cancelled status'
+    Assert-Equal 1 ([int]$cancellationAudit[1]) 'Cancellation must clear the payment deadline'
+    Assert-Equal 'สมาชิกยกเลิกก่อนส่งหลักฐานการชำระเงิน' $cancellationAudit[2] 'Cancellation must store its reason'
+    Assert-Equal 'available' $cancellationAudit[3] 'Cancellation must release the held slot'
+    Assert-Equal 1 ([int]$cancellationAudit[4]) 'Cancellation must write one history row'
+
     $completed = $null
     try {
         $endUpdateOutput = @(Invoke-AllFlowSql "SET GLOBAL check_constraint_checks = OFF; SET SESSION check_constraint_checks = OFF; UPDATE bookings SET ends_at = DATE_SUB(UTC_TIMESTAMP(), INTERVAL 1 MINUTE) WHERE public_id = '$($booking.id)'; SELECT ROW_COUNT();")

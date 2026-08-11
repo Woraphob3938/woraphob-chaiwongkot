@@ -389,6 +389,51 @@ final class Handlers
         Http::json($booking, 201);
     }
 
+    public function cancelMemberBooking(string $publicId): never
+    {
+        $user = $this->auth->requireUser(['member']);
+        $reason = 'สมาชิกยกเลิกก่อนส่งหลักฐานการชำระเงิน';
+
+        $result = $this->database->transaction(function (PDO $pdo) use ($publicId, $user, $reason): array {
+            $this->expireAwaitingPaymentsInTransaction($pdo);
+            $statement = $pdo->prepare(
+                'SELECT id, status, payment_status, availability_slot_id
+                 FROM bookings
+                 WHERE public_id = ? AND member_user_id = ? FOR UPDATE'
+            );
+            $statement->execute([$publicId, $user['id']]);
+            $booking = $statement->fetch();
+            if (!$booking) {
+                throw new HttpException(404, 'ไม่พบคำขอจอง', 'BOOKING_NOT_FOUND');
+            }
+
+            WorkflowRules::assertMemberCancellation(
+                (string) $booking['status'],
+                (string) $booking['payment_status']
+            );
+
+            $pdo->prepare(
+                'UPDATE bookings
+                 SET status = "cancelled", payment_deadline_at = NULL,
+                     cancellation_reason = ?, updated_at = UTC_TIMESTAMP()
+                 WHERE id = ?'
+            )->execute([$reason, $booking['id']]);
+            if ($booking['availability_slot_id'] !== null) {
+                $pdo->prepare('UPDATE availability_slots SET state = "available" WHERE id = ? AND state = "held"')
+                    ->execute([$booking['availability_slot_id']]);
+            }
+            $pdo->prepare(
+                'INSERT INTO booking_status_history
+                 (booking_id, from_status, to_status, changed_by_user_id, note)
+                 VALUES (?, "awaiting_payment", "cancelled", ?, ?)'
+            )->execute([$booking['id'], $user['id'], $reason]);
+
+            return ['id' => $publicId, 'status' => 'cancelled', 'reason' => $reason];
+        });
+
+        Http::json($result);
+    }
+
     public function updateBookingStatus(string $publicId): never
     {
         $user = $this->auth->requireUser(['trainer', 'admin']);
@@ -1117,6 +1162,11 @@ final class Handlers
                 'canSendChat' => $role !== 'admin' && in_array($row['status'], $acceptedStatuses, true),
                 'canComplete' => $isTrainer && $row['status'] === 'confirmed' && $row['payment_status'] === 'approved' && $appointmentEnded,
                 'canReview' => $isMember && $row['status'] === 'completed' && !$hasReview,
+                'canCancel' => $isMember
+                    && $row['status'] === 'awaiting_payment'
+                    && in_array($row['payment_status'], ['not_submitted', 'rejected'], true)
+                    && $row['payment_deadline_at'] !== null
+                    && strtotime($row['payment_deadline_at'] . ' UTC') > time(),
             ],
             'demo' => (bool) $row['is_demo'],
         ];
