@@ -14,6 +14,7 @@ import {
   PanelLeftClose,
   PanelLeftOpen,
   Search,
+  UserRound,
   X,
   type LucideIcon,
 } from "lucide-react";
@@ -34,6 +35,7 @@ const sidebarIcons: Partial<Record<NavigationIcon, LucideIcon>> = {
   bookings: CalendarCheck2,
   workspace: LayoutDashboard,
   chat: MessageCircle,
+  profile: UserRound,
 };
 
 function isCurrentDestination(pathname: string, href: string) {
@@ -302,6 +304,9 @@ export function SiteHeader() {
                     <span className="profile-avatar" aria-hidden="true">{userInitials(user.displayName)}</span>
                     <span><strong>{user.displayName || "บัญชีของฉัน"}</strong><small>{user.email}</small></span>
                   </div>
+                  <Link href="/profile" onClick={() => setProfileOpen(false)}>
+                    <UserRound aria-hidden="true" size={17} /> ดูโปรไฟล์
+                  </Link>
                   <button type="button" onClick={() => void signOut()}>
                     <LogOut aria-hidden="true" size={17} /> ออกจากระบบ
                   </button>

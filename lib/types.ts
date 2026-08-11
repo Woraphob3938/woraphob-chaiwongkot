@@ -43,6 +43,56 @@ export type BookingActions = {
   canCancel: boolean;
 };
 
+export type AccountUser = {
+  displayName: string;
+  email: string;
+};
+
+export type AccountCertificate = {
+  id: number;
+  name: string;
+  issuer: string;
+  issuedYear: number | null;
+  status: VerificationStatus;
+};
+
+export type MemberAccountProfile = {
+  role: "member";
+  user: AccountUser;
+  imageUrl: string | null;
+  member: {
+    firstName: string;
+    lastName: string;
+    phone: string;
+    fitnessGoal: string;
+    experienceLevel: string;
+    weight: number | null;
+    height: number | null;
+  };
+};
+
+export type TrainerAccountProfile = {
+  role: "trainer";
+  user: AccountUser;
+  imageUrl: string | null;
+  trainer: {
+    legalName: string;
+    phone: string;
+    headline: string;
+    bio: string;
+    yearsExperience: number;
+    serviceMode: "freelance" | "gym" | "both";
+    gymName: string | null;
+    priceFrom: number | null;
+    trainingTypeIds: number[];
+    approvalStatus: TrainerApprovalStatus;
+    approvalNote: string | null;
+    certificates: AccountCertificate[];
+  };
+};
+
+export type AccountProfile = MemberAccountProfile | TrainerAccountProfile;
+
 export type ChatAttachment = {
   name: string;
   mime: string;

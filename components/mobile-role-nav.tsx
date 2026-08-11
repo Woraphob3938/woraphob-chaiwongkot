@@ -9,6 +9,7 @@ import {
   LogIn,
   MessageCircle,
   Search,
+  UserRound,
   UserPlus,
   type LucideIcon,
 } from "lucide-react";
@@ -21,6 +22,7 @@ const icons: Record<NavigationIcon, LucideIcon> = {
   bookings: CalendarCheck2,
   workspace: LayoutDashboard,
   chat: MessageCircle,
+  profile: UserRound,
   login: LogIn,
   register: UserPlus,
 };

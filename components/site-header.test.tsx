@@ -57,8 +57,8 @@ describe("MobileRoleNav", () => {
   });
 
   it.each([
-    ["member", "/member", "การจองของฉัน", ["ค้นหาเทรนเนอร์", "การจองของฉัน", "แชต"]],
-    ["trainer", "/trainer", "พื้นที่เทรนเนอร์", ["พื้นที่เทรนเนอร์", "แชต"]],
+    ["member", "/member", "การจองของฉัน", ["ค้นหาเทรนเนอร์", "การจองของฉัน", "แชต", "โปรไฟล์"]],
+    ["trainer", "/trainer", "พื้นที่เทรนเนอร์", ["พื้นที่เทรนเนอร์", "แชต", "โปรไฟล์"]],
     ["admin", "/admin", "พื้นที่แอดมิน", ["พื้นที่แอดมิน"]],
   ] as const)("routes %s users to their role workspace", (role, workspaceHref, workspaceLabel, expectedLabels) => {
     mockedPathname.mockReturnValue(workspaceHref);
@@ -108,13 +108,14 @@ describe("SiteHeader", () => {
 
     expect(screen.getByText(member.email)).toBeInTheDocument();
     expect(screen.queryByRole("link", { name: /พื้นที่ใช้งานของฉัน/ })).not.toBeInTheDocument();
+    expect(screen.getByRole("link", { name: "ดูโปรไฟล์" })).toHaveAttribute("href", "/profile");
     expect(screen.getByRole("button", { name: /ออกจากระบบ/ })).toBeInTheDocument();
     await waitFor(() => expect(mockedApiRequest).toHaveBeenCalled());
   });
 
   it.each([
-    ["member", "/member", ["ค้นหาเทรนเนอร์", "การจองของฉัน", "แชต"]],
-    ["trainer", "/trainer", ["พื้นที่เทรนเนอร์", "แชต"]],
+    ["member", "/member", ["ค้นหาเทรนเนอร์", "การจองของฉัน", "แชต", "โปรไฟล์"]],
+    ["trainer", "/trainer", ["พื้นที่เทรนเนอร์", "แชต", "โปรไฟล์"]],
     ["admin", "/admin", ["พื้นที่แอดมิน"]],
   ] as const)("moves %s navigation into the authenticated side rail", async (role, pathname, labels) => {
     const signedInUser = user(role);

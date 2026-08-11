@@ -27,4 +27,14 @@ describe("navigationFor", () => {
       expect.objectContaining({ href: "/admin", label: "พื้นที่แอดมิน" }),
     ]));
   });
+
+  it("adds the shared profile destination only for members and trainers", () => {
+    expect(navigationFor("member")).toContainEqual(expect.objectContaining({
+      href: "/profile", label: "โปรไฟล์", icon: "profile",
+    }));
+    expect(navigationFor("trainer")).toContainEqual(expect.objectContaining({
+      href: "/profile", label: "โปรไฟล์", icon: "profile",
+    }));
+    expect(navigationFor("admin")).not.toContainEqual(expect.objectContaining({ href: "/profile" }));
+  });
 });
