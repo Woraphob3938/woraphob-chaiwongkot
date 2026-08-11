@@ -235,6 +235,83 @@ final class Handlers
         Http::json($this->auth->requireUser());
     }
 
+    public function profile(): never
+    {
+        $user = $this->auth->requireUser(['member', 'trainer']);
+        Http::json($this->accountProfilePayload($user));
+    }
+
+    public function updateProfile(): never
+    {
+        $user = $this->auth->requireUser(['member', 'trainer']);
+        $input = Http::body();
+
+        if ($user['role'] === 'member') {
+            $profile = ProfileRules::member($input);
+            $displayName = trim($profile['firstName'] . ' ' . $profile['lastName']);
+            $this->database->transaction(function (PDO $pdo) use ($user, $profile, $displayName): void {
+                $pdo->prepare('UPDATE users SET display_name = ?, updated_at = UTC_TIMESTAMP() WHERE id = ?')
+                    ->execute([$displayName, $user['id']]);
+                $pdo->prepare(
+                    'UPDATE member_profiles
+                     SET first_name = ?, last_name = ?, phone = ?, goals = ?, experience_level = ?,
+                         weight = ?, height = ?, updated_at = UTC_TIMESTAMP()
+                     WHERE user_id = ?'
+                )->execute([
+                    $profile['firstName'], $profile['lastName'], self::blankToNull($profile['phone']),
+                    self::blankToNull($profile['fitnessGoal']), self::blankToNull($profile['experienceLevel']),
+                    $profile['weight'], $profile['height'], $user['id'],
+                ]);
+            });
+        } else {
+            $profile = ProfileRules::trainer($input);
+            $this->database->transaction(function (PDO $pdo) use ($user, $profile): void {
+                $profileStatement = $pdo->prepare('SELECT id FROM trainer_profiles WHERE user_id = ? FOR UPDATE');
+                $profileStatement->execute([$user['id']]);
+                $trainerProfile = $profileStatement->fetch();
+                if (!$trainerProfile) {
+                    throw new HttpException(409, 'กรอกข้อมูลสมัครเทรนเนอร์ก่อนแก้โปรไฟล์', 'TRAINER_PROFILE_REQUIRED');
+                }
+
+                $typeIds = $profile['trainingTypeIds'];
+                $placeholders = implode(',', array_fill(0, count($typeIds), '?'));
+                $typeStatement = $pdo->prepare(
+                    "SELECT id FROM training_types WHERE active = 1 AND id IN ($placeholders)"
+                );
+                $typeStatement->execute($typeIds);
+                if (count($typeStatement->fetchAll()) !== count($typeIds)) {
+                    throw new HttpException(422, 'ประเภทการฝึกไม่ถูกต้อง', 'VALIDATION_FAILED', [
+                        'trainingTypeIds' => 'เลือกประเภทการฝึกที่เปิดใช้งาน',
+                    ]);
+                }
+
+                $pdo->prepare('UPDATE users SET display_name = ?, updated_at = UTC_TIMESTAMP() WHERE id = ?')
+                    ->execute([$profile['displayName'], $user['id']]);
+                $pdo->prepare(
+                    'UPDATE trainer_profiles
+                     SET legal_name = ?, phone = ?, headline = ?, bio = ?, years_experience = ?,
+                         service_mode = ?, gym_name = ?, price_from = ?, updated_at = UTC_TIMESTAMP()
+                     WHERE id = ?'
+                )->execute([
+                    $profile['legalName'], self::blankToNull($profile['phone']), self::blankToNull($profile['headline']),
+                    self::blankToNull($profile['bio']), $profile['yearsExperience'], $profile['serviceMode'],
+                    $profile['serviceMode'] === 'freelance' ? null : $profile['gymName'], $profile['priceFrom'],
+                    (int) $trainerProfile['id'],
+                ]);
+                $pdo->prepare('DELETE FROM trainer_training_types WHERE trainer_profile_id = ?')
+                    ->execute([(int) $trainerProfile['id']]);
+                $insertType = $pdo->prepare(
+                    'INSERT INTO trainer_training_types (trainer_profile_id, training_type_id) VALUES (?, ?)'
+                );
+                foreach ($typeIds as $typeId) {
+                    $insertType->execute([(int) $trainerProfile['id'], $typeId]);
+                }
+            });
+        }
+
+        Http::json($this->accountProfilePayload(['id' => $user['id'], 'role' => $user['role']]));
+    }
+
     public function trainerApplication(): never
     {
         $user = $this->auth->requireUser(['trainer']);
@@ -1063,6 +1140,88 @@ final class Handlers
         }
 
         return $expired;
+    }
+
+    private function accountProfilePayload(array $user): array
+    {
+        if ($user['role'] === 'member') {
+            $row = $this->database->fetchOne(
+                'SELECT u.display_name, u.email, mp.first_name, mp.last_name, mp.phone, mp.goals,
+                        mp.experience_level, mp.weight, mp.height, mp.image_path
+                 FROM users u JOIN member_profiles mp ON mp.user_id = u.id WHERE u.id = ?',
+                [$user['id']]
+            );
+            if (!$row) {
+                throw new HttpException(404, 'ไม่พบโปรไฟล์สมาชิก', 'PROFILE_NOT_FOUND');
+            }
+            $firstName = trim((string) ($row['first_name'] ?? ''));
+            return [
+                'role' => 'member',
+                'user' => ['displayName' => $row['display_name'], 'email' => $row['email']],
+                'imageUrl' => $row['image_path'],
+                'member' => [
+                    'firstName' => $firstName === '' ? $row['display_name'] : $firstName,
+                    'lastName' => $row['last_name'] ?? '',
+                    'phone' => $row['phone'] ?? '',
+                    'fitnessGoal' => $row['goals'] ?? '',
+                    'experienceLevel' => $row['experience_level'] ?? '',
+                    'weight' => $row['weight'] === null ? null : (float) $row['weight'],
+                    'height' => $row['height'] === null ? null : (float) $row['height'],
+                ],
+            ];
+        }
+
+        $row = $this->database->fetchOne(
+            'SELECT u.display_name, u.email, tp.id, tp.legal_name, tp.phone, tp.headline, tp.bio,
+                    tp.years_experience, tp.service_mode, tp.gym_name, tp.price_from, tp.image_path,
+                    tp.approval_status, tp.approval_note
+             FROM users u JOIN trainer_profiles tp ON tp.user_id = u.id WHERE u.id = ?',
+            [$user['id']]
+        );
+        if (!$row) {
+            throw new HttpException(409, 'กรอกข้อมูลสมัครเทรนเนอร์ก่อนเปิดโปรไฟล์', 'TRAINER_PROFILE_REQUIRED');
+        }
+        $profileId = (int) $row['id'];
+        $types = $this->database->fetchAll(
+            'SELECT training_type_id FROM trainer_training_types WHERE trainer_profile_id = ? ORDER BY training_type_id',
+            [$profileId]
+        );
+        $certificates = $this->database->fetchAll(
+            'SELECT id, name, issuer, issued_year, status FROM trainer_certificates
+             WHERE trainer_profile_id = ? ORDER BY id DESC',
+            [$profileId]
+        );
+
+        return [
+            'role' => 'trainer',
+            'user' => ['displayName' => $row['display_name'], 'email' => $row['email']],
+            'imageUrl' => $row['image_path'],
+            'trainer' => [
+                'legalName' => $row['legal_name'] ?? '',
+                'phone' => $row['phone'] ?? '',
+                'headline' => $row['headline'] ?? '',
+                'bio' => $row['bio'] ?? '',
+                'yearsExperience' => (int) $row['years_experience'],
+                'serviceMode' => $row['service_mode'],
+                'gymName' => $row['gym_name'],
+                'priceFrom' => $row['price_from'] === null ? null : (float) $row['price_from'],
+                'trainingTypeIds' => array_map(fn(array $type): int => (int) $type['training_type_id'], $types),
+                'approvalStatus' => $row['approval_status'],
+                'approvalNote' => $row['approval_note'],
+                'certificates' => array_map(fn(array $certificate): array => [
+                    'id' => (int) $certificate['id'],
+                    'name' => $certificate['name'],
+                    'issuer' => $certificate['issuer'],
+                    'issuedYear' => $certificate['issued_year'] === null ? null : (int) $certificate['issued_year'],
+                    'status' => $certificate['status'],
+                ], $certificates),
+            ],
+        ];
+    }
+
+    private static function blankToNull(string $value): ?string
+    {
+        return $value === '' ? null : $value;
     }
 
     private function trainerRow(string $where, array $params): ?array

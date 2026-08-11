@@ -5,6 +5,7 @@ require_once __DIR__ . '/src/Database.php';
 require_once __DIR__ . '/src/Http.php';
 require_once __DIR__ . '/src/Auth.php';
 require_once __DIR__ . '/src/WorkflowRules.php';
+require_once __DIR__ . '/src/ProfileRules.php';
 require_once __DIR__ . '/src/Handlers.php';
 
 $config = require __DIR__ . '/src/config.php';
@@ -33,6 +34,8 @@ try {
     if ($method === 'POST' && $path === '/v1/auth/login') $handlers->login();
     if ($method === 'POST' && $path === '/v1/auth/logout') $handlers->logout();
     if ($method === 'GET' && $path === '/v1/me') $handlers->me();
+    if ($method === 'GET' && $path === '/v1/profile') $handlers->profile();
+    if ($method === 'PATCH' && $path === '/v1/profile') $handlers->updateProfile();
     if ($method === 'POST' && $path === '/v1/trainer-applications') $handlers->trainerApplication();
     if ($method === 'GET' && $path === '/v1/trainer/me') $handlers->trainerMe();
     if ($method === 'PATCH' && $path === '/v1/trainer/me') $handlers->updateTrainerMe();
