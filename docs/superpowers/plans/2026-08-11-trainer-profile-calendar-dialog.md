@@ -483,47 +483,16 @@ rtk git commit -m "feat: select trainer time from calendar"
 
 **Files:**
 - Modify: `app/globals.css`
-- Create: `components/trainer-profile-layout.test.ts`
 
 **Interfaces:**
 - Consumes: class namesจาก Task 1 และ Task 2
 - Produces: profile proportions 26/44/30, 28rem desktop portrait, 3.5rem heading cap, centered responsive Dialog
 
-- [ ] **Step 1: Write a failing CSS contract test**
+- [ ] **Step 1: Record the visual baseline before editing CSS**
 
-สร้าง `components/trainer-profile-layout.test.ts`:
+เปิดหน้าโปรไฟล์ปัจจุบันที่ 1280 และ 320px บันทึก computed width, portrait height, h1 font-size และ page scrollWidth เพื่อใช้เทียบหลังแก้ ไม่เพิ่ม source-text test เพราะการค้นหาตัวเลขใน CSS ไม่พิสูจน์ rendered behavior
 
-```ts
-import { readFileSync } from "node:fs";
-import { describe, expect, it } from "vitest";
-
-const styles = readFileSync("app/globals.css", "utf8");
-
-describe("trainer profile calendar layout", () => {
-  it("uses the approved compact profile proportions", () => {
-    expect(styles).toMatch(/\.trainer-commerce-layout\s*\{[^}]*26fr[^}]*44fr[^}]*30fr/s);
-    expect(styles).toMatch(/\.trainer-commerce-layout \.trainer-detail-photo\s*\{[^}]*min-height:\s*28rem/s);
-    expect(styles).toMatch(/\.trainer-commerce-layout \.trainer-detail-copy h1\s*\{[^}]*font-size:\s*clamp\(2\.25rem,[^,]+,\s*3\.5rem\)/s);
-  });
-
-  it("centers the dialog and stacks its two zones on narrow screens", () => {
-    expect(styles).toMatch(/\.slot-calendar-dialog\s*\{[^}]*max-width:\s*56rem[^}]*max-height:/s);
-    expect(styles).toMatch(/@media \(max-width:\s*48rem\)[\s\S]*\.slot-calendar-dialog__body\s*\{[^}]*grid-template-columns:\s*minmax\(0,\s*1fr\)/s);
-  });
-});
-```
-
-- [ ] **Step 2: Run the CSS contract test and record RED**
-
-Run:
-
-```powershell
-rtk npm test -- components/trainer-profile-layout.test.ts
-```
-
-Expected: FAIL เพราะยังใช้ 31/39/30, รูป 36rem และไม่มี Dialog classes
-
-- [ ] **Step 3: Apply the approved profile scale**
+- [ ] **Step 2: Apply the approved profile scale**
 
 แก้บล็อก profile commerce ใน `app/globals.css`:
 
@@ -547,7 +516,7 @@ Expected: FAIL เพราะยังใช้ 31/39/30, รูป 36rem แ�
 
 ที่ `max-width: 64rem` ลด min-height จาก 30rem เป็น 25rem และที่ `max-width: 40rem` ลดรูปจาก 24rem เป็น 20rem
 
-- [ ] **Step 4: Add Dialog, calendar, time, summary and responsive styles**
+- [ ] **Step 3: Add Dialog, calendar, time, summary and responsive styles**
 
 เพิ่มต่อจาก profile booking block โดยใช้ token เดิม:
 
@@ -734,22 +703,22 @@ Expected: FAIL เพราะยังใช้ 31/39/30, รูป 36rem แ�
 
 ครอบ hover เฉพาะ `@media (hover: hover) and (pointer: fine)` และคง global `:focus-visible` เดิม ไม่ใช้ `transition-all`, animation ความสูง หรือสีดิบ
 
-- [ ] **Step 5: Run focused UI tests, typecheck and lint**
+- [ ] **Step 4: Run focused UI tests, typecheck and lint**
 
 Run:
 
 ```powershell
-rtk npm test -- components/slot-calendar-dialog.test.tsx components/profile-booking-panel.test.tsx components/trainer-detail.test.tsx components/trainer-profile-layout.test.ts
+rtk npm test -- components/slot-calendar-dialog.test.tsx components/profile-booking-panel.test.tsx components/trainer-detail.test.tsx
 rtk npm run typecheck
 rtk npm run lint
 ```
 
 Expected: PASS ทุกคำสั่ง
 
-- [ ] **Step 6: Commit Task 3**
+- [ ] **Step 5: Commit Task 3**
 
 ```powershell
-rtk git add -- app/globals.css components/trainer-profile-layout.test.ts
+rtk git add -- app/globals.css
 rtk git commit -m "style: compact trainer profile booking"
 ```
 
@@ -821,7 +790,7 @@ Expected: no whitespace errors; only intended commits; `.superpowers/` and `grap
 If and only if browser evidence found a defect, add one failing regression test, apply one focused fix, rerun the relevant focused test and one visual confirmation, then:
 
 ```powershell
-rtk git add -- app/globals.css components/slot-calendar-dialog.tsx components/slot-calendar-dialog.test.tsx components/profile-booking-panel.tsx components/profile-booking-panel.test.tsx components/trainer-detail.test.tsx components/trainer-profile-layout.test.ts
+rtk git add -- app/globals.css components/slot-calendar-dialog.tsx components/slot-calendar-dialog.test.tsx components/profile-booking-panel.tsx components/profile-booking-panel.test.tsx components/trainer-detail.test.tsx
 rtk git commit -m "fix: keep trainer calendar usable"
 ```
 
