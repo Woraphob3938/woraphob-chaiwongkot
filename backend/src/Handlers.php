@@ -224,6 +224,12 @@ final class Handlers
         Http::json($this->auth->login(Http::body()));
     }
 
+    public function logout(): never
+    {
+        $this->auth->logout();
+        Http::json(['loggedOut' => true]);
+    }
+
     public function me(): never
     {
         Http::json($this->auth->requireUser());

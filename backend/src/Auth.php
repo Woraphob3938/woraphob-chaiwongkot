@@ -86,6 +86,24 @@ final class Auth
         return $this->publicUser($user);
     }
 
+    public function logout(): void
+    {
+        $token = Http::bearerToken();
+        if ($token === null) {
+            throw new HttpException(401, 'กรุณาเข้าสู่ระบบ', 'AUTH_REQUIRED');
+        }
+
+        $revoked = $this->database->execute(
+            'UPDATE auth_tokens
+             SET revoked_at = UTC_TIMESTAMP()
+             WHERE token_hash = ? AND expires_at > UTC_TIMESTAMP() AND revoked_at IS NULL',
+            [hash('sha256', $token)]
+        );
+        if ($revoked !== 1) {
+            throw new HttpException(401, 'เซสชันหมดอายุ กรุณาเข้าสู่ระบบอีกครั้ง', 'INVALID_TOKEN');
+        }
+    }
+
     private function issueToken(int $userId): array
     {
         $token = bin2hex(random_bytes(32));

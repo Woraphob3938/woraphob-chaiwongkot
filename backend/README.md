@@ -23,6 +23,7 @@ Windows Task Scheduler จะเก็บงานชื่อ `FitConnect-Expir
 - `POST /v1/auth/register`
 - `POST /v1/auth/login`
 - `GET /v1/me`
+- `POST /v1/auth/logout` — เพิกถอน token ปัจจุบันก่อนออกจากระบบในเบราว์เซอร์
 - `POST /v1/trainer-applications`
 - `GET /v1/trainer/me`
 - `POST /v1/availability-slots`

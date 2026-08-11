@@ -187,7 +187,7 @@ describe("SiteHeader", () => {
     expect(within(sidebar).getByRole("button", { name: "ย่อแถบเมนู" })).toHaveAttribute("aria-expanded", "true");
   });
 
-  it("signs out through Next navigation", async () => {
+  it("revokes the server session before signing out locally", async () => {
     const member = user("member");
     localStorage.setItem("fitconnect_token", "test-token");
     localStorage.setItem("fitconnect_user", JSON.stringify(member));
@@ -197,7 +197,25 @@ describe("SiteHeader", () => {
     fireEvent.click(await screen.findByRole("button", { name: `เปิดเมนูบัญชีของ ${member.displayName}` }));
     fireEvent.click(screen.getByRole("button", { name: /ออกจากระบบ/ }));
 
-    expect(push).toHaveBeenCalledWith("/");
+    await waitFor(() => expect(mockedApiRequest).toHaveBeenCalledWith("/v1/auth/logout", {
+      method: "POST",
+      headers: { Authorization: "Bearer test-token" },
+    }));
+    await waitFor(() => expect(push).toHaveBeenCalledWith("/"));
+    expect(localStorage.getItem("fitconnect_token")).toBeNull();
+  });
+
+  it("still clears the browser session when server logout is unavailable", async () => {
+    const member = user("member");
+    localStorage.setItem("fitconnect_token", "test-token");
+    localStorage.setItem("fitconnect_user", JSON.stringify(member));
+    mockedApiRequest.mockResolvedValueOnce(member).mockRejectedValueOnce(new Error("offline"));
+
+    render(<SiteHeader />);
+    fireEvent.click(await screen.findByRole("button", { name: `เปิดเมนูบัญชีของ ${member.displayName}` }));
+    fireEvent.click(screen.getByRole("button", { name: /ออกจากระบบ/ }));
+
+    await waitFor(() => expect(push).toHaveBeenCalledWith("/"));
     expect(localStorage.getItem("fitconnect_token")).toBeNull();
   });
 

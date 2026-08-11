@@ -31,6 +31,7 @@ try {
     if ($method === 'GET' && $path === '/v1/trainers') $handlers->trainers();
     if ($method === 'POST' && $path === '/v1/auth/register') $handlers->register();
     if ($method === 'POST' && $path === '/v1/auth/login') $handlers->login();
+    if ($method === 'POST' && $path === '/v1/auth/logout') $handlers->logout();
     if ($method === 'GET' && $path === '/v1/me') $handlers->me();
     if ($method === 'POST' && $path === '/v1/trainer-applications') $handlers->trainerApplication();
     if ($method === 'GET' && $path === '/v1/trainer/me') $handlers->trainerMe();

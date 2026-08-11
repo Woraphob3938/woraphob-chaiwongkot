@@ -173,14 +173,26 @@ export function SiteHeader() {
     return () => window.removeEventListener("keydown", openMemberSearch);
   }, [pathname, user?.role]);
 
-  function signOut() {
-    localStorage.removeItem("fitconnect_token");
-    localStorage.removeItem("fitconnect_user");
-    document.documentElement.dataset.fitconnectSession = "guest";
-    setUser(null);
-    setProfileOpen(false);
-    window.dispatchEvent(new CustomEvent("fitconnect:auth", { detail: null }));
-    router.push("/");
+  async function signOut() {
+    const token = localStorage.getItem("fitconnect_token");
+    try {
+      if (token) {
+        await apiRequest("/v1/auth/logout", {
+          method: "POST",
+          headers: { Authorization: `Bearer ${token}` },
+        });
+      }
+    } catch {
+      // Local sign-out must still work when the API is temporarily unavailable.
+    } finally {
+      localStorage.removeItem("fitconnect_token");
+      localStorage.removeItem("fitconnect_user");
+      document.documentElement.dataset.fitconnectSession = "guest";
+      setUser(null);
+      setProfileOpen(false);
+      window.dispatchEvent(new CustomEvent("fitconnect:auth", { detail: null }));
+      router.push("/");
+    }
   }
 
   function submitSearch(event: FormEvent<HTMLFormElement>) {
@@ -290,7 +302,7 @@ export function SiteHeader() {
                     <span className="profile-avatar" aria-hidden="true">{userInitials(user.displayName)}</span>
                     <span><strong>{user.displayName || "บัญชีของฉัน"}</strong><small>{user.email}</small></span>
                   </div>
-                  <button type="button" onClick={signOut}>
+                  <button type="button" onClick={() => void signOut()}>
                     <LogOut aria-hidden="true" size={17} /> ออกจากระบบ
                   </button>
                 </div>
