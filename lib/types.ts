@@ -6,6 +6,7 @@ export type AuthenticatedUser = {
   displayName: string;
   role: UserRole;
   status: string;
+  imageUrl?: string | null;
 };
 
 export type VerificationStatus = "verified" | "pending" | "rejected";

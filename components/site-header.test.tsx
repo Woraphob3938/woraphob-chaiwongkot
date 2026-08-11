@@ -113,6 +113,25 @@ describe("SiteHeader", () => {
     await waitFor(() => expect(mockedApiRequest).toHaveBeenCalled());
   });
 
+  it("updates the stored account identity when the profile changes", async () => {
+    const member = user("member");
+    localStorage.setItem("fitconnect_token", "test-token");
+    localStorage.setItem("fitconnect_user", JSON.stringify(member));
+    mockedApiRequest.mockResolvedValue(member);
+    render(<SiteHeader />);
+    await screen.findByRole("button", { name: `เปิดเมนูบัญชีของ ${member.displayName}` });
+
+    window.dispatchEvent(new CustomEvent("fitconnect:profile-updated", {
+      detail: { displayName: "ชื่อใหม่", imageUrl: "/v1/profile-images/member/1" },
+    }));
+
+    expect(await screen.findByRole("button", { name: "เปิดเมนูบัญชีของ ชื่อใหม่" })).toBeInTheDocument();
+    expect(JSON.parse(localStorage.getItem("fitconnect_user") ?? "{}")).toMatchObject({
+      id: member.id, email: member.email, role: member.role, displayName: "ชื่อใหม่",
+    });
+    expect(localStorage.getItem(`fitconnect_profile_image_${member.id}`)).toBe("/v1/profile-images/member/1");
+  });
+
   it.each([
     ["member", "/member", ["ค้นหาเทรนเนอร์", "การจองของฉัน", "แชต", "โปรไฟล์"]],
     ["trainer", "/trainer", ["พื้นที่เทรนเนอร์", "แชต", "โปรไฟล์"]],

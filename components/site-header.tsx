@@ -1,6 +1,7 @@
 "use client";
 
 import Link from "next/link";
+import Image from "next/image";
 import { usePathname, useRouter } from "next/navigation";
 import { FormEvent, useEffect, useLayoutEffect, useRef, useState } from "react";
 import {
@@ -19,7 +20,7 @@ import {
   type LucideIcon,
 } from "lucide-react";
 import { MobileRoleNav } from "@/components/mobile-role-nav";
-import { ApiError, apiRequest } from "@/lib/api";
+import { ApiError, apiAssetUrl, apiRequest } from "@/lib/api";
 import { navigationFor, type NavigationIcon } from "@/lib/role-navigation";
 import type { AuthenticatedUser, UserRole } from "@/lib/types";
 
@@ -69,6 +70,22 @@ function readStoredUser() {
   }
 }
 
+function profileImageKey(userId: number) {
+  return `fitconnect_profile_image_${userId}`;
+}
+
+function AccountAvatar({ user }: { user: AuthenticatedUser }) {
+  const [failed, setFailed] = useState(false);
+  const source = apiAssetUrl(user.imageUrl ?? null);
+  return (
+    <span className="profile-avatar" aria-hidden="true">
+      {source && !failed
+        ? <Image src={source} alt="" width={36} height={36} unoptimized onError={() => setFailed(true)} />
+        : userInitials(user.displayName)}
+    </span>
+  );
+}
+
 export function SiteHeader() {
   const pathname = usePathname();
   const router = useRouter();
@@ -78,6 +95,7 @@ export function SiteHeader() {
   const [sessionReady, setSessionReady] = useState(false);
   const [user, setUser] = useState<AuthenticatedUser | null>(null);
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
+  const profileRevisionRef = useRef(0);
 
   useLayoutEffect(() => {
     const hasStoredSession = Boolean(
@@ -108,12 +126,22 @@ export function SiteHeader() {
       }
 
       try {
+        const profileRevision = profileRevisionRef.current;
         const currentUser = await apiRequest<AuthenticatedUser>("/v1/me", {
           headers: { Authorization: `Bearer ${token}` },
         });
         if (!active) return;
-        localStorage.setItem("fitconnect_user", JSON.stringify(currentUser));
-        setUser(currentUser);
+        const updatedStoredUser = readStoredUser();
+        const imageUrl = localStorage.getItem(profileImageKey(currentUser.id));
+        const synchronizedUser = {
+          ...currentUser,
+          displayName: profileRevisionRef.current === profileRevision
+            ? currentUser.displayName
+            : updatedStoredUser?.displayName ?? currentUser.displayName,
+          imageUrl,
+        };
+        localStorage.setItem("fitconnect_user", JSON.stringify(synchronizedUser));
+        setUser(synchronizedUser);
       } catch (error) {
         if (!active) return;
         if (error instanceof ApiError && (error.status === 401 || error.status === 403)) {
@@ -138,17 +166,36 @@ export function SiteHeader() {
       }
     }
 
+    function onProfileUpdated(event: Event) {
+      if (!(event instanceof CustomEvent)) return;
+      const detail = event.detail as { displayName?: unknown; imageUrl?: unknown };
+      if (typeof detail.displayName !== "string") return;
+      const displayName = detail.displayName;
+      profileRevisionRef.current += 1;
+      setUser((currentUser) => {
+        if (!currentUser) return currentUser;
+        const imageUrl = typeof detail.imageUrl === "string" ? detail.imageUrl : null;
+        const nextUser = { ...currentUser, displayName, imageUrl };
+        localStorage.setItem("fitconnect_user", JSON.stringify(nextUser));
+        if (imageUrl) localStorage.setItem(profileImageKey(currentUser.id), imageUrl);
+        else localStorage.removeItem(profileImageKey(currentUser.id));
+        return nextUser;
+      });
+    }
+
     void syncSession();
     window.addEventListener("keydown", onKeyDown);
     window.addEventListener("pointerdown", onPointerDown);
     window.addEventListener("storage", syncSession);
     window.addEventListener("fitconnect:auth", syncSession);
+    window.addEventListener("fitconnect:profile-updated", onProfileUpdated);
     return () => {
       active = false;
       window.removeEventListener("keydown", onKeyDown);
       window.removeEventListener("pointerdown", onPointerDown);
       window.removeEventListener("storage", syncSession);
       window.removeEventListener("fitconnect:auth", syncSession);
+      window.removeEventListener("fitconnect:profile-updated", onProfileUpdated);
     };
   }, []);
 
@@ -189,6 +236,7 @@ export function SiteHeader() {
     } finally {
       localStorage.removeItem("fitconnect_token");
       localStorage.removeItem("fitconnect_user");
+      if (user) localStorage.removeItem(profileImageKey(user.id));
       document.documentElement.dataset.fitconnectSession = "guest";
       setUser(null);
       setProfileOpen(false);
@@ -294,14 +342,14 @@ export function SiteHeader() {
                 aria-controls="profile-account-menu"
                 onClick={() => setProfileOpen((open) => !open)}
               >
-                <span className="profile-avatar" aria-hidden="true">{userInitials(user.displayName)}</span>
+                <AccountAvatar key={user.imageUrl ?? "fallback"} user={user} />
                 <span className="profile-trigger__name">{user.displayName || "บัญชีของฉัน"}</span>
                 <ChevronDown className={profileOpen ? "is-open" : ""} aria-hidden="true" size={16} />
               </button>
               {profileOpen && (
                 <div className="profile-menu" id="profile-account-menu">
                   <div className="profile-menu__identity">
-                    <span className="profile-avatar" aria-hidden="true">{userInitials(user.displayName)}</span>
+                    <AccountAvatar key={user.imageUrl ?? "fallback-menu"} user={user} />
                     <span><strong>{user.displayName || "บัญชีของฉัน"}</strong><small>{user.email}</small></span>
                   </div>
                   <Link href="/profile" onClick={() => setProfileOpen(false)}>

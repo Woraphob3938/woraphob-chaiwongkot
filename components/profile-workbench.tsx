@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import { CircleAlert, LoaderCircle, RefreshCw } from "lucide-react";
+import { ProfileIdentity } from "@/components/profile-identity";
 import { authenticatedRequest } from "@/lib/api";
 import type { AccountProfile } from "@/lib/types";
 
@@ -80,9 +81,16 @@ export function ProfileWorkbench() {
     );
   }
 
+  function updateProfile(profile: AccountProfile) {
+    setState({ status: "ready", profile });
+    window.dispatchEvent(new CustomEvent("fitconnect:profile-updated", {
+      detail: { displayName: profile.user.displayName, imageUrl: profile.imageUrl },
+    }));
+  }
+
   return (
     <main className="page-shell account-profile">
-      <h1>{state.profile.role === "member" ? "โปรไฟล์สมาชิก" : "โปรไฟล์เทรนเนอร์"}</h1>
+      <ProfileIdentity profile={state.profile} onProfileChange={updateProfile} />
     </main>
   );
 }
