@@ -1,5 +1,5 @@
 param(
-    [ValidateSet('profile', 'image', 'all')]
+    [ValidateSet('profile', 'image', 'password', 'all')]
     [string]$Scenario = 'all',
     [string]$ApiBase = 'http://localhost/fitconnect-api',
     [string]$DatabaseUser = 'root'
@@ -21,6 +21,23 @@ function Invoke-Api([string]$Method, [string]$Path, [object]$Body = $null, [stri
         $params.Body = $Body | ConvertTo-Json -Depth 10 -Compress
     }
     return Invoke-RestMethod @params
+}
+
+function Invoke-ApiError([string]$Method, [string]$Path, [object]$Body = $null, [string]$Token = '') {
+    try {
+        Invoke-Api $Method $Path $Body $Token | Out-Null
+    }
+    catch {
+        $response = $_.Exception.Response
+        if ($null -eq $response) { throw }
+        $payload = $_.ErrorDetails.Message | ConvertFrom-Json
+        return [pscustomobject]@{
+            Status = [int]$response.StatusCode
+            Code = [string]$payload.error.code
+            Fields = $payload.error.fields
+        }
+    }
+    throw "Expected API error for $Method $Path"
 }
 
 function Invoke-Sql([string]$Sql) {
@@ -56,13 +73,15 @@ function Invoke-Multipart([string]$Token, [string]$FilePath, [string]$Mime) {
 }
 
 $stamp = [DateTimeOffset]::UtcNow.ToUnixTimeMilliseconds()
+$memberEmail = "profile-member-$stamp@example.com"
+$trainerEmail = "profile-trainer-$stamp@example.com"
 
 try {
     $health = Invoke-Api 'GET' '/v1/health'
     Assert-Equal 'connected' $health.data.database 'PHP API database health'
 
-    $memberAuth = Register-User 'member' "profile-member-$stamp@example.com" 'สมาชิกก่อนแก้'
-    $trainerAuth = Register-User 'trainer' "profile-trainer-$stamp@example.com" 'เทรนเนอร์ก่อนแก้'
+    $memberAuth = Register-User 'member' $memberEmail 'สมาชิกก่อนแก้'
+    $trainerAuth = Register-User 'trainer' $trainerEmail 'เทรนเนอร์ก่อนแก้'
     $memberId = [int]$memberAuth.data.user.id
     $trainerId = [int]$trainerAuth.data.user.id
     $memberToken = [string]$memberAuth.data.token
@@ -168,6 +187,55 @@ INSERT INTO trainer_training_types (trainer_profile_id, training_type_id) VALUES
         Assert-Equal "/v1/profile-images/trainer/$trainerId" $trainerPublic.data.image 'public trainer image URL'
 
         Write-Output 'PASS profile image upload, validation and delivery'
+    }
+
+    if ($Scenario -in @('password', 'all')) {
+        $secondLogin = Invoke-Api 'POST' '/v1/auth/login' @{
+            email = $memberEmail
+            password = 'profile-pass-123'
+        }
+        $secondToken = [string]$secondLogin.data.token
+
+        $wrongCurrent = Invoke-ApiError 'PATCH' '/v1/profile/password' @{
+            currentPassword = 'wrong-password'
+            newPassword = 'new-profile-pass-456'
+        } $memberToken
+        Assert-Equal 401 $wrongCurrent.Status 'wrong current password status'
+        Assert-Equal 'INVALID_CREDENTIALS' $wrongCurrent.Code 'wrong current password code'
+
+        $shortPassword = Invoke-ApiError 'PATCH' '/v1/profile/password' @{
+            currentPassword = 'profile-pass-123'
+            newPassword = 'short'
+        } $memberToken
+        Assert-Equal 422 $shortPassword.Status 'short password status'
+        Assert-Equal 'VALIDATION_FAILED' $shortPassword.Code 'short password code'
+
+        $changed = Invoke-Api 'PATCH' '/v1/profile/password' @{
+            currentPassword = 'profile-pass-123'
+            newPassword = 'new-profile-pass-456'
+            confirmPassword = 'ignored-by-server'
+            userId = 999999
+        } $memberToken
+        Assert-Equal $true $changed.data.changed 'password changed response'
+
+        $currentSession = Invoke-Api 'GET' '/v1/me' $null $memberToken
+        Assert-Equal $memberId $currentSession.data.id 'current token remains active'
+        $revokedSession = Invoke-ApiError 'GET' '/v1/me' $null $secondToken
+        Assert-Equal 401 $revokedSession.Status 'secondary token revoked status'
+        Assert-Equal 'INVALID_TOKEN' $revokedSession.Code 'secondary token revoked code'
+
+        $oldLogin = Invoke-ApiError 'POST' '/v1/auth/login' @{
+            email = $memberEmail
+            password = 'profile-pass-123'
+        }
+        Assert-Equal 401 $oldLogin.Status 'old password login status'
+        $newLogin = Invoke-Api 'POST' '/v1/auth/login' @{
+            email = $memberEmail
+            password = 'new-profile-pass-456'
+        }
+        Assert-Equal $memberId $newLogin.data.user.id 'new password login user'
+
+        Write-Output 'PASS profile password change and session revocation'
     }
 }
 finally {

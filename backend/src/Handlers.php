@@ -362,6 +362,11 @@ final class Handlers
         ]);
     }
 
+    public function changeProfilePassword(): never
+    {
+        Http::json($this->auth->changePassword(Http::body()));
+    }
+
     public function profileImage(string $role, string $userId): never
     {
         if (!in_array($role, ['member', 'trainer'], true) || (int) $userId <= 0) {

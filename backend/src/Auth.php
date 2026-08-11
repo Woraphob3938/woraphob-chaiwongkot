@@ -104,6 +104,37 @@ final class Auth
         }
     }
 
+    public function changePassword(array $input): array
+    {
+        Http::requireFields($input, ['currentPassword', 'newPassword']);
+        $token = Http::bearerToken();
+        $user = $this->requireUser(['member', 'trainer']);
+        $row = $this->database->fetchOne('SELECT password_hash FROM users WHERE id = ?', [$user['id']]);
+        if (!$row || !password_verify((string) $input['currentPassword'], $row['password_hash'])) {
+            throw new HttpException(401, 'รหัสผ่านปัจจุบันไม่ถูกต้อง', 'INVALID_CREDENTIALS', [
+                'currentPassword' => 'รหัสผ่านปัจจุบันไม่ถูกต้อง',
+            ]);
+        }
+        if (mb_strlen((string) $input['newPassword']) < 8) {
+            throw new HttpException(422, 'รหัสผ่านใหม่ไม่ถูกต้อง', 'VALIDATION_FAILED', [
+                'newPassword' => 'รหัสผ่านต้องมีอย่างน้อย 8 ตัวอักษร',
+            ]);
+        }
+
+        $currentTokenHash = hash('sha256', (string) $token);
+        $newHash = password_hash((string) $input['newPassword'], PASSWORD_DEFAULT);
+        $this->database->transaction(function (PDO $pdo) use ($user, $newHash, $currentTokenHash): void {
+            $pdo->prepare('UPDATE users SET password_hash = ?, updated_at = UTC_TIMESTAMP() WHERE id = ?')
+                ->execute([$newHash, $user['id']]);
+            $pdo->prepare(
+                'UPDATE auth_tokens SET revoked_at = UTC_TIMESTAMP()
+                 WHERE user_id = ? AND token_hash <> ? AND revoked_at IS NULL'
+            )->execute([$user['id'], $currentTokenHash]);
+        });
+
+        return ['changed' => true];
+    }
+
     private function issueToken(int $userId): array
     {
         $token = bin2hex(random_bytes(32));

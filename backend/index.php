@@ -37,6 +37,7 @@ try {
     if ($method === 'GET' && $path === '/v1/profile') $handlers->profile();
     if ($method === 'PATCH' && $path === '/v1/profile') $handlers->updateProfile();
     if ($method === 'POST' && $path === '/v1/profile/image') $handlers->uploadProfileImage();
+    if ($method === 'PATCH' && $path === '/v1/profile/password') $handlers->changeProfilePassword();
     if ($method === 'POST' && $path === '/v1/trainer-applications') $handlers->trainerApplication();
     if ($method === 'GET' && $path === '/v1/trainer/me') $handlers->trainerMe();
     if ($method === 'PATCH' && $path === '/v1/trainer/me') $handlers->updateTrainerMe();
