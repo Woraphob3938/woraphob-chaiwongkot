@@ -1,4 +1,5 @@
 import { fireEvent, render, screen, waitFor, within } from "@testing-library/react";
+import { renderToStaticMarkup } from "react-dom/server";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { usePathname, useRouter } from "next/navigation";
 import { apiRequest } from "@/lib/api";
@@ -139,6 +140,14 @@ describe("SiteHeader", () => {
 
     expect(screen.queryByRole("navigation", { name: "เมนูหลักด้านข้าง" })).not.toBeInTheDocument();
     expect(screen.getByRole("banner")).toHaveClass("site-header");
+  });
+
+  it("server-renders a stable sidebar shell while the stored session hydrates", () => {
+    const markup = renderToStaticMarkup(<SiteHeader />);
+    const document = new DOMParser().parseFromString(markup, "text/html");
+
+    expect(document.querySelector(".session-sidebar-placeholder")).not.toBeNull();
+    expect(document.querySelector(".site-header--pending")).not.toBeNull();
   });
 
   it("collapses and restores the authenticated side rail without removing its destinations", async () => {

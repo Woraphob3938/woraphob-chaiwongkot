@@ -5317,6 +5317,79 @@ body {
   }
 }
 
+.session-sidebar-placeholder {
+  display: none;
+}
+
+html[data-fitconnect-session="authenticated"] .session-sidebar-placeholder {
+  position: sticky;
+  top: 0;
+  z-index: var(--z-sticky-nav);
+  display: flex;
+  width: 100%;
+  height: 100dvh;
+  flex-direction: column;
+  gap: var(--space-xl);
+  padding: var(--space-lg);
+  color: var(--color-paper);
+  background: var(--color-ink);
+  border-inline-end: 1px solid var(--color-ink-2);
+  overflow: hidden;
+}
+
+html[data-fitconnect-session="authenticated"] .site-header--pending {
+  display: none;
+}
+
+.session-sidebar-placeholder .brand {
+  color: var(--color-paper);
+}
+
+.session-sidebar-placeholder__nav {
+  display: grid;
+  gap: var(--space-xs);
+}
+
+.session-sidebar-placeholder__nav span {
+  min-height: var(--size-control);
+  background: var(--color-ink-2);
+  border-radius: var(--radius-sm);
+}
+
+.session-sidebar-placeholder__nav span:first-child {
+  background: var(--color-accent);
+}
+
+.session-sidebar-placeholder__account {
+  display: flex;
+  min-height: var(--size-control);
+  align-items: center;
+  gap: var(--space-xs);
+  margin-top: auto;
+}
+
+.session-sidebar-placeholder__account > span:last-child {
+  width: 7rem;
+  height: 0.75rem;
+  background: var(--color-ink-2);
+  border-radius: var(--radius-pill);
+}
+
+html[data-fitconnect-session="authenticated"] body:has(.session-sidebar-placeholder) {
+  display: grid;
+  grid-template-columns: var(--size-app-sidebar) minmax(0, 1fr);
+}
+
+html[data-fitconnect-session="authenticated"] body:has(.session-sidebar-placeholder) #main-content {
+  grid-column: 2;
+  grid-row: 1;
+  min-width: 0;
+}
+
+html[data-fitconnect-session="authenticated"] body:has(.session-sidebar-placeholder) .page-footer {
+  display: none;
+}
+
 .app-sidebar {
   position: sticky;
   top: 0;
@@ -5499,6 +5572,32 @@ body:has(.app-sidebar) .page-footer {
 }
 
 @media (max-width: 58rem) {
+  html[data-fitconnect-session="authenticated"] body:has(.session-sidebar-placeholder) {
+    display: block;
+  }
+
+  html[data-fitconnect-session="authenticated"] body:has(.session-sidebar-placeholder) #main-content {
+    padding-top: 4rem;
+  }
+
+  html[data-fitconnect-session="authenticated"] .session-sidebar-placeholder {
+    position: fixed;
+    inset-block: 0 auto;
+    inset-inline: 0;
+    width: 100%;
+    height: 4rem;
+    flex-direction: row;
+    align-items: center;
+    padding: var(--space-xs) var(--space-md);
+    border-right: 0;
+    border-bottom: 1px solid var(--color-ink-2);
+  }
+
+  .session-sidebar-placeholder__nav,
+  .session-sidebar-placeholder__account {
+    display: none;
+  }
+
   body:has(.app-sidebar),
   body:has(.app-sidebar[data-collapsed="true"]) {
     display: block;

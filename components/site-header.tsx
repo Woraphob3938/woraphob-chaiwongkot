@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
-import { FormEvent, useEffect, useRef, useState } from "react";
+import { FormEvent, useEffect, useLayoutEffect, useRef, useState } from "react";
 import {
   CalendarCheck2,
   ChevronDown,
@@ -76,6 +76,13 @@ export function SiteHeader() {
   const [sessionReady, setSessionReady] = useState(false);
   const [user, setUser] = useState<AuthenticatedUser | null>(null);
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
+
+  useLayoutEffect(() => {
+    const hasStoredSession = Boolean(
+      localStorage.getItem("fitconnect_token") && localStorage.getItem("fitconnect_user"),
+    );
+    document.documentElement.dataset.fitconnectSession = hasStoredSession ? "authenticated" : "guest";
+  }, []);
 
   useEffect(() => {
     let active = true;
@@ -169,6 +176,7 @@ export function SiteHeader() {
   function signOut() {
     localStorage.removeItem("fitconnect_token");
     localStorage.removeItem("fitconnect_user");
+    document.documentElement.dataset.fitconnectSession = "guest";
     setUser(null);
     setProfileOpen(false);
     window.dispatchEvent(new CustomEvent("fitconnect:auth", { detail: null }));
@@ -183,9 +191,46 @@ export function SiteHeader() {
 
   const memberSearchEnabled = user?.role === "member" && pathname !== "/trainers";
   const desktopNavItems = navigationFor(user?.role ?? null).filter((item) => item.desktop);
+  const guestHeader = (
+    <header className={`site-header${sessionReady ? "" : " site-header--pending"}`}>
+      <div className="header-inner">
+        <Link className="brand" href="/" aria-label="FitConnect หน้าหลัก">
+          <span className="brand-mark" aria-hidden="true"><Dumbbell size={19} strokeWidth={2.2} /></span>
+          <span>FITCONNECT</span>
+        </Link>
+        <div className="header-actions">
+          {!sessionReady ? (
+            <span className="session-placeholder" aria-hidden="true" />
+          ) : (
+            <>
+              <Link className="text-link desktop-only" href="/login">เข้าสู่ระบบ</Link>
+              <Link className="button button--dark desktop-only" href="/register">เริ่มใช้งาน</Link>
+            </>
+          )}
+        </div>
+      </div>
+    </header>
+  );
 
   return (
     <>
+      {!sessionReady && (
+        <aside className="session-sidebar-placeholder" aria-hidden="true">
+          <div className="app-sidebar__top">
+            <span className="brand">
+              <span className="brand-mark"><Dumbbell size={19} strokeWidth={2.2} /></span>
+              <span className="brand__label">FITCONNECT</span>
+            </span>
+          </div>
+          <div className="session-sidebar-placeholder__nav">
+            <span /><span /><span />
+          </div>
+          <div className="session-sidebar-placeholder__account">
+            <span className="profile-avatar" />
+            <span />
+          </div>
+        </aside>
+      )}
       {sessionReady && user ? (
         <aside className="app-sidebar" aria-label="แถบนำทาง FitConnect" data-collapsed={sidebarCollapsed}>
           <div className="app-sidebar__top">
@@ -253,26 +298,7 @@ export function SiteHeader() {
             </div>
           </div>
         </aside>
-      ) : (
-        <header className="site-header">
-          <div className="header-inner">
-            <Link className="brand" href="/" aria-label="FitConnect หน้าหลัก">
-              <span className="brand-mark" aria-hidden="true"><Dumbbell size={19} strokeWidth={2.2} /></span>
-              <span>FITCONNECT</span>
-            </Link>
-            <div className="header-actions">
-              {!sessionReady ? (
-                <span className="session-placeholder" aria-hidden="true" />
-              ) : (
-                <>
-                  <Link className="text-link desktop-only" href="/login">เข้าสู่ระบบ</Link>
-                  <Link className="button button--dark desktop-only" href="/register">เริ่มใช้งาน</Link>
-                </>
-              )}
-            </div>
-          </div>
-        </header>
-      )}
+      ) : guestHeader}
 
       {memberSearchEnabled && <dialog className="search-dialog" ref={dialogRef} onClick={(event) => {
         if (event.target === event.currentTarget) event.currentTarget.close();
