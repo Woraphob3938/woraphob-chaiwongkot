@@ -109,6 +109,45 @@ describe("TrainerWorkbench", () => {
     expect(screen.queryByRole("button", { name: /ลบช่วงเวลา/ })).not.toBeInTheDocument();
   });
 
+  it("confirms an available slot before deleting it", async () => {
+    const availableSlot = {
+      id: 72,
+      startsAt: "2026-08-12T02:00:00.000Z",
+      endsAt: "2026-08-12T03:00:00.000Z",
+      state: "available" as const,
+    };
+    let workspaceLoads = 0;
+    vi.mocked(authenticatedRequest).mockImplementation((path, init) => {
+      if (path === "/v1/trainer/me") {
+        workspaceLoads += 1;
+        return Promise.resolve({
+          ...approvedWorkspace,
+          slots: workspaceLoads === 1 ? [availableSlot] : [],
+        });
+      }
+      if (path === "/v1/bookings") return Promise.resolve([]);
+      if (path === "/v1/availability-slots/72" && init?.method === "DELETE") {
+        return Promise.resolve({ id: 72, deleted: true });
+      }
+      return Promise.reject(new Error(`unexpected request: ${path}`));
+    });
+
+    render(<TrainerWorkbench />);
+    const deleteButton = await screen.findByRole("button", { name: /ลบช่วงเวลา/ });
+    fireEvent.click(deleteButton);
+
+    expect(screen.getByRole("dialog", { name: "ลบช่วงเวลานี้?" })).toBeInTheDocument();
+    expect(screen.getByText("สมาชิกจะไม่เห็นช่วงเวลานี้อีก")).toBeInTheDocument();
+    expect(authenticatedRequest).not.toHaveBeenCalledWith("/v1/availability-slots/72", { method: "DELETE" });
+
+    fireEvent.click(screen.getByRole("button", { name: "ยืนยันลบช่วงเวลา" }));
+
+    await waitFor(() => expect(authenticatedRequest).toHaveBeenCalledWith("/v1/availability-slots/72", {
+      method: "DELETE",
+    }));
+    await waitFor(() => expect(screen.queryByRole("button", { name: /ลบช่วงเวลา/ })).not.toBeInTheDocument());
+  });
+
   it("reports a successfully loaded incomplete profile to the route guard", async () => {
     const onIncompleteProfile = vi.fn();
     vi.mocked(authenticatedRequest)

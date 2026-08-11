@@ -6,6 +6,16 @@ import { FormEvent, useCallback, useEffect, useMemo, useRef, useState } from "re
 import { CalendarPlus, RefreshCw, Trash2 } from "lucide-react";
 import { NextActionCard } from "@/components/dashboard-primitives";
 import { StatusBadge } from "@/components/status-badge";
+import { Button } from "@/components/ui/button";
+import {
+  Dialog,
+  DialogClose,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
 import { ApiError, authenticatedRequest } from "@/lib/api";
 import { getTrainerNextAction } from "@/lib/dashboard-actions";
 import { formatDateTime } from "@/lib/format";
@@ -43,6 +53,7 @@ export function TrainerWorkbench({ onIncompleteProfile }: { onIncompleteProfile?
   const [fieldErrors, setFieldErrors] = useState<Record<string, string>>({});
   const [form, setForm] = useState({ startsAt: "", endsAt: "" });
   const [busy, setBusy] = useState<string | null>(null);
+  const [slotToDelete, setSlotToDelete] = useState<TrainerAvailabilitySlot | null>(null);
   const [loading, setLoading] = useState(true);
   const [workspaceReady, setWorkspaceReady] = useState(false);
   const [bookingsReady, setBookingsReady] = useState(false);
@@ -346,7 +357,7 @@ export function TrainerWorkbench({ onIncompleteProfile }: { onIncompleteProfile?
             return (
               <div className="trainer-slot-row" key={slot.id} aria-busy={busy === `slot-${slot.id}`}>
                 <span><strong>{formatDateTime(slot.startsAt)}</strong><small>{slotStateCopy[slot.state]}</small></span>
-                {canDelete && <button type="button" disabled={busy === `slot-${slot.id}`} onClick={() => void deleteSlot(slot.id)} aria-label={`ลบช่วงเวลา ${formatDateTime(slot.startsAt)}`}><Trash2 aria-hidden="true" size={16} /> ลบ</button>}
+                {canDelete && <button type="button" disabled={busy === `slot-${slot.id}`} onClick={() => setSlotToDelete(slot)} aria-label={`ลบช่วงเวลา ${formatDateTime(slot.startsAt)}`}><Trash2 aria-hidden="true" size={16} /> ลบ</button>}
               </div>
             );
           })}
@@ -369,6 +380,35 @@ export function TrainerWorkbench({ onIncompleteProfile }: { onIncompleteProfile?
           {bookingsReady && confirmedBookings.length === 0 && <div className="empty-state"><strong>ยังไม่มีนัดที่ยืนยันแล้ว</strong><p>นัดหมายจะย้ายมาที่นี่หลังผู้ดูแลอนุมัติการชำระเงิน</p></div>}
         </details>
       </section>
+
+      <Dialog open={slotToDelete !== null} onOpenChange={(open) => {
+        if (!open) setSlotToDelete(null);
+      }}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>ลบช่วงเวลานี้?</DialogTitle>
+            <DialogDescription className="grid gap-1">
+              <span>{slotToDelete ? formatDateTime(slotToDelete.startsAt) : ""}</span>
+              <span>สมาชิกจะไม่เห็นช่วงเวลานี้อีก</span>
+            </DialogDescription>
+          </DialogHeader>
+          <DialogFooter>
+            <DialogClose asChild><Button type="button" variant="outline">กลับไป</Button></DialogClose>
+            <Button
+              type="button"
+              variant="destructive"
+              onClick={() => {
+                if (!slotToDelete) return;
+                const slotId = slotToDelete.id;
+                setSlotToDelete(null);
+                void deleteSlot(slotId);
+              }}
+            >
+              ยืนยันลบช่วงเวลา
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }
