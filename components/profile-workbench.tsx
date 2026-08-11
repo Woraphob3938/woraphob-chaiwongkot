@@ -4,6 +4,8 @@ import { useCallback, useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import { CircleAlert, LoaderCircle, RefreshCw } from "lucide-react";
 import { ProfileIdentity } from "@/components/profile-identity";
+import { MemberProfileForm } from "@/components/member-profile-form";
+import { TrainerAccountForm } from "@/components/trainer-account-form";
 import { authenticatedRequest } from "@/lib/api";
 import type { AccountProfile } from "@/lib/types";
 
@@ -91,6 +93,9 @@ export function ProfileWorkbench() {
   return (
     <main className="page-shell account-profile">
       <ProfileIdentity profile={state.profile} onProfileChange={updateProfile} />
+      {state.profile.role === "member"
+        ? <MemberProfileForm profile={state.profile} onSaved={updateProfile} />
+        : <TrainerAccountForm profile={state.profile} onSaved={updateProfile} />}
     </main>
   );
 }

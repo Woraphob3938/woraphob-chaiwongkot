@@ -51,7 +51,7 @@ describe("ProfileWorkbench", () => {
   ] as const)("loads the %s account profile", async (profile, heading) => {
     localStorage.setItem("fitconnect_token", "token");
     localStorage.setItem("fitconnect_user", JSON.stringify({ role: profile.role }));
-    vi.mocked(authenticatedRequest).mockResolvedValue(profile);
+    vi.mocked(authenticatedRequest).mockImplementation(async (path) => path === "/v1/training-types" ? [] : profile);
 
     render(<ProfileWorkbench />);
 
