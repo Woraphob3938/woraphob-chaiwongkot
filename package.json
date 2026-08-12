@@ -9,7 +9,7 @@
     "lint": "eslint .",
     "typecheck": "tsc --noEmit",
     "test": "vitest run",
-    "test:php": "C:\\xampp\\php\\php.exe backend/tests/WorkflowRulesTest.php && C:\\xampp\\php\\php.exe backend/tests/ProfileRulesTest.php && C:\\xampp\\php\\php.exe backend/tests/NotificationRulesTest.php",
+    "test:php": "C:\\xampp\\php\\php.exe backend/tests/WorkflowRulesTest.php && C:\\xampp\\php\\php.exe backend/tests/ProfileRulesTest.php && C:\\xampp\\php\\php.exe backend/tests/NotificationRulesTest.php && C:\\xampp\\php\\php.exe backend/tests/GmailMailerTest.php && C:\\xampp\\php\\php.exe backend/tests/NotificationDeliveryTest.php",
     "migrate:instant-booking": "powershell -NoProfile -ExecutionPolicy Bypass -File scripts/migrate-instant-booking.ps1",
     "migrate:remove-location-data": "powershell -NoProfile -ExecutionPolicy Bypass -File scripts/migrate-remove-province-location.ps1",
     "migrate:member-profile": "powershell -NoProfile -ExecutionPolicy Bypass -File scripts/migrate-member-profile.ps1",
@@ -26,6 +26,9 @@
     "booking-expiry:run": "C:\\xampp\\php\\php.exe backend/scripts/expire-bookings.php",
     "booking-expiry:install": "powershell -NoProfile -ExecutionPolicy Bypass -File scripts/install-booking-expiry-task.ps1",
     "test:booking-expiry-installer": "powershell -NoProfile -ExecutionPolicy Bypass -File scripts/install-booking-expiry-task.test.ps1",
+    "notifications:run": "C:\\xampp\\php\\php.exe backend/scripts/process-notifications.php",
+    "notifications:install": "powershell -NoProfile -ExecutionPolicy Bypass -File scripts/install-notification-task.ps1",
+    "test:notification-installer": "powershell -NoProfile -ExecutionPolicy Bypass -File scripts/install-notification-task.test.ps1",
     "check": "npm run lint && npm run typecheck && npm run build",
     "xampp:connect": "powershell -NoProfile -ExecutionPolicy Bypass -File scripts/connect-xampp.ps1"
   },
