@@ -78,6 +78,40 @@ describe("ProfileIdentity", () => {
     }));
   });
 
+  it("cancels a selected image and returns to the saved profile image", async () => {
+    render(<ProfileIdentity profile={profile} onProfileChange={vi.fn()} />);
+    const image = new File(["image"], "new.webp", { type: "image/webp" });
+
+    fireEvent.change(screen.getByLabelText("เลือกรูปโปรไฟล์"), { target: { files: [image] } });
+    expect(screen.getByRole("img", { name: "รูปโปรไฟล์ของ สมชาย ใจดี" })).toHaveAttribute(
+      "src", expect.stringContaining("blob:profile-preview"),
+    );
+
+    fireEvent.click(screen.getByRole("button", { name: "ยกเลิกรูปที่เลือก" }));
+
+    expect(screen.getByRole("img", { name: "รูปโปรไฟล์ของ สมชาย ใจดี" })).toHaveAttribute(
+      "src", expect.stringContaining("/v1/profile-images/member/7"),
+    );
+    expect(screen.getByRole("button", { name: "บันทึกรูปใหม่" })).toBeDisabled();
+    expect(screen.queryByText("new.webp")).not.toBeInTheDocument();
+    await waitFor(() => expect(URL.revokeObjectURL).toHaveBeenCalledWith("blob:profile-preview"));
+  });
+
+  it("deletes the saved profile image after confirmation", async () => {
+    vi.spyOn(window, "confirm").mockReturnValue(true);
+    vi.mocked(authenticatedRequest).mockResolvedValue({ imageUrl: null });
+    const onProfileChange = vi.fn();
+    render(<ProfileIdentity profile={profile} onProfileChange={onProfileChange} />);
+
+    fireEvent.click(screen.getByRole("button", { name: "ลบรูปโปรไฟล์" }));
+
+    await waitFor(() => expect(authenticatedRequest).toHaveBeenCalledWith("/v1/profile/image", {
+      method: "DELETE",
+    }));
+    expect(onProfileChange).toHaveBeenCalledWith(expect.objectContaining({ imageUrl: null }));
+    expect(await screen.findByRole("status")).toHaveTextContent("ลบรูปโปรไฟล์แล้ว");
+  });
+
   it("returns to the saved image when uploading fails", async () => {
     vi.mocked(authenticatedRequest).mockRejectedValue(new Error("อัปโหลดไม่สำเร็จ"));
     render(<ProfileIdentity profile={profile} onProfileChange={vi.fn()} />);

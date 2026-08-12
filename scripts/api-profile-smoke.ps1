@@ -178,6 +178,15 @@ INSERT INTO trainer_training_types (trainer_profile_id, training_type_id) VALUES
         $unauthenticatedUpload = Invoke-Multipart '' $pngFixture 'image/png'
         Assert-Equal 401 $unauthenticatedUpload.Status 'unauthenticated upload status'
 
+        $memberDelete = Invoke-Api 'DELETE' '/v1/profile/image' $null $memberToken
+        if ($null -ne $memberDelete.data.imageUrl) { throw 'deleted member image URL must be null' }
+        $memberImageAfterDelete = @(Invoke-Sql "SELECT IFNULL(image_path, 'NULL') FROM member_profiles WHERE user_id=$memberId;")
+        Assert-Equal 'NULL' $memberImageAfterDelete[0] 'member image path cleared after delete'
+        $deletedMemberImage = Invoke-ApiError 'GET' "/v1/profile-images/member/$memberId"
+        Assert-Equal 404 $deletedMemberImage.Status 'deleted member image public status'
+        $memberProfileAfterDelete = Invoke-Api 'GET' '/v1/profile' $null $memberToken
+        if ($null -ne $memberProfileAfterDelete.data.imageUrl) { throw 'member profile image URL must be null after delete' }
+
         $trainerUpload = Invoke-Multipart $trainerToken $pngFixture 'image/png'
         Assert-Equal 200 $trainerUpload.Status 'valid trainer PNG upload status'
         Assert-Equal "/v1/profile-images/trainer/$trainerId" (($trainerUpload.Body | ConvertFrom-Json).data.imageUrl) 'trainer image URL'
@@ -186,7 +195,7 @@ INSERT INTO trainer_training_types (trainer_profile_id, training_type_id) VALUES
         $trainerPublic = Invoke-Api 'GET' "/v1/trainers/profile-smoke-$trainerId"
         Assert-Equal "/v1/profile-images/trainer/$trainerId" $trainerPublic.data.image 'public trainer image URL'
 
-        Write-Output 'PASS profile image upload, validation and delivery'
+        Write-Output 'PASS profile image upload, deletion, validation and delivery'
     }
 
     if ($Scenario -in @('password', 'all')) {

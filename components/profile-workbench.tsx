@@ -18,6 +18,7 @@ type ProfileState =
 export function ProfileWorkbench() {
   const router = useRouter();
   const [state, setState] = useState<ProfileState>({ status: "loading" });
+  const [activeTab, setActiveTab] = useState<"personal" | "security">("personal");
 
   const loadProfile = useCallback(async () => {
     try {
@@ -94,10 +95,39 @@ export function ProfileWorkbench() {
   return (
     <main className="page-shell account-profile">
       <ProfileIdentity profile={state.profile} onProfileChange={updateProfile} />
-      {state.profile.role === "member"
-        ? <MemberProfileForm profile={state.profile} onSaved={updateProfile} />
-        : <TrainerAccountForm profile={state.profile} onSaved={updateProfile} />}
-      <PasswordForm />
+      <div className="profile-tabs" role="tablist" aria-label="ตั้งค่าโปรไฟล์">
+        <button
+          id="profile-personal-tab"
+          type="button"
+          role="tab"
+          aria-selected={activeTab === "personal"}
+          aria-controls="profile-personal-panel"
+          onClick={() => setActiveTab("personal")}
+        >
+          ข้อมูลส่วนตัว
+        </button>
+        <button
+          id="profile-security-tab"
+          type="button"
+          role="tab"
+          aria-selected={activeTab === "security"}
+          aria-controls="profile-security-panel"
+          onClick={() => setActiveTab("security")}
+        >
+          บัญชีและความปลอดภัย
+        </button>
+      </div>
+      {activeTab === "personal" ? (
+        <div id="profile-personal-panel" role="tabpanel" aria-labelledby="profile-personal-tab">
+          {state.profile.role === "member"
+            ? <MemberProfileForm profile={state.profile} onSaved={updateProfile} />
+            : <TrainerAccountForm profile={state.profile} onSaved={updateProfile} />}
+        </div>
+      ) : (
+        <div id="profile-security-panel" role="tabpanel" aria-labelledby="profile-security-tab">
+          <PasswordForm />
+        </div>
+      )}
     </main>
   );
 }

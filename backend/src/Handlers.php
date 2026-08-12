@@ -378,6 +378,28 @@ final class Handlers
         ]);
     }
 
+    public function deleteProfileImage(): never
+    {
+        $user = $this->auth->requireUser(['member', 'trainer']);
+        $table = $user['role'] === 'member' ? 'member_profiles' : 'trainer_profiles';
+        $oldPath = $this->database->transaction(function (PDO $pdo) use ($table, $user): ?string {
+            $statement = $pdo->prepare("SELECT image_path FROM {$table} WHERE user_id = ? FOR UPDATE");
+            $statement->execute([$user['id']]);
+            $row = $statement->fetch();
+            if (!$row) {
+                throw new HttpException(404, 'ไม่พบโปรไฟล์สำหรับลบรูป', 'PROFILE_NOT_FOUND');
+            }
+            $pdo->prepare("UPDATE {$table} SET image_path = NULL, updated_at = UTC_TIMESTAMP() WHERE user_id = ?")
+                ->execute([$user['id']]);
+            return $row['image_path'] === null ? null : (string) $row['image_path'];
+        });
+        if ($oldPath !== null) {
+            $this->removeUpload($oldPath);
+        }
+
+        Http::json(['imageUrl' => null]);
+    }
+
     public function changeProfilePassword(): never
     {
         Http::json($this->auth->changePassword(Http::body()));

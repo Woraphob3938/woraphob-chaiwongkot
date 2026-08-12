@@ -1,8 +1,8 @@
 "use client";
 
-import { ChangeEvent, FormEvent, useEffect, useState } from "react";
+import { ChangeEvent, FormEvent, useEffect, useRef, useState } from "react";
 import Image from "next/image";
-import { Camera, LoaderCircle } from "lucide-react";
+import { Camera, LoaderCircle, Trash2, X } from "lucide-react";
 import { Avatar, AvatarFallback } from "@/components/ui/avatar";
 import { Button } from "@/components/ui/button";
 import { apiAssetUrl, authenticatedRequest } from "@/lib/api";
@@ -24,6 +24,7 @@ type ProfileIdentityProps = {
 };
 
 export function ProfileIdentity({ profile, onProfileChange }: ProfileIdentityProps) {
+  const fileInputRef = useRef<HTMLInputElement>(null);
   const [file, setFile] = useState<File | null>(null);
   const [previewUrl, setPreviewUrl] = useState<string | null>(null);
   const [pending, setPending] = useState(false);
@@ -53,6 +54,14 @@ export function ProfileIdentity({ profile, onProfileChange }: ProfileIdentityPro
     setPreviewUrl(URL.createObjectURL(nextFile));
   }
 
+  function cancelImageSelection() {
+    setFile(null);
+    setPreviewUrl(null);
+    setError("");
+    setMessage("");
+    if (fileInputRef.current) fileInputRef.current.value = "";
+  }
+
   async function uploadImage(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     if (!file || pending) return;
@@ -73,6 +82,23 @@ export function ProfileIdentity({ profile, onProfileChange }: ProfileIdentityPro
     } catch (uploadError) {
       setPreviewUrl(null);
       setError(uploadError instanceof Error ? uploadError.message : "อัปโหลดรูปไม่สำเร็จ");
+    } finally {
+      setPending(false);
+    }
+  }
+
+  async function deleteImage() {
+    if (pending || !profile.imageUrl || !window.confirm("ลบรูปโปรไฟล์นี้หรือไม่?")) return;
+    setPending(true);
+    setError("");
+    setMessage("");
+    try {
+      await authenticatedRequest<{ imageUrl: null }>("/v1/profile/image", { method: "DELETE" });
+      onProfileChange({ ...profile, imageUrl: null });
+      cancelImageSelection();
+      setMessage("ลบรูปโปรไฟล์แล้ว");
+    } catch (deleteError) {
+      setError(deleteError instanceof Error ? deleteError.message : "ลบรูปโปรไฟล์ไม่สำเร็จ");
     } finally {
       setPending(false);
     }
@@ -113,6 +139,7 @@ export function ProfileIdentity({ profile, onProfileChange }: ProfileIdentityPro
           <Camera aria-hidden="true" size={17} /> เลือกรูป
         </label>
         <input
+          ref={fileInputRef}
           className="sr-only"
           id="profile-image"
           type="file"
@@ -123,6 +150,16 @@ export function ProfileIdentity({ profile, onProfileChange }: ProfileIdentityPro
         <Button type="submit" disabled={!file || pending}>
           {pending ? <><LoaderCircle className="spin" aria-hidden="true" /> กำลังอัปโหลด</> : "บันทึกรูปใหม่"}
         </Button>
+        {file && (
+          <Button type="button" variant="outline" disabled={pending} onClick={cancelImageSelection}>
+            <X aria-hidden="true" /> ยกเลิกรูปที่เลือก
+          </Button>
+        )}
+        {profile.imageUrl && !file && (
+          <Button type="button" variant="destructive" disabled={pending} onClick={() => void deleteImage()}>
+            <Trash2 aria-hidden="true" /> ลบรูปโปรไฟล์
+          </Button>
+        )}
         <small>{file ? file.name : "JPG, PNG หรือ WebP · ไม่เกิน 5 MB"}</small>
       </form>
       {error && <p className="profile-field-error" role="alert">{error}</p>}

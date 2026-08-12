@@ -23,6 +23,9 @@ Windows Task Scheduler จะเก็บงานชื่อ `FitConnect-Expir
 - `POST /v1/auth/register`
 - `POST /v1/auth/login`
 - `GET /v1/me`
+- `GET|PATCH /v1/profile` — อ่านและแก้ไขข้อมูลโปรไฟล์ตามบทบาท
+- `POST|DELETE /v1/profile/image` — อัปโหลดหรือเอารูปโปรไฟล์ออก
+- `PATCH /v1/profile/password` — เปลี่ยนรหัสผ่านของบัญชีที่เข้าสู่ระบบ
 - `POST /v1/auth/logout` — เพิกถอน token ปัจจุบันก่อนออกจากระบบในเบราว์เซอร์
 - `POST /v1/trainer-applications`
 - `GET /v1/trainer/me`

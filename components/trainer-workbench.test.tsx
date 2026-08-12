@@ -151,10 +151,15 @@ describe("TrainerWorkbench", () => {
   });
 
   it("confirms an available slot before deleting it", async () => {
+    const startsAt = new Date();
+    startsAt.setDate(startsAt.getDate() + 1);
+    startsAt.setHours(9, 0, 0, 0);
+    const endsAt = new Date(startsAt);
+    endsAt.setHours(10, 0, 0, 0);
     const availableSlot = {
       id: 72,
-      startsAt: "2026-08-12T02:00:00.000Z",
-      endsAt: "2026-08-12T03:00:00.000Z",
+      startsAt: startsAt.toISOString(),
+      endsAt: endsAt.toISOString(),
       state: "available" as const,
     };
     let workspaceLoads = 0;
