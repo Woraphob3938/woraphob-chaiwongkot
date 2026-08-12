@@ -6,7 +6,7 @@
  */
 
 import Link from "next/link";
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import {
   ArrowLeft,
   Bell,
@@ -73,7 +73,10 @@ function categoryLabel(category: NotificationItem["category"]) {
 }
 
 function safeInternalPath(path: string) {
-  return path.startsWith("/") && !path.startsWith("//") ? path : null;
+  if (!path.startsWith("/") || path.startsWith("//") || /[\\\u0000-\u001f\u007f]/.test(path)) return null;
+  const base = "https://fitconnect.local";
+  const url = new URL(path, base);
+  return url.origin === base ? `${url.pathname}${url.search}${url.hash}` : null;
 }
 
 export function NotificationCenter() {
@@ -89,6 +92,7 @@ export function NotificationCenter() {
   const [detailError, setDetailError] = useState<string | null>(null);
   const [markingAll, setMarkingAll] = useState(false);
   const [announcement, setAnnouncement] = useState("");
+  const selectionRequestRef = useRef(0);
 
   const loadNotifications = useCallback(async () => {
     setLoadState("loading");
@@ -114,6 +118,7 @@ export function NotificationCenter() {
   }, [loadNotifications, reloadVersion]);
 
   function updateCategory(nextCategory: NotificationCategory) {
+    selectionRequestRef.current += 1;
     setCategory(nextCategory);
     setPage(0);
     setSelectedId(null);
@@ -121,6 +126,7 @@ export function NotificationCenter() {
   }
 
   function updateUnreadFilter() {
+    selectionRequestRef.current += 1;
     setUnreadOnly((current) => !current);
     setPage(0);
     setSelectedId(null);
@@ -128,36 +134,54 @@ export function NotificationCenter() {
   }
 
   async function openNotification(item: NotificationItem) {
+    const requestId = selectionRequestRef.current + 1;
+    selectionRequestRef.current = requestId;
     setSelectedId(item.id);
     setDetail(null);
     setDetailError(null);
     setDetailLoading(true);
     try {
       const nextDetail = await authenticatedRequest<NotificationDetail>(`/v1/notifications/${item.id}`);
+      if (selectionRequestRef.current !== requestId) return;
       setDetail(nextDetail);
       if (!item.readAt) {
         await authenticatedRequest(`/v1/notifications/${item.id}/read`, { method: "PATCH" });
         const readAt = new Date().toISOString();
         const unreadTotal = Math.max(0, response.unread.all - 1);
-        setResponse((current) => ({
-          ...current,
-          items: current.items.map((entry) => entry.id === item.id ? { ...entry, readAt } : entry),
-          unread: {
-            ...current.unread,
-            all: Math.max(0, current.unread.all - 1),
-            [item.category]: Math.max(0, current.unread[item.category] - 1),
-          },
-        }));
-        setDetail((current) => current ? { ...current, readAt } : current);
-        setAnnouncement("ทำเครื่องหมายว่าอ่านแล้ว");
+        setResponse((current) => {
+          const items = unreadOnly
+            ? current.items.filter((entry) => entry.id !== item.id)
+            : current.items.map((entry) => entry.id === item.id ? { ...entry, readAt } : entry);
+          const total = unreadOnly ? Math.max(0, current.pagination.total - 1) : current.pagination.total;
+          return {
+            ...current,
+            items,
+            unread: {
+              ...current.unread,
+              all: Math.max(0, current.unread.all - 1),
+              [item.category]: Math.max(0, current.unread[item.category] - 1),
+            },
+            pagination: {
+              ...current.pagination,
+              total,
+              totalPages: total === 0 ? 0 : Math.ceil(total / current.pagination.pageSize),
+            },
+          };
+        });
+        if (selectionRequestRef.current === requestId) {
+          setDetail((current) => current ? { ...current, readAt } : current);
+          setAnnouncement("ทำเครื่องหมายว่าอ่านแล้ว");
+        }
         window.dispatchEvent(new CustomEvent("fitconnect:notifications-changed", {
           detail: { unreadTotal },
         }));
       }
     } catch {
-      setDetailError("เปิดรายละเอียดการแจ้งเตือนไม่สำเร็จ ลองอีกครั้ง");
+      if (selectionRequestRef.current === requestId) {
+        setDetailError("เปิดรายละเอียดการแจ้งเตือนไม่สำเร็จ ลองอีกครั้ง");
+      }
     } finally {
-      setDetailLoading(false);
+      if (selectionRequestRef.current === requestId) setDetailLoading(false);
     }
   }
 
@@ -168,8 +192,11 @@ export function NotificationCenter() {
       const readAt = new Date().toISOString();
       setResponse((current) => ({
         ...current,
-        items: current.items.map((entry) => ({ ...entry, readAt: entry.readAt ?? readAt })),
+        items: unreadOnly ? [] : current.items.map((entry) => ({ ...entry, readAt: entry.readAt ?? readAt })),
         unread: { all: 0, booking: 0, payment: 0, appointment: 0 },
+        pagination: unreadOnly
+          ? { ...current.pagination, total: 0, totalPages: 0 }
+          : current.pagination,
       }));
       setDetail((current) => current ? { ...current, readAt: current.readAt ?? readAt } : current);
       setAnnouncement("ทำเครื่องหมายว่าอ่านแล้วทั้งหมด");
@@ -301,6 +328,7 @@ export function NotificationCenter() {
           <section className="notification-detail-panel" aria-label="รายละเอียดการแจ้งเตือน">
             {selectedId !== null && (
               <Button className="notification-detail-panel__back" type="button" variant="ghost" onClick={() => {
+                selectionRequestRef.current += 1;
                 setSelectedId(null);
                 setDetail(null);
                 setDetailError(null);

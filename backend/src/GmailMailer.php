@@ -34,7 +34,12 @@ final class GmailMailer
         if (!$this->isEnabled()) {
             return;
         }
-        if (!str_starts_with($actionPath, '/') || str_starts_with($actionPath, '//')) {
+        if (
+            !str_starts_with($actionPath, '/')
+            || str_starts_with($actionPath, '//')
+            || str_contains($actionPath, '\\')
+            || preg_match('/[\x00-\x1F\x7F]/', $actionPath) === 1
+        ) {
             throw new InvalidArgumentException('Mail action path must be internal.');
         }
         if (filter_var($recipientEmail, FILTER_VALIDATE_EMAIL) === false) {

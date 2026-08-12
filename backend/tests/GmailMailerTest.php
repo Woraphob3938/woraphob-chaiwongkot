@@ -94,6 +94,16 @@ test('rejects external action paths before transport', function (): void {
     throw new RuntimeException('Expected external action path to be rejected.');
 });
 
+test('rejects backslash action paths before transport', function (): void {
+    $mailer = new GmailMailer(mailConfig(true), static function (): void {});
+    try {
+        $mailer->send('member@example.com', 'สมาชิก', 'หัวข้อ', 'ข้อความ', '/\\example.com');
+    } catch (InvalidArgumentException) {
+        return;
+    }
+    throw new RuntimeException('Expected backslash action path to be rejected.');
+});
+
 $failures = 0;
 foreach ($tests as $name => $callback) {
     try {

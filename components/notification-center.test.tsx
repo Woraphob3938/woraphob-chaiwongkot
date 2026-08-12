@@ -52,6 +52,12 @@ function detail(entry = item(1)): NotificationDetail {
   };
 }
 
+function deferred<T>() {
+  let resolve!: (value: T) => void;
+  const promise = new Promise<T>((done) => { resolve = done; });
+  return { promise, resolve };
+}
+
 describe("NotificationCenter", () => {
   beforeEach(() => mockedRequest.mockReset());
 
@@ -133,6 +139,49 @@ describe("NotificationCenter", () => {
     expect(mockedRequest.mock.calls.map(([path]) => path)).not.toContain(undefined);
   });
 
+  it("keeps the latest selected detail when an earlier request finishes later", async () => {
+    const first = item(1, { readAt: "2026-08-12T10:00:00.000Z" });
+    const second = item(2, { readAt: "2026-08-12T10:00:00.000Z" });
+    const firstDetail = deferred<NotificationDetail>();
+    const secondDetail = deferred<NotificationDetail>();
+    mockedRequest.mockImplementation((path) => {
+      if (path === undefined) return Promise.resolve(list([]));
+      if (path.startsWith("/v1/notifications?")) return Promise.resolve(list([first, second]));
+      if (path === "/v1/notifications/1") return firstDetail.promise;
+      if (path === "/v1/notifications/2") return secondDetail.promise;
+      throw new Error(`Unexpected request: ${path}`);
+    });
+    render(<NotificationCenter />);
+    fireEvent.click(await screen.findByRole("button", { name: /ยืนยันการจอง 1/ }));
+    fireEvent.click(screen.getByRole("button", { name: /ยืนยันการจอง 2/ }));
+
+    secondDetail.resolve(detail(second));
+    expect(await screen.findByRole("heading", { name: "ยืนยันการจอง 2" })).toBeInTheDocument();
+    firstDetail.resolve(detail(first));
+
+    await waitFor(() => expect(screen.queryByRole("heading", { name: "ยืนยันการจอง 1" })).not.toBeInTheDocument());
+    expect(screen.getByRole("heading", { name: "ยืนยันการจอง 2" })).toBeInTheDocument();
+  });
+
+  it("removes a newly read item while the unread-only filter is active", async () => {
+    const entry = item(1);
+    mockedRequest.mockImplementation((path, init) => {
+      if (path === undefined) return Promise.resolve(list([]));
+      if (path.includes("unread=true")) return Promise.resolve(list([entry]));
+      if (path.startsWith("/v1/notifications?")) return Promise.resolve(list([entry]));
+      if (path === "/v1/notifications/1" && !init) return Promise.resolve(detail(entry));
+      if (path === "/v1/notifications/1/read" && init?.method === "PATCH") return Promise.resolve({ read: true });
+      throw new Error(`Unexpected request: ${path}`);
+    });
+    render(<NotificationCenter />);
+    await screen.findByRole("button", { name: /ยืนยันการจอง 1/ });
+    fireEvent.click(screen.getByRole("button", { name: "เฉพาะที่ยังไม่ได้อ่าน" }));
+    await waitFor(() => expect(mockedRequest).toHaveBeenCalledWith("/v1/notifications?page=0&category=all&unread=true"));
+    fireEvent.click(screen.getByRole("button", { name: /ยืนยันการจอง 1/ }));
+
+    await waitFor(() => expect(screen.queryByRole("button", { name: /ยืนยันการจอง 1/ })).not.toBeInTheDocument());
+  });
+
   it("marks every notification read", async () => {
     mockedRequest.mockImplementation((path, init) => {
       if (path === undefined) return Promise.resolve({ updated: 0 });
@@ -161,6 +210,7 @@ describe("NotificationCenter", () => {
     ["/member", true],
     ["https://phishing.example", false],
     ["//phishing.example", false],
+    ["/\\phishing.example", false],
   ] as const)("renders the detail action only for a safe internal path: %s", async (actionPath, visible) => {
     const entry = item(1, { actionPath, readAt: "2026-08-12T10:00:00.000Z" });
     mockedRequest.mockImplementation((path) => {
