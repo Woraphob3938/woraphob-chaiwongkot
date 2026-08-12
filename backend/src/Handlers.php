@@ -380,6 +380,40 @@ final class Handlers
         ]);
     }
 
+    public function notifications(): never
+    {
+        $user = $this->auth->requireUser(['member', 'trainer']);
+        $page = NotificationService::parsePage($_GET['page'] ?? '0');
+        $category = NotificationService::parseCategory($_GET['category'] ?? 'all');
+        $unread = NotificationService::parseUnread($_GET['unread'] ?? 'false');
+        Http::json($this->notifications->listForUser((int) $user['id'], $page, $category, $unread));
+    }
+
+    public function notification(string $notificationId): never
+    {
+        $user = $this->auth->requireUser(['member', 'trainer']);
+        $detail = $this->notifications->detailForUser((int) $user['id'], (int) $notificationId);
+        if ($detail === null) {
+            throw new HttpException(404, 'ไม่พบการแจ้งเตือน', 'NOTIFICATION_NOT_FOUND');
+        }
+        Http::json($detail);
+    }
+
+    public function readNotification(string $notificationId): never
+    {
+        $user = $this->auth->requireUser(['member', 'trainer']);
+        if (!$this->notifications->markRead((int) $user['id'], (int) $notificationId)) {
+            throw new HttpException(404, 'ไม่พบการแจ้งเตือน', 'NOTIFICATION_NOT_FOUND');
+        }
+        Http::json(['id' => (int) $notificationId, 'read' => true]);
+    }
+
+    public function readAllNotifications(): never
+    {
+        $user = $this->auth->requireUser(['member', 'trainer']);
+        Http::json(['updated' => $this->notifications->markAllRead((int) $user['id'])]);
+    }
+
     public function deleteProfileImage(): never
     {
         $user = $this->auth->requireUser(['member', 'trainer']);

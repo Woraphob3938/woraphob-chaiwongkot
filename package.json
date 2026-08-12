@@ -9,7 +9,7 @@
     "lint": "eslint .",
     "typecheck": "tsc --noEmit",
     "test": "vitest run",
-    "test:php": "C:\\xampp\\php\\php.exe backend/tests/WorkflowRulesTest.php && C:\\xampp\\php\\php.exe backend/tests/ProfileRulesTest.php && C:\\xampp\\php\\php.exe backend/tests/NotificationRulesTest.php && C:\\xampp\\php\\php.exe backend/tests/GmailMailerTest.php && C:\\xampp\\php\\php.exe backend/tests/NotificationDeliveryTest.php && C:\\xampp\\php\\php.exe backend/tests/NotificationIntegrationSourceTest.php",
+    "test:php": "C:\\xampp\\php\\php.exe backend/tests/WorkflowRulesTest.php && C:\\xampp\\php\\php.exe backend/tests/ProfileRulesTest.php && C:\\xampp\\php\\php.exe backend/tests/NotificationRulesTest.php && C:\\xampp\\php\\php.exe backend/tests/GmailMailerTest.php && C:\\xampp\\php\\php.exe backend/tests/NotificationDeliveryTest.php && C:\\xampp\\php\\php.exe backend/tests/NotificationIntegrationSourceTest.php && C:\\xampp\\php\\php.exe backend/tests/NotificationQueryRulesTest.php",
     "migrate:instant-booking": "powershell -NoProfile -ExecutionPolicy Bypass -File scripts/migrate-instant-booking.ps1",
     "migrate:remove-location-data": "powershell -NoProfile -ExecutionPolicy Bypass -File scripts/migrate-remove-province-location.ps1",
     "migrate:member-profile": "powershell -NoProfile -ExecutionPolicy Bypass -File scripts/migrate-member-profile.ps1",

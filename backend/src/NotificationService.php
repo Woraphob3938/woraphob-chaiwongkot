@@ -137,6 +137,146 @@ final class NotificationService
         return ['reminders' => count($reminderIds), 'sent' => $sent, 'failed' => $failed];
     }
 
+    public function listForUser(int $userId, int $page, string $category, bool $unread): array
+    {
+        $where = ['n.recipient_user_id = ?'];
+        $params = [$userId];
+        if ($category !== 'all') {
+            $where[] = 'n.category = ?';
+            $params[] = $category;
+        }
+        if ($unread) {
+            $where[] = 'n.read_at IS NULL';
+        }
+        $whereSql = implode(' AND ', $where);
+        $countStatement = $this->database->pdo()->prepare("SELECT COUNT(*) FROM notifications n WHERE {$whereSql}");
+        $countStatement->execute($params);
+        $total = (int) $countStatement->fetchColumn();
+        $offset = $page * 10;
+        $statement = $this->database->pdo()->prepare(
+            "SELECT n.id, n.type, n.category, n.title, n.message, n.action_path, n.read_at,
+                    n.created_at, b.public_id AS booking_public_id
+             FROM notifications n
+             JOIN bookings b ON b.id = n.booking_id
+             WHERE {$whereSql}
+             ORDER BY n.created_at DESC, n.id DESC
+             LIMIT 10 OFFSET {$offset}"
+        );
+        $statement->execute($params);
+        $items = array_map(fn(array $row): array => $this->itemPayload($row), $statement->fetchAll());
+
+        $unreadCounts = ['all' => 0, 'booking' => 0, 'payment' => 0, 'appointment' => 0];
+        $counts = $this->database->fetchAll(
+            'SELECT category, COUNT(*) AS total FROM notifications
+             WHERE recipient_user_id = ? AND read_at IS NULL GROUP BY category',
+            [$userId]
+        );
+        foreach ($counts as $count) {
+            $value = (int) $count['total'];
+            $unreadCounts[(string) $count['category']] = $value;
+            $unreadCounts['all'] += $value;
+        }
+
+        return [
+            'items' => $items,
+            'unread' => $unreadCounts,
+            'pagination' => [
+                'page' => $page,
+                'pageSize' => 10,
+                'total' => $total,
+                'totalPages' => $total === 0 ? 0 : (int) ceil($total / 10),
+            ],
+        ];
+    }
+
+    public function detailForUser(int $userId, int $notificationId): ?array
+    {
+        $row = $this->database->fetchOne(
+            'SELECT n.id, n.type, n.category, n.title, n.message, n.action_path, n.read_at, n.created_at,
+                    b.id AS booking_internal_id, b.public_id AS booking_public_id, b.starts_at, b.ends_at,
+                    b.status, b.payment_status, b.quoted_price,
+                    member.display_name AS member_name, trainer.display_name AS trainer_name
+             FROM notifications n
+             JOIN bookings b ON b.id = n.booking_id
+             JOIN trainer_profiles tp ON tp.id = b.trainer_profile_id
+             JOIN users member ON member.id = b.member_user_id
+             JOIN users trainer ON trainer.id = tp.user_id
+             WHERE n.id = ? AND n.recipient_user_id = ?',
+            [$notificationId, $userId]
+        );
+        if (!$row) return null;
+
+        $history = $this->database->fetchAll(
+            'SELECT from_status, to_status, note, created_at
+             FROM booking_status_history WHERE booking_id = ? ORDER BY created_at, id',
+            [(int) $row['booking_internal_id']]
+        );
+        return $this->itemPayload($row) + [
+            'booking' => [
+                'id' => (string) $row['booking_public_id'],
+                'memberName' => (string) $row['member_name'],
+                'trainerName' => (string) $row['trainer_name'],
+                'startsAt' => self::iso((string) $row['starts_at']),
+                'endsAt' => self::iso((string) $row['ends_at']),
+                'status' => (string) $row['status'],
+                'paymentStatus' => (string) $row['payment_status'],
+                'quotedPrice' => $row['quoted_price'] === null ? null : (float) $row['quoted_price'],
+                'history' => array_map(static fn(array $entry): array => [
+                    'fromStatus' => $entry['from_status'],
+                    'toStatus' => (string) $entry['to_status'],
+                    'note' => $entry['note'],
+                    'createdAt' => self::iso((string) $entry['created_at']),
+                ], $history),
+            ],
+        ];
+    }
+
+    public function markRead(int $userId, int $notificationId): bool
+    {
+        $statement = $this->database->pdo()->prepare(
+            'UPDATE notifications SET read_at = COALESCE(read_at, UTC_TIMESTAMP())
+             WHERE id = ? AND recipient_user_id = ?'
+        );
+        $statement->execute([$notificationId, $userId]);
+        if ($statement->rowCount() > 0) return true;
+        return $this->database->fetchOne(
+            'SELECT id FROM notifications WHERE id = ? AND recipient_user_id = ?',
+            [$notificationId, $userId]
+        ) !== null;
+    }
+
+    public function markAllRead(int $userId): int
+    {
+        return $this->database->execute(
+            'UPDATE notifications SET read_at = UTC_TIMESTAMP()
+             WHERE recipient_user_id = ? AND read_at IS NULL',
+            [$userId]
+        );
+    }
+
+    public static function parsePage(mixed $value): int
+    {
+        if (is_array($value) || preg_match('/^\d+$/', (string) $value) !== 1) {
+            throw new HttpException(422, 'หน้ารายการไม่ถูกต้อง', 'VALIDATION_FAILED', ['page' => 'ต้องเป็นจำนวนเต็มตั้งแต่ 0 ขึ้นไป']);
+        }
+        return min((int) $value, 100000);
+    }
+
+    public static function parseCategory(mixed $value): string
+    {
+        if (is_array($value) || !in_array((string) $value, ['all', 'booking', 'payment', 'appointment'], true)) {
+            throw new HttpException(422, 'หมวดการแจ้งเตือนไม่ถูกต้อง', 'VALIDATION_FAILED', ['category' => 'เลือกหมวดที่ระบบรองรับ']);
+        }
+        return (string) $value;
+    }
+
+    public static function parseUnread(mixed $value): bool
+    {
+        if ($value === true || $value === 'true' || $value === '1' || $value === 1) return true;
+        if ($value === false || $value === 'false' || $value === '0' || $value === 0) return false;
+        throw new HttpException(422, 'ตัวกรองสถานะอ่านไม่ถูกต้อง', 'VALIDATION_FAILED', ['unread' => 'ใช้ true หรือ false']);
+    }
+
     public static function retryDelayMinutes(int $attempt): int
     {
         return match ($attempt) {
@@ -204,5 +344,27 @@ final class NotificationService
         $sanitized = preg_replace('/(password|pass|token|secret)\s*[=:]\s*\S+/iu', '$1=[redacted]', $error) ?? '';
         $sanitized = preg_replace('/[\r\n\t]+/', ' ', $sanitized) ?? '';
         return mb_substr(trim($sanitized) ?: 'ส่งอีเมลไม่สำเร็จ', 0, 500);
+    }
+
+    private function itemPayload(array $row): array
+    {
+        return [
+            'id' => (int) $row['id'],
+            'type' => (string) $row['type'],
+            'category' => (string) $row['category'],
+            'title' => (string) $row['title'],
+            'message' => (string) $row['message'],
+            'bookingId' => (string) $row['booking_public_id'],
+            'actionPath' => (string) $row['action_path'],
+            'readAt' => $row['read_at'] === null ? null : self::iso((string) $row['read_at']),
+            'createdAt' => self::iso((string) $row['created_at']),
+        ];
+    }
+
+    private static function iso(string $value): string
+    {
+        return (new DateTimeImmutable($value, new DateTimeZone('UTC')))
+            ->setTimezone(new DateTimeZone('UTC'))
+            ->format('Y-m-d\TH:i:s.000\Z');
     }
 }
