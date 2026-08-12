@@ -6,6 +6,9 @@ require_once __DIR__ . '/src/Http.php';
 require_once __DIR__ . '/src/Auth.php';
 require_once __DIR__ . '/src/WorkflowRules.php';
 require_once __DIR__ . '/src/ProfileRules.php';
+require_once __DIR__ . '/src/NotificationRules.php';
+require_once __DIR__ . '/src/GmailMailer.php';
+require_once __DIR__ . '/src/NotificationService.php';
 require_once __DIR__ . '/src/Handlers.php';
 
 $config = require __DIR__ . '/src/config.php';

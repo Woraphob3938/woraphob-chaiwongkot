@@ -4,12 +4,14 @@ declare(strict_types=1);
 final class Handlers
 {
     private Auth $auth;
+    private NotificationService $notifications;
 
     public function __construct(
         private readonly Database $database,
         private readonly array $config
     ) {
         $this->auth = new Auth($database);
+        $this->notifications = new NotificationService($database, $config);
     }
 
     public function health(): never
@@ -550,9 +552,10 @@ final class Handlers
         $input = Http::body();
         Http::requireFields($input, ['trainerId', 'slotId']);
         $publicId = 'BK-' . strtoupper(bin2hex(random_bytes(4)));
+        $notificationIds = [];
 
-        $booking = $this->database->transaction(function (PDO $pdo) use ($user, $input, $publicId): array {
-            $this->expireAwaitingPaymentsInTransaction($pdo, (int) $input['slotId']);
+        $booking = $this->database->transaction(function (PDO $pdo) use ($user, $input, $publicId, &$notificationIds): array {
+            $this->expireAwaitingPaymentsInTransaction($pdo, (int) $input['slotId'], $notificationIds);
             $statement = $pdo->prepare(
                 'SELECT s.id, s.trainer_profile_id, s.starts_at, s.ends_at, s.state,
                         tp.approval_status, tp.price_from, trainer_user.status AS trainer_user_status
@@ -595,6 +598,11 @@ final class Handlers
             $created = $pdo->prepare('SELECT payment_deadline_at FROM bookings WHERE id = ?');
             $created->execute([$bookingId]);
             $createdBooking = $created->fetch();
+            $notificationIds = array_merge($notificationIds, $this->notifications->recordEvent(
+                $pdo,
+                NotificationRules::BOOKING_CREATED,
+                $this->bookingNotificationContext($pdo, $bookingId, 'created', 'awaiting_payment')
+            ));
             return [
                 'id' => $publicId,
                 'status' => 'awaiting_payment',
@@ -602,6 +610,7 @@ final class Handlers
                 'paymentDeadlineAt' => $this->iso($createdBooking['payment_deadline_at']),
             ];
         });
+        $this->notifications->deliverByIds($notificationIds);
 
         Http::json($booking, 201);
     }
@@ -610,9 +619,10 @@ final class Handlers
     {
         $user = $this->auth->requireUser(['member']);
         $reason = 'สมาชิกยกเลิกก่อนส่งหลักฐานการชำระเงิน';
+        $notificationIds = [];
 
-        $result = $this->database->transaction(function (PDO $pdo) use ($publicId, $user, $reason): array {
-            $this->expireAwaitingPaymentsInTransaction($pdo);
+        $result = $this->database->transaction(function (PDO $pdo) use ($publicId, $user, $reason, &$notificationIds): array {
+            $this->expireAwaitingPaymentsInTransaction($pdo, null, $notificationIds);
             $statement = $pdo->prepare(
                 'SELECT id, status, payment_status, availability_slot_id
                  FROM bookings
@@ -645,8 +655,15 @@ final class Handlers
                  VALUES (?, "awaiting_payment", "cancelled", ?, ?)'
             )->execute([$booking['id'], $user['id'], $reason]);
 
+            $notificationIds = array_merge($notificationIds, $this->notifications->recordEvent(
+                $pdo,
+                NotificationRules::BOOKING_CANCELLED,
+                $this->bookingNotificationContext($pdo, (int) $booking['id'], (string) $booking['status'], 'cancelled', $reason)
+            ));
+
             return ['id' => $publicId, 'status' => 'cancelled', 'reason' => $reason];
         });
+        $this->notifications->deliverByIds($notificationIds);
 
         Http::json($result);
     }
@@ -659,8 +676,9 @@ final class Handlers
         }
         $input = Http::body();
         Http::requireFields($input, ['status']);
+        $notificationIds = [];
 
-        $result = $this->database->transaction(function (PDO $pdo) use ($publicId, $input, $user): array {
+        $result = $this->database->transaction(function (PDO $pdo) use ($publicId, $input, $user, &$notificationIds): array {
             $statement = $pdo->prepare(
                 'SELECT b.id, b.status, b.payment_status, b.quoted_price, b.ends_at,
                         b.availability_slot_id, tp.user_id AS trainer_user_id
@@ -712,12 +730,26 @@ final class Handlers
                 $pdo->prepare('UPDATE availability_slots SET state = ? WHERE id = ?')
                     ->execute([$slotState, $booking['availability_slot_id']]);
             }
+            if ($newStatus === 'cancelled') {
+                $notificationIds = array_merge($notificationIds, $this->notifications->recordEvent(
+                    $pdo,
+                    NotificationRules::BOOKING_CANCELLED,
+                    $this->bookingNotificationContext(
+                        $pdo,
+                        (int) $booking['id'],
+                        (string) $booking['status'],
+                        'cancelled',
+                        trim((string) ($input['note'] ?? ''))
+                    )
+                ));
+            }
             return [
                 'id' => $publicId,
                 'status' => $newStatus,
                 'quotedPrice' => $booking['quoted_price'] === null ? null : (float) $booking['quoted_price'],
             ];
         });
+        $this->notifications->deliverByIds($notificationIds);
         Http::json($result);
     }
 
@@ -733,9 +765,10 @@ final class Handlers
             5 * 1024 * 1024,
             'payments'
         );
+        $notificationIds = [];
 
         try {
-            $result = $this->database->transaction(function (PDO $pdo) use ($input, $user, $amount, $file): array {
+            $result = $this->database->transaction(function (PDO $pdo) use ($input, $user, $amount, $file, &$notificationIds): array {
                 $statement = $pdo->prepare(
                     'SELECT id, status, availability_slot_id, payment_deadline_at,
                             UTC_TIMESTAMP() AS database_now
@@ -757,7 +790,7 @@ final class Handlers
                 $databaseNow = new DateTimeImmutable((string) $booking['database_now'], new DateTimeZone('UTC'));
                 if (WorkflowRules::isPaymentDeadlineExpired($deadline, $databaseNow)) {
                     $slotId = $booking['availability_slot_id'] === null ? null : (int) $booking['availability_slot_id'];
-                    $this->expireAwaitingPaymentsInTransaction($pdo, $slotId);
+                    $this->expireAwaitingPaymentsInTransaction($pdo, $slotId, $notificationIds);
                     return ['expired' => true, 'paymentId' => null];
                 }
 
@@ -770,12 +803,18 @@ final class Handlers
                     ->execute([$booking['id']]);
                 $pdo->prepare('INSERT INTO booking_status_history (booking_id, from_status, to_status, changed_by_user_id, note) VALUES (?, "awaiting_payment", "payment_review", ?, "สมาชิกอัปโหลดสลิป")')
                     ->execute([$booking['id'], $user['id']]);
+                $notificationIds = array_merge($notificationIds, $this->notifications->recordEvent(
+                    $pdo,
+                    NotificationRules::PAYMENT_SUBMITTED,
+                    $this->bookingNotificationContext($pdo, (int) $booking['id'], 'awaiting_payment', 'payment_review')
+                ));
                 return ['expired' => false, 'paymentId' => $paymentId];
             });
         } catch (Throwable $error) {
             $this->removeUpload($file['path']);
             throw $error;
         }
+        $this->notifications->deliverByIds($notificationIds);
         if ($result['expired']) {
             $this->removeUpload($file['path']);
             throw new HttpException(409, 'หมดเวลาส่งหลักฐาน กรุณาเลือกเวลาใหม่', 'PAYMENT_DEADLINE_EXPIRED');
@@ -1503,7 +1542,8 @@ final class Handlers
             throw new HttpException(404, 'ไม่พบการทำงานนี้', 'NOT_FOUND');
         }
         $input = Http::body();
-        $result = $this->database->transaction(function (PDO $pdo) use ($paymentId, $decision, $input, $admin): array {
+        $notificationIds = [];
+        $result = $this->database->transaction(function (PDO $pdo) use ($paymentId, $decision, $input, $admin, &$notificationIds): array {
             $statement = $pdo->prepare(
                 'SELECT pay.id, pay.status, pay.booking_id, b.public_id, b.status AS booking_status,
                         b.availability_slot_id, UTC_TIMESTAMP() AS database_now
@@ -1555,6 +1595,22 @@ final class Handlers
                 $pdo->prepare('UPDATE availability_slots SET state = ? WHERE id = ?')
                     ->execute([$slotState, $payment['availability_slot_id']]);
             }
+            $event = $decision === 'approve'
+                ? NotificationRules::PAYMENT_APPROVED
+                : ($bookingStatus === 'awaiting_payment'
+                    ? NotificationRules::PAYMENT_REJECTED_RETRY
+                    : NotificationRules::PAYMENT_REJECTED_FINAL);
+            $notificationIds = array_merge($notificationIds, $this->notifications->recordEvent(
+                $pdo,
+                $event,
+                $this->bookingNotificationContext(
+                    $pdo,
+                    (int) $payment['booking_id'],
+                    (string) $payment['booking_status'],
+                    $bookingStatus,
+                    $note
+                )
+            ));
             return [
                 'paymentId' => (int) $payment['id'],
                 'bookingId' => $payment['public_id'],
@@ -1563,6 +1619,7 @@ final class Handlers
                 'paymentDeadlineAt' => $paymentDeadline === null ? null : $this->iso($paymentDeadline->format('Y-m-d H:i:s')),
             ];
         });
+        $this->notifications->deliverByIds($notificationIds);
         Http::json($result);
     }
 
@@ -1662,12 +1719,21 @@ final class Handlers
 
     private function expireAwaitingPayments(?int $slotId = null): array
     {
-        return $this->database->transaction(
-            fn(PDO $pdo): array => $this->expireAwaitingPaymentsInTransaction($pdo, $slotId)
+        $notificationIds = [];
+        $expired = $this->database->transaction(
+            function (PDO $pdo) use ($slotId, &$notificationIds): array {
+                return $this->expireAwaitingPaymentsInTransaction($pdo, $slotId, $notificationIds);
+            }
         );
+        $this->notifications->deliverByIds($notificationIds);
+        return $expired;
     }
 
-    private function expireAwaitingPaymentsInTransaction(PDO $pdo, ?int $slotId = null): array
+    private function expireAwaitingPaymentsInTransaction(
+        PDO $pdo,
+        ?int $slotId = null,
+        ?array &$notificationIds = null
+    ): array
     {
         $sql = 'SELECT id, public_id, availability_slot_id
                 FROM bookings
@@ -1693,9 +1759,55 @@ final class Handlers
             }
             $pdo->prepare('INSERT INTO booking_status_history (booking_id, from_status, to_status, changed_by_user_id, note) VALUES (?, "awaiting_payment", "expired", NULL, "หมดเวลาส่งหลักฐานการชำระ")')
                 ->execute([$booking['id']]);
+            $createdIds = $this->notifications->recordEvent(
+                $pdo,
+                NotificationRules::BOOKING_EXPIRED,
+                $this->bookingNotificationContext($pdo, (int) $booking['id'], 'awaiting_payment', 'expired')
+            );
+            if ($notificationIds !== null) {
+                $notificationIds = array_merge($notificationIds, $createdIds);
+            }
         }
 
         return $expired;
+    }
+
+    private function bookingNotificationContext(
+        PDO $pdo,
+        int $bookingId,
+        string $previousStatus,
+        string $nextStatus,
+        string $reviewNote = ''
+    ): array {
+        $statement = $pdo->prepare(
+            'SELECT b.id, b.public_id, b.member_user_id, tp.user_id AS trainer_user_id,
+                    member.display_name AS member_name, trainer.display_name AS trainer_name,
+                    b.starts_at, b.ends_at, b.quoted_price
+             FROM bookings b
+             JOIN trainer_profiles tp ON tp.id = b.trainer_profile_id
+             JOIN users member ON member.id = b.member_user_id
+             JOIN users trainer ON trainer.id = tp.user_id
+             WHERE b.id = ?'
+        );
+        $statement->execute([$bookingId]);
+        $booking = $statement->fetch();
+        if (!$booking) {
+            throw new LogicException('Notification booking context is missing.');
+        }
+        return [
+            'bookingId' => (int) $booking['id'],
+            'bookingPublicId' => (string) $booking['public_id'],
+            'memberUserId' => (int) $booking['member_user_id'],
+            'trainerUserId' => (int) $booking['trainer_user_id'],
+            'memberName' => (string) $booking['member_name'],
+            'trainerName' => (string) $booking['trainer_name'],
+            'startsAt' => (string) $booking['starts_at'],
+            'endsAt' => (string) $booking['ends_at'],
+            'quotedPrice' => $booking['quoted_price'] === null ? null : (float) $booking['quoted_price'],
+            'previousStatus' => $previousStatus,
+            'nextStatus' => $nextStatus,
+            'reviewNote' => $reviewNote,
+        ];
     }
 
     private function accountProfilePayload(array $user): array
