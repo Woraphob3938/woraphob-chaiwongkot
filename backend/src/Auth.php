@@ -108,7 +108,7 @@ final class Auth
     {
         Http::requireFields($input, ['currentPassword', 'newPassword']);
         $token = Http::bearerToken();
-        $user = $this->requireUser(['member', 'trainer']);
+        $user = $this->requireUser(['member', 'trainer', 'admin']);
         $row = $this->database->fetchOne('SELECT password_hash FROM users WHERE id = ?', [$user['id']]);
         if (!$row || !password_verify((string) $input['currentPassword'], $row['password_hash'])) {
             throw new HttpException(401, 'รหัสผ่านปัจจุบันไม่ถูกต้อง', 'INVALID_CREDENTIALS', [

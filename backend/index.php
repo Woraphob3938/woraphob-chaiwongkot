@@ -48,6 +48,8 @@ try {
     if ($method === 'POST' && $path === '/v1/payments') $handlers->payment();
     if ($method === 'POST' && $path === '/v1/reviews') $handlers->review();
     if ($method === 'GET' && $path === '/v1/admin/review-queue') $handlers->adminReviewQueue();
+    if ($method === 'GET' && $path === '/v1/admin/operations') $handlers->adminOperations();
+    if ($method === 'POST' && $path === '/v1/admin/users') $handlers->createAdminUser();
 
     if ($method === 'GET' && preg_match('#^/v1/trainers/([^/]+)$#', $path, $matches) === 1) $handlers->trainer(urldecode($matches[1]));
     if ($method === 'GET' && preg_match('#^/v1/profile-images/(member|trainer)/(\d+)$#', $path, $matches) === 1) $handlers->profileImage($matches[1], $matches[2]);
@@ -60,6 +62,7 @@ try {
     if ($method === 'POST' && preg_match('#^/v1/admin/trainers/(\d+)/(approve|reject)$#', $path, $matches) === 1) $handlers->decideTrainer($matches[1], $matches[2]);
     if ($method === 'POST' && preg_match('#^/v1/admin/payments/(\d+)/(approve|reject)$#', $path, $matches) === 1) $handlers->decidePayment($matches[1], $matches[2]);
     if ($method === 'GET' && preg_match('#^/v1/admin/files/(payment|certificate)/(\d+)$#', $path, $matches) === 1) $handlers->adminFile($matches[1], $matches[2]);
+    if ($method === 'PATCH' && preg_match('#^/v1/admin/users/(\d+)$#', $path, $matches) === 1) $handlers->updateAdminUser($matches[1]);
 
     throw new HttpException(404, 'ไม่พบเส้นทางบริการนี้', 'NOT_FOUND');
 } catch (HttpException $error) {

@@ -499,6 +499,9 @@ final class Handlers
     public function listBookings(): never
     {
         $user = $this->auth->requireUser(['member', 'trainer', 'admin']);
+        if ($user['role'] === 'admin') {
+            $user = $this->requireAdminPermission('manage_bookings');
+        }
         $this->expireAwaitingPayments();
         $where = '';
         $params = [];
@@ -651,6 +654,9 @@ final class Handlers
     public function updateBookingStatus(string $publicId): never
     {
         $user = $this->auth->requireUser(['trainer', 'admin']);
+        if ($user['role'] === 'admin') {
+            $user = $this->requireAdminPermission('manage_bookings');
+        }
         $input = Http::body();
         Http::requireFields($input, ['status']);
 
@@ -1014,9 +1020,361 @@ final class Handlers
         ], 201);
     }
 
-    public function decideTrainer(string $trainerId, string $decision): never
+    public function adminOperations(): never
     {
         $admin = $this->auth->requireUser(['admin']);
+        $permissions = $this->adminPermissions((int) $admin['id']);
+        $pageSize = 10;
+        $userPage = $this->adminPage('userPage');
+        $administratorPage = $this->adminPage('administratorPage');
+        $bookingPage = $this->adminPage('bookingPage');
+        $incomePage = $this->adminPage('incomePage');
+        $paymentPage = $this->adminPage('paymentPage');
+        $userQuery = mb_substr(trim((string) ($_GET['userQuery'] ?? '')), 0, 100);
+        $bookingStatus = trim((string) ($_GET['bookingStatus'] ?? 'all'));
+        $bookingStatuses = ['awaiting_payment', 'payment_review', 'confirmed', 'completed', 'cancelled', 'expired'];
+        if ($bookingStatus !== 'all' && !in_array($bookingStatus, $bookingStatuses, true)) {
+            throw new HttpException(422, 'สถานะการจองไม่ถูกต้อง', 'VALIDATION_FAILED');
+        }
+        $summary = $permissions['manageUsers'] ? ($this->database->fetchOne(
+            'SELECT
+                SUM(role = "member" AND status = "active") AS active_members,
+                SUM(role = "trainer" AND status = "active") AS active_trainers
+             FROM users'
+        ) ?? []) : [];
+        $bookingSummary = $permissions['manageBookings']
+            ? ($this->database->fetchOne('SELECT COUNT(*) AS total_bookings FROM bookings') ?? [])
+            : [];
+        $revenueSummary = $permissions['reviewPayments'] ? ($this->database->fetchOne(
+            'SELECT COALESCE(SUM(COALESCE(amount, 0)), 0) AS approved_revenue FROM payments WHERE status = "approved"'
+        ) ?? []) : [];
+
+        $users = [];
+        $administrators = [];
+        $userTotal = 0;
+        $administratorTotal = 0;
+        if ($permissions['manageUsers']) {
+            $userWhere = 'u.role <> "admin"';
+            $userParams = [];
+            if ($userQuery !== '') {
+                $userWhere .= ' AND (u.display_name LIKE ? OR u.email LIKE ?)';
+                $like = '%' . $userQuery . '%';
+                $userParams = [$like, $like];
+            }
+            $userCount = $this->database->fetchOne('SELECT COUNT(*) AS total FROM users u WHERE ' . $userWhere, $userParams);
+            $userTotal = (int) ($userCount['total'] ?? 0);
+            $rows = $this->database->fetchAll(
+                'SELECT u.id, u.email, u.display_name, u.role, u.status, u.created_at,
+                        tp.approval_status
+                 FROM users u
+                 LEFT JOIN trainer_profiles tp ON tp.user_id = u.id
+                 WHERE ' . $userWhere . '
+                 ORDER BY FIELD(u.role, "trainer", "member"), u.created_at DESC, u.id DESC
+                 LIMIT ' . $pageSize . ' OFFSET ' . ($userPage * $pageSize),
+                $userParams
+            );
+            $users = array_map(fn(array $row): array => [
+                'id' => (int) $row['id'],
+                'email' => $row['email'],
+                'displayName' => $row['display_name'],
+                'role' => $row['role'],
+                'status' => $row['status'],
+                'createdAt' => $this->iso($row['created_at']),
+                'approvalStatus' => $row['approval_status'],
+                'permissions' => null,
+            ], $rows);
+
+            $administratorCount = $this->database->fetchOne('SELECT COUNT(*) AS total FROM users WHERE role = "admin"');
+            $administratorTotal = (int) ($administratorCount['total'] ?? 0);
+            $adminRows = $this->database->fetchAll(
+                'SELECT u.id, u.email, u.display_name, u.role, u.status, u.created_at,
+                        ap.manage_users, ap.review_trainers, ap.manage_bookings, ap.review_payments
+                 FROM users u
+                 LEFT JOIN admin_permissions ap ON ap.user_id = u.id
+                 WHERE u.role = "admin"
+                 ORDER BY u.created_at DESC, u.id DESC
+                 LIMIT ' . $pageSize . ' OFFSET ' . ($administratorPage * $pageSize)
+            );
+            $administrators = array_map(fn(array $row): array => [
+                'id' => (int) $row['id'],
+                'email' => $row['email'],
+                'displayName' => $row['display_name'],
+                'role' => $row['role'],
+                'status' => $row['status'],
+                'createdAt' => $this->iso($row['created_at']),
+                'approvalStatus' => null,
+                'permissions' => [
+                    'manageUsers' => (bool) $row['manage_users'],
+                    'reviewTrainers' => (bool) $row['review_trainers'],
+                    'manageBookings' => (bool) $row['manage_bookings'],
+                    'reviewPayments' => (bool) $row['review_payments'],
+                ],
+            ], $adminRows);
+        }
+
+        $bookings = [];
+        $bookingTotal = 0;
+        if ($permissions['manageBookings']) {
+            $bookingWhere = $bookingStatus === 'all' ? '' : 'WHERE b.status = ?';
+            $bookingParams = $bookingStatus === 'all' ? [] : [$bookingStatus];
+            $bookingCount = $this->database->fetchOne('SELECT COUNT(*) AS total FROM bookings b ' . $bookingWhere, $bookingParams);
+            $bookingTotal = (int) ($bookingCount['total'] ?? 0);
+            $rows = $this->database->fetchAll(
+                'SELECT b.id, b.public_id, b.starts_at, b.ends_at, b.status, b.payment_status,
+                        b.quoted_price, b.created_at, member_user.display_name AS member_name,
+                        trainer_user.display_name AS trainer_name
+                 FROM bookings b
+                 JOIN users member_user ON member_user.id = b.member_user_id
+                 JOIN trainer_profiles tp ON tp.id = b.trainer_profile_id
+                 JOIN users trainer_user ON trainer_user.id = tp.user_id
+                 ' . $bookingWhere . '
+                 ORDER BY b.created_at DESC, b.id DESC
+                 LIMIT ' . $pageSize . ' OFFSET ' . ($bookingPage * $pageSize),
+                $bookingParams
+            );
+            $historyByBooking = [];
+            if ($rows !== []) {
+                $ids = array_map(fn(array $row): int => (int) $row['id'], $rows);
+                $placeholders = implode(',', array_fill(0, count($ids), '?'));
+                $history = $this->database->fetchAll(
+                    'SELECT h.booking_id, h.from_status, h.to_status, h.note, h.created_at,
+                            u.display_name AS changed_by
+                     FROM booking_status_history h
+                     LEFT JOIN users u ON u.id = h.changed_by_user_id
+                     WHERE h.booking_id IN (' . $placeholders . ')
+                     ORDER BY h.created_at DESC, h.id DESC',
+                    $ids
+                );
+                foreach ($history as $item) {
+                    $historyByBooking[(int) $item['booking_id']][] = [
+                        'fromStatus' => $item['from_status'],
+                        'toStatus' => $item['to_status'],
+                        'changedBy' => $item['changed_by'],
+                        'note' => $item['note'],
+                        'createdAt' => $this->iso($item['created_at']),
+                    ];
+                }
+            }
+            $bookings = array_map(fn(array $row): array => [
+                'id' => $row['public_id'],
+                'memberName' => $row['member_name'],
+                'trainerName' => $row['trainer_name'],
+                'startsAt' => $this->iso($row['starts_at']),
+                'endsAt' => $this->iso($row['ends_at']),
+                'status' => $row['status'],
+                'paymentStatus' => $row['payment_status'],
+                'quotedPrice' => $row['quoted_price'] === null ? null : (float) $row['quoted_price'],
+                'createdAt' => $this->iso($row['created_at']),
+                'history' => $historyByBooking[(int) $row['id']] ?? [],
+            ], $rows);
+        }
+
+        $payments = [];
+        $trainerIncome = [];
+        $paymentTotal = 0;
+        $incomeTotal = 0;
+        if ($permissions['reviewPayments']) {
+            $paymentCount = $this->database->fetchOne('SELECT COUNT(*) AS total FROM payments');
+            $paymentTotal = (int) ($paymentCount['total'] ?? 0);
+            $rows = $this->database->fetchAll(
+                'SELECT pay.id, pay.amount, pay.status, pay.submitted_at, pay.reviewed_at,
+                        b.public_id, b.quoted_price, member_user.display_name AS member_name,
+                        trainer_user.display_name AS trainer_name, reviewer.display_name AS reviewed_by
+                 FROM payments pay
+                 JOIN bookings b ON b.id = pay.booking_id
+                 JOIN users member_user ON member_user.id = b.member_user_id
+                 JOIN trainer_profiles tp ON tp.id = b.trainer_profile_id
+                 JOIN users trainer_user ON trainer_user.id = tp.user_id
+                 LEFT JOIN users reviewer ON reviewer.id = pay.reviewed_by_user_id
+                 ORDER BY pay.submitted_at DESC, pay.id DESC
+                 LIMIT ' . $pageSize . ' OFFSET ' . ($paymentPage * $pageSize)
+            );
+            $payments = array_map(fn(array $row): array => [
+                'id' => (int) $row['id'],
+                'bookingId' => $row['public_id'],
+                'memberName' => $row['member_name'],
+                'trainerName' => $row['trainer_name'],
+                'amount' => $row['amount'] === null ? null : (float) $row['amount'],
+                'quotedPrice' => $row['quoted_price'] === null ? null : (float) $row['quoted_price'],
+                'status' => $row['status'],
+                'submittedAt' => $this->iso($row['submitted_at']),
+                'reviewedAt' => $row['reviewed_at'] === null ? null : $this->iso($row['reviewed_at']),
+                'reviewedBy' => $row['reviewed_by'],
+            ], $rows);
+            $incomeCount = $this->database->fetchOne(
+                'SELECT COUNT(DISTINCT b.trainer_profile_id) AS total
+                 FROM payments pay JOIN bookings b ON b.id = pay.booking_id
+                 WHERE pay.status = "approved"'
+            );
+            $incomeTotal = (int) ($incomeCount['total'] ?? 0);
+            $incomeRows = $this->database->fetchAll(
+                'SELECT tp.id AS trainer_id, u.display_name AS trainer_name, COUNT(pay.id) AS paid_sessions,
+                        COALESCE(SUM(COALESCE(pay.amount, b.quoted_price, 0)), 0) AS revenue
+                 FROM payments pay
+                 JOIN bookings b ON b.id = pay.booking_id
+                 JOIN trainer_profiles tp ON tp.id = b.trainer_profile_id
+                 JOIN users u ON u.id = tp.user_id
+                 WHERE pay.status = "approved"
+                 GROUP BY tp.id, u.display_name ORDER BY revenue DESC, tp.id
+                 LIMIT ' . $pageSize . ' OFFSET ' . ($incomePage * $pageSize)
+            );
+            $trainerIncome = array_map(fn(array $row): array => [
+                'trainerId' => (int) $row['trainer_id'],
+                'trainerName' => $row['trainer_name'],
+                'paidSessions' => (int) $row['paid_sessions'],
+                'revenue' => (float) $row['revenue'],
+            ], $incomeRows);
+        }
+
+        Http::json([
+            'currentUserId' => (int) $admin['id'],
+            'permissions' => $permissions,
+            'summary' => [
+                'activeMembers' => $permissions['manageUsers'] ? (int) ($summary['active_members'] ?? 0) : null,
+                'activeTrainers' => $permissions['manageUsers'] ? (int) ($summary['active_trainers'] ?? 0) : null,
+                'totalBookings' => $permissions['manageBookings'] ? (int) ($bookingSummary['total_bookings'] ?? 0) : null,
+                'approvedRevenue' => $permissions['reviewPayments'] ? (float) ($revenueSummary['approved_revenue'] ?? 0) : null,
+            ],
+            'users' => $users,
+            'administrators' => $administrators,
+            'bookings' => $bookings,
+            'payments' => $payments,
+            'trainerIncome' => $trainerIncome,
+            'pagination' => [
+                'pageSize' => $pageSize,
+                'users' => ['page' => $userPage, 'total' => $permissions['manageUsers'] ? $userTotal : 0],
+                'administrators' => ['page' => $administratorPage, 'total' => $permissions['manageUsers'] ? $administratorTotal : 0],
+                'bookings' => ['page' => $bookingPage, 'total' => $permissions['manageBookings'] ? $bookingTotal : 0],
+                'payments' => ['page' => $paymentPage, 'total' => $permissions['reviewPayments'] ? $paymentTotal : 0],
+                'trainerIncome' => ['page' => $incomePage, 'total' => $permissions['reviewPayments'] ? $incomeTotal : 0],
+            ],
+        ]);
+    }
+
+    public function createAdminUser(): never
+    {
+        $admin = $this->requireAdminPermission('manage_users');
+        $input = Http::body();
+        Http::requireFields($input, ['displayName', 'email', 'password']);
+        $displayName = trim((string) $input['displayName']);
+        $email = strtolower(trim((string) $input['email']));
+        $password = (string) $input['password'];
+        $permissions = $this->normalizeAdminPermissions($input['permissions']);
+        $this->assertAssignablePermissions($this->adminPermissions((int) $admin['id']), $permissions);
+        $fields = [];
+        if ($displayName === '') $fields['displayName'] = 'กรุณาระบุชื่อที่แสดง';
+        if (!filter_var($email, FILTER_VALIDATE_EMAIL)) $fields['email'] = 'อีเมลไม่ถูกต้อง';
+        if (mb_strlen($password) < 8) $fields['password'] = 'รหัสผ่านต้องมีอย่างน้อย 8 ตัวอักษร';
+        if (!in_array(true, $permissions, true)) $fields['permissions'] = 'เลือกสิทธิ์อย่างน้อย 1 รายการ';
+        if ($fields !== []) throw new HttpException(422, 'ข้อมูลผู้ดูแลระบบไม่ถูกต้อง', 'VALIDATION_FAILED', $fields);
+        if ($this->database->fetchOne('SELECT id FROM users WHERE email = ?', [$email])) {
+            throw new HttpException(409, 'อีเมลนี้ถูกใช้งานแล้ว', 'EMAIL_EXISTS', ['email' => 'อีเมลนี้ถูกใช้งานแล้ว']);
+        }
+        $id = $this->database->transaction(function (PDO $pdo) use ($admin, $displayName, $email, $password, $permissions): int {
+            $permissionStatement = $pdo->prepare(
+                'SELECT manage_users, review_trainers, manage_bookings, review_payments
+                 FROM admin_permissions WHERE user_id = ? FOR UPDATE'
+            );
+            $permissionStatement->execute([(int) $admin['id']]);
+            $callerPermissions = $this->adminPermissionsFromRow($permissionStatement->fetch() ?: []);
+            if (!$callerPermissions['manageUsers']) {
+                throw new HttpException(403, 'บัญชีนี้ไม่มีสิทธิ์ทำรายการนี้', 'ADMIN_PERMISSION_REQUIRED');
+            }
+            $this->assertAssignablePermissions($callerPermissions, $permissions);
+            $pdo->prepare('INSERT INTO users (email, password_hash, display_name, role, status) VALUES (?, ?, ?, "admin", "active")')
+                ->execute([$email, password_hash($password, PASSWORD_DEFAULT), $displayName]);
+            $id = (int) $pdo->lastInsertId();
+            $pdo->prepare('INSERT INTO admin_permissions (user_id, manage_users, review_trainers, manage_bookings, review_payments) VALUES (?, ?, ?, ?, ?)')
+                ->execute([$id, (int) $permissions['manageUsers'], (int) $permissions['reviewTrainers'], (int) $permissions['manageBookings'], (int) $permissions['reviewPayments']]);
+            return $id;
+        });
+        Http::json(['id' => $id, 'displayName' => $displayName, 'email' => $email, 'role' => 'admin', 'status' => 'active', 'permissions' => $permissions], 201);
+    }
+
+    public function updateAdminUser(string $userId): never
+    {
+        $admin = $this->requireAdminPermission('manage_users');
+        $input = Http::body();
+        $target = $this->database->fetchOne('SELECT id, email, display_name, role, status FROM users WHERE id = ?', [(int) $userId]);
+        if (!$target) throw new HttpException(404, 'ไม่พบบัญชีผู้ใช้', 'USER_NOT_FOUND');
+        $displayName = array_key_exists('displayName', $input) ? trim((string) $input['displayName']) : (string) $target['display_name'];
+        $email = array_key_exists('email', $input) ? strtolower(trim((string) $input['email'])) : (string) $target['email'];
+        $status = array_key_exists('status', $input) ? (string) $input['status'] : (string) $target['status'];
+        $fields = [];
+        if ($displayName === '') $fields['displayName'] = 'กรุณาระบุชื่อที่แสดง';
+        if (!filter_var($email, FILTER_VALIDATE_EMAIL)) $fields['email'] = 'อีเมลไม่ถูกต้อง';
+        if (!in_array($status, ['active', 'suspended'], true)) $fields['status'] = 'สถานะบัญชีไม่ถูกต้อง';
+        if ($target['status'] === 'deleted' && $status !== 'deleted') $fields['status'] = 'บัญชีที่ลบแล้วไม่สามารถเปิดใช้งานใหม่';
+        if ((int) $target['id'] === (int) $admin['id'] && $status !== 'active') $fields['status'] = 'ไม่สามารถระงับบัญชีที่กำลังใช้งาน';
+        if ($fields !== []) throw new HttpException(422, 'ข้อมูลบัญชีไม่ถูกต้อง', 'VALIDATION_FAILED', $fields);
+        $duplicate = $this->database->fetchOne('SELECT id FROM users WHERE email = ? AND id <> ?', [$email, (int) $target['id']]);
+        if ($duplicate) throw new HttpException(409, 'อีเมลนี้ถูกใช้งานแล้ว', 'EMAIL_EXISTS', ['email' => 'อีเมลนี้ถูกใช้งานแล้ว']);
+        $targetPermissions = $target['role'] === 'admin' ? $this->adminPermissions((int) $target['id']) : null;
+        $permissions = null;
+        if (array_key_exists('permissions', $input)) {
+            if ($target['role'] !== 'admin') throw new HttpException(422, 'กำหนดสิทธิ์ได้เฉพาะผู้ดูแลระบบ', 'VALIDATION_FAILED');
+            if ((int) $target['id'] === (int) $admin['id']) throw new HttpException(409, 'ไม่สามารถแก้สิทธิ์ของบัญชีที่กำลังใช้งาน', 'SELF_PERMISSION_CHANGE');
+            $permissions = $this->normalizeAdminPermissions($input['permissions']);
+            if (!in_array(true, $permissions, true)) throw new HttpException(422, 'เลือกสิทธิ์อย่างน้อย 1 รายการ', 'VALIDATION_FAILED');
+            $this->assertAssignablePermissions($this->adminPermissions((int) $admin['id']), $permissions, $targetPermissions);
+        }
+        $this->database->transaction(function (PDO $pdo) use ($admin, $target, $displayName, $email, $status, $permissions): void {
+            $permissionIds = [(int) $admin['id']];
+            if ($target['role'] === 'admin' && (int) $target['id'] !== (int) $admin['id']) $permissionIds[] = (int) $target['id'];
+            sort($permissionIds);
+            $permissionPlaceholders = implode(',', array_fill(0, count($permissionIds), '?'));
+            $permissionStatement = $pdo->prepare(
+                'SELECT user_id, manage_users, review_trainers, manage_bookings, review_payments
+                 FROM admin_permissions WHERE user_id IN (' . $permissionPlaceholders . ')
+                 ORDER BY user_id FOR UPDATE'
+            );
+            $permissionStatement->execute($permissionIds);
+            $lockedPermissions = [];
+            foreach ($permissionStatement->fetchAll() as $row) {
+                $lockedPermissions[(int) $row['user_id']] = $this->adminPermissionsFromRow($row);
+            }
+            $callerPermissions = $lockedPermissions[(int) $admin['id']] ?? $this->adminPermissionsFromRow([]);
+            if (!$callerPermissions['manageUsers']) {
+                throw new HttpException(403, 'บัญชีนี้ไม่มีสิทธิ์ทำรายการนี้', 'ADMIN_PERMISSION_REQUIRED');
+            }
+            $lockedTargetPermissions = $lockedPermissions[(int) $target['id']] ?? $this->adminPermissionsFromRow([]);
+            if ($permissions !== null) {
+                $this->assertAssignablePermissions($callerPermissions, $permissions, $lockedTargetPermissions);
+            }
+            $removesUserManagement = $target['role'] === 'admin'
+                && $lockedTargetPermissions['manageUsers']
+                && ($status === 'suspended' || ($permissions !== null && !$permissions['manageUsers']));
+            if ($removesUserManagement) {
+                $managerStatement = $pdo->query(
+                    'SELECT ap.user_id
+                     FROM admin_permissions ap
+                     JOIN users u ON u.id = ap.user_id
+                     WHERE ap.manage_users = 1 AND u.status = "active"
+                     FOR UPDATE'
+                );
+                $managerIds = array_map('intval', $managerStatement->fetchAll(PDO::FETCH_COLUMN));
+                $remainingManagerIds = array_filter($managerIds, fn(int $id): bool => $id !== (int) $target['id']);
+                if ($remainingManagerIds === []) {
+                    throw new HttpException(409, 'ต้องมีผู้ดูแลระบบที่จัดการบัญชีได้อย่างน้อย 1 คน', 'LAST_USER_MANAGER');
+                }
+            }
+            $pdo->prepare('UPDATE users SET display_name = ?, email = ?, status = ?, updated_at = UTC_TIMESTAMP() WHERE id = ?')
+                ->execute([$displayName, $email, $status, (int) $target['id']]);
+            if ($permissions !== null) {
+                $pdo->prepare('INSERT INTO admin_permissions (user_id, manage_users, review_trainers, manage_bookings, review_payments)
+                               VALUES (?, ?, ?, ?, ?) ON DUPLICATE KEY UPDATE manage_users = VALUES(manage_users), review_trainers = VALUES(review_trainers), manage_bookings = VALUES(manage_bookings), review_payments = VALUES(review_payments)')
+                    ->execute([(int) $target['id'], (int) $permissions['manageUsers'], (int) $permissions['reviewTrainers'], (int) $permissions['manageBookings'], (int) $permissions['reviewPayments']]);
+            }
+            if ($status === 'suspended') {
+                $pdo->prepare('UPDATE auth_tokens SET revoked_at = UTC_TIMESTAMP() WHERE user_id = ? AND revoked_at IS NULL')->execute([(int) $target['id']]);
+            }
+        });
+        Http::json(['id' => (int) $target['id'], 'displayName' => $displayName, 'email' => $email, 'role' => $target['role'], 'status' => $status, 'permissions' => $permissions]);
+    }
+
+    public function decideTrainer(string $trainerId, string $decision): never
+    {
+        $admin = $this->requireAdminPermission('review_trainers');
         if (!in_array($decision, ['approve', 'reject'], true)) {
             throw new HttpException(404, 'ไม่พบการทำงานนี้', 'NOT_FOUND');
         }
@@ -1060,17 +1418,21 @@ final class Handlers
 
     public function adminReviewQueue(): never
     {
-        $this->auth->requireUser(['admin']);
+        $admin = $this->auth->requireUser(['admin']);
+        $permissions = $this->adminPermissions((int) $admin['id']);
+        if (!$permissions['reviewTrainers'] && !$permissions['reviewPayments']) {
+            throw new HttpException(403, 'บัญชีนี้ไม่มีสิทธิ์เปิดคิวตรวจสอบ', 'ADMIN_PERMISSION_REQUIRED');
+        }
         $this->expireAwaitingPayments();
-        $trainers = $this->database->fetchAll(
+        $trainers = $permissions['reviewTrainers'] ? $this->database->fetchAll(
             'SELECT tp.id, tp.slug, tp.created_at, tp.is_demo, u.display_name, COUNT(tc.id) AS certificate_count
              FROM trainer_profiles tp
              JOIN users u ON u.id = tp.user_id
              LEFT JOIN trainer_certificates tc ON tc.trainer_profile_id = tp.id
              WHERE tp.approval_status = "pending"
              GROUP BY tp.id ORDER BY tp.created_at ASC LIMIT 100'
-        );
-        $payments = $this->database->fetchAll(
+        ) : [];
+        $payments = $permissions['reviewPayments'] ? $this->database->fetchAll(
             'SELECT pay.id, pay.submitted_at, pay.amount,
                     b.public_id AS booking_public_id, b.starts_at, b.ends_at, b.quoted_price, b.is_demo,
                     member_user.display_name AS member_name, trainer_user.display_name AS trainer_name
@@ -1080,7 +1442,7 @@ final class Handlers
              JOIN trainer_profiles tp ON tp.id = b.trainer_profile_id
              JOIN users trainer_user ON trainer_user.id = tp.user_id
              WHERE pay.status = "reviewing" ORDER BY pay.submitted_at ASC LIMIT 100'
-        );
+        ) : [];
 
         $certificatesByTrainer = [];
         if ($trainers !== []) {
@@ -1136,7 +1498,7 @@ final class Handlers
 
     public function decidePayment(string $paymentId, string $decision): never
     {
-        $admin = $this->auth->requireUser(['admin']);
+        $admin = $this->requireAdminPermission('review_payments');
         if (!in_array($decision, ['approve', 'reject'], true)) {
             throw new HttpException(404, 'ไม่พบการทำงานนี้', 'NOT_FOUND');
         }
@@ -1206,7 +1568,7 @@ final class Handlers
 
     public function adminFile(string $kind, string $recordId): never
     {
-        $this->auth->requireUser(['admin']);
+        $this->requireAdminPermission($kind === 'payment' ? 'review_payments' : 'review_trainers');
         if ($kind === 'payment') {
             $record = $this->database->fetchOne('SELECT slip_path AS file_path, mime_type FROM payments WHERE id = ?', [(int) $recordId]);
         } elseif ($kind === 'certificate') {
@@ -1233,6 +1595,69 @@ final class Handlers
     public function expireAwaitingPaymentsForScheduler(): int
     {
         return count($this->expireAwaitingPayments());
+    }
+
+    private function requireAdminPermission(string $column): array
+    {
+        $admin = $this->auth->requireUser(['admin']);
+        $permissions = $this->adminPermissions((int) $admin['id']);
+        $key = match ($column) {
+            'manage_users' => 'manageUsers',
+            'review_trainers' => 'reviewTrainers',
+            'manage_bookings' => 'manageBookings',
+            'review_payments' => 'reviewPayments',
+            default => throw new LogicException('Unknown administrator permission'),
+        };
+        if (!$permissions[$key]) {
+            throw new HttpException(403, 'บัญชีนี้ไม่มีสิทธิ์ทำรายการนี้', 'ADMIN_PERMISSION_REQUIRED');
+        }
+        return $admin;
+    }
+
+    private function adminPermissions(int $userId): array
+    {
+        $row = $this->database->fetchOne(
+            'SELECT manage_users, review_trainers, manage_bookings, review_payments FROM admin_permissions WHERE user_id = ?',
+            [$userId]
+        ) ?? [];
+        return $this->adminPermissionsFromRow($row);
+    }
+
+    private function adminPermissionsFromRow(array $row): array
+    {
+        return [
+            'manageUsers' => (bool) ($row['manage_users'] ?? false),
+            'reviewTrainers' => (bool) ($row['review_trainers'] ?? false),
+            'manageBookings' => (bool) ($row['manage_bookings'] ?? false),
+            'reviewPayments' => (bool) ($row['review_payments'] ?? false),
+        ];
+    }
+
+    private function normalizeAdminPermissions(mixed $value): array
+    {
+        $input = is_array($value) ? $value : [];
+        return [
+            'manageUsers' => filter_var($input['manageUsers'] ?? false, FILTER_VALIDATE_BOOL),
+            'reviewTrainers' => filter_var($input['reviewTrainers'] ?? false, FILTER_VALIDATE_BOOL),
+            'manageBookings' => filter_var($input['manageBookings'] ?? false, FILTER_VALIDATE_BOOL),
+            'reviewPayments' => filter_var($input['reviewPayments'] ?? false, FILTER_VALIDATE_BOOL),
+        ];
+    }
+
+    private function assertAssignablePermissions(array $caller, array $requested, ?array $existing = null): void
+    {
+        foreach (array_keys($requested) as $key) {
+            $currentValue = $existing[$key] ?? false;
+            if (!$caller[$key] && $requested[$key] !== $currentValue) {
+                throw new HttpException(403, 'กำหนดได้เฉพาะสิทธิ์ที่บัญชีของคุณมีอยู่', 'PERMISSION_DELEGATION_FORBIDDEN');
+            }
+        }
+    }
+
+    private function adminPage(string $key): int
+    {
+        $value = filter_var($_GET[$key] ?? 0, FILTER_VALIDATE_INT, ['options' => ['min_range' => 0]]);
+        return $value === false ? 0 : min((int) $value, 100000);
     }
 
     private function expireAwaitingPayments(?int $slotId = null): array

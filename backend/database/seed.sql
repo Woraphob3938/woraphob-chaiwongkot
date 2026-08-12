@@ -16,6 +16,10 @@ INSERT INTO users (id, email, password_hash, display_name, role, status) VALUES
   (5, 'admin.demo@fitconnect.local', '$2y$10$UAHptYudXBuQG5HZCuzvLufSI45l0ElKtaw591f2fyLcR/4RWTmOu', 'ผู้ดูแลระบบสาธิต', 'admin', 'active')
 ON DUPLICATE KEY UPDATE password_hash = VALUES(password_hash), display_name = VALUES(display_name), role = VALUES(role), status = 'active';
 
+INSERT INTO admin_permissions (user_id, manage_users, review_trainers, manage_bookings, review_payments)
+VALUES (5, 1, 1, 1, 1)
+ON DUPLICATE KEY UPDATE manage_users = 1, review_trainers = 1, manage_bookings = 1, review_payments = 1;
+
 INSERT INTO member_profiles (user_id, goals) VALUES (1, 'ข้อมูลสาธิตสำหรับตรวจขั้นตอนจอง')
 ON DUPLICATE KEY UPDATE goals = VALUES(goals);
 

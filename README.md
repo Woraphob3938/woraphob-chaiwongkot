@@ -27,7 +27,8 @@ npm run dev
 1. เปิด Apache และ MySQL ใน XAMPP Control Panel
 2. คัดลอก `backend/.env.example` เป็น `backend/.env` หากต้องเปลี่ยนค่าฐานข้อมูล
 3. รัน `npm run xampp:connect`
-4. เปิด `http://localhost/fitconnect-api/v1/health`
+4. หากเป็นฐานข้อมูลเดิม รัน `npm run migrate:admin-permissions` คำสั่งนี้ให้สิทธิ์ผู้ดูแลระบบเดิมที่ยังไม่มีรายการสิทธิ์ครบทั้ง 4 ด้าน เพื่อไม่ให้บัญชีเดิมใช้งานสะดุด จากนั้นต้องเข้าเมนู **ผู้ดูแลระบบ** เพื่อตรวจและลดสิทธิ์แต่ละบัญชีให้เหลือเท่าที่จำเป็น
+5. เปิด `http://localhost/fitconnect-api/v1/health`
 
 สคริปต์ตรวจสอบตำแหน่งทั้งหมดก่อนทำงานและจะไม่เขียนทับ `C:\xampp\htdocs\fitconnect-api` หากมีของเดิมอยู่แล้ว
 
@@ -72,12 +73,18 @@ npm run check
 npm run smoke:postbooking
 ```
 
+ตรวจวงจรบัญชี การระงับและเปิดใช้ ขอบเขตสิทธิ์ และการซ่อนข้อมูลนอกสิทธิ์ของผู้ดูแลระบบกับฐานข้อมูลจริง สคริปต์อ่านค่าฐานข้อมูลจาก `backend/.env` โดยอัตโนมัติ:
+
+```powershell
+npm run smoke:admin-operations
+```
+
 ผลรอบล่าสุดอยู่ใน `output/smoke/instant-booking-result.json` และตรวจข้อมูลใน phpMyAdmin/MySQL ต่อได้ด้วย:
 
 ```powershell
 rtk powershell -NoProfile -Command "$result = Get-Content 'output/smoke/instant-booking-result.json' | ConvertFrom-Json; & 'scripts/audit-booking.ps1' -BookingId $result.approvedBookingId; & 'scripts/audit-booking.ps1' -BookingId $result.expiredBookingId"
 ```
 
-ผู้ดูแลระบบยังตรวจสลิปด้วยตนเอง ระบบไม่ได้อนุมัติการชำระเงินอัตโนมัติ สคริปต์เหล่านี้เพิ่มข้อมูลทดสอบในฐานข้อมูลสำหรับพัฒนาและเก็บไว้เพื่อให้ตรวจย้อนหลังได้
+ผู้ดูแลระบบยังตรวจสลิปด้วยตนเอง ระบบไม่ได้อนุมัติการชำระเงินอัตโนมัติ `smoke:postbooking` เก็บข้อมูลทดสอบไว้ให้ตรวจย้อนหลัง ส่วน `smoke:admin-operations` ลบบัญชีทดสอบที่สร้างขึ้นเมื่อจบการตรวจ
 
 ข้อมูลเทรนเนอร์ ราคา ใบรับรอง ตารางเวลา และข้อความที่มากับโครงการเป็นข้อมูลสาธิตทั้งหมด รูปบุคคลใน `public/demo` สร้างด้วย AI และระบุไว้บนหน้าเว็บแล้ว

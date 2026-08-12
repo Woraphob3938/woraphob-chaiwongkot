@@ -204,6 +204,88 @@ export type Trainer = {
   demo: boolean;
 };
 
+export type AdminPermissions = {
+  manageUsers: boolean;
+  reviewTrainers: boolean;
+  manageBookings: boolean;
+  reviewPayments: boolean;
+};
+
+export type AdminOperationsData = {
+  currentUserId: number;
+  permissions: AdminPermissions;
+  summary: {
+    activeMembers: number | null;
+    activeTrainers: number | null;
+    totalBookings: number | null;
+    approvedRevenue: number | null;
+  };
+  users: Array<{
+    id: number;
+    email: string;
+    displayName: string;
+    role: UserRole;
+    status: "active" | "suspended" | "deleted";
+    createdAt: string;
+    approvalStatus: TrainerApprovalStatus | null;
+    permissions?: AdminPermissions | null;
+  }>;
+  administrators: Array<{
+    id: number;
+    email: string;
+    displayName: string;
+    role: "admin";
+    status: "active" | "suspended" | "deleted";
+    createdAt: string;
+    approvalStatus: null;
+    permissions: AdminPermissions;
+  }>;
+  bookings: Array<{
+    id: string;
+    memberName: string;
+    trainerName: string;
+    startsAt: string;
+    endsAt: string;
+    status: BookingStatus;
+    paymentStatus: Booking["paymentStatus"];
+    quotedPrice: number | null;
+    createdAt: string;
+    history: Array<{
+      fromStatus: string | null;
+      toStatus: string;
+      changedBy: string | null;
+      note: string | null;
+      createdAt: string;
+    }>;
+  }>;
+  payments: Array<{
+    id: number;
+    bookingId: string;
+    memberName: string;
+    trainerName: string;
+    amount: number | null;
+    quotedPrice: number | null;
+    status: "reviewing" | "approved" | "rejected";
+    submittedAt: string;
+    reviewedAt: string | null;
+    reviewedBy: string | null;
+  }>;
+  trainerIncome: Array<{
+    trainerId: number;
+    trainerName: string;
+    paidSessions: number;
+    revenue: number;
+  }>;
+  pagination: {
+    pageSize: number;
+    users: { page: number; total: number };
+    administrators: { page: number; total: number };
+    bookings: { page: number; total: number };
+    payments: { page: number; total: number };
+    trainerIncome: { page: number; total: number };
+  };
+};
+
 export type PublicTrainerReview = {
   rating: number;
   comment: string;

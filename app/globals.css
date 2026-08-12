@@ -2351,6 +2351,19 @@ body {
   font-size: var(--text-md);
 }
 
+.dashboard-shell--admin {
+  padding-top: var(--space-xl);
+}
+
+.dashboard-shell--admin .dashboard-heading {
+  gap: var(--space-lg);
+  padding-bottom: var(--space-lg);
+}
+
+.dashboard-shell--admin .dashboard-heading h1 {
+  font-size: clamp(2.25rem, 4vw, 3.5rem);
+}
+
 .member-booking-ledger,
 .dashboard-ledger,
 .queue-panel,
@@ -5071,6 +5084,166 @@ body {
 .trainer-commerce-layout .trainer-detail-photo {
   min-height: 28rem;
   border-right: 1px solid var(--color-rule);
+}
+
+.admin-operations {
+  display: grid;
+  gap: var(--space-lg);
+}
+
+.admin-operations__summary {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  border-block: 1px solid var(--color-rule);
+}
+
+.admin-operations__summary > div {
+  display: grid;
+  gap: var(--space-2xs);
+  padding: var(--space-md);
+  border-inline-end: 1px solid var(--color-rule);
+}
+
+.admin-operations__summary > div:last-child { border-inline-end: 0; }
+.admin-operations__summary span { color: var(--color-muted); font-size: var(--text-sm); }
+.admin-operations__summary strong { font-family: var(--font-mono); font-size: var(--text-xl); }
+
+.admin-operations__tabs {
+  display: flex;
+  gap: var(--space-2xs);
+  overflow-x: auto;
+  border-bottom: 1px solid var(--color-rule);
+}
+
+.admin-operations__tabs button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: var(--space-xs);
+  min-height: var(--size-control);
+  padding-inline: var(--space-md);
+  color: var(--color-muted);
+  background: transparent;
+  border: 0;
+  border-bottom: 2px solid transparent;
+  font-weight: 700;
+  white-space: nowrap;
+}
+
+.admin-operations__tabs button:hover,
+.admin-operations__tabs button[aria-selected="true"] { color: var(--color-ink); background: var(--color-paper-2); }
+.admin-operations__tabs button[aria-selected="true"] { border-bottom-color: var(--color-accent); }
+.admin-operations__tabs button:active { background: var(--color-paper-3); }
+.admin-operations__tabs button:focus-visible { outline: 3px solid var(--color-focus); outline-offset: -3px; }
+
+.admin-operation-panel { display: grid; gap: var(--space-lg); }
+.admin-operation-panel > header { display: flex; align-items: end; justify-content: space-between; gap: var(--space-lg); padding-bottom: var(--space-md); border-bottom: 1px solid var(--color-rule); }
+.admin-operation-panel > header h2 { font-size: var(--text-xl); }
+.admin-operation-panel > header p { max-width: 65ch; color: var(--color-muted); }
+.admin-operation-panel label { display: grid; gap: var(--space-2xs); font-weight: 600; }
+.admin-operation-panel select { min-height: var(--size-control); padding-inline: var(--space-sm); color: var(--color-ink); background: var(--color-paper); border: 1px solid var(--color-rule-2); border-radius: var(--radius-sm); }
+.admin-operation-panel select:focus-visible { outline: 3px solid var(--color-focus); outline-offset: 1px; }
+.admin-search { width: min(22rem, 100%); }
+
+.admin-record-list,
+.admin-booking-list,
+.admin-transaction-list { display: grid; border-top: 1px solid var(--color-rule); }
+
+.admin-account-row__status { display: flex; flex-wrap: wrap; gap: var(--space-xs); }
+.admin-record-disclosure > summary { min-height: var(--size-control); cursor: pointer; font-weight: 700; }
+.admin-record-disclosure > summary:hover { background: var(--color-paper-2); }
+.admin-record-disclosure > summary:active { background: var(--color-paper-3); }
+.admin-record-disclosure > summary:focus-visible { outline: 3px solid var(--color-focus); outline-offset: -3px; }
+
+.admin-finance > section,
+.admin-administrators > section,
+.admin-create-form { display: grid; gap: var(--space-md); }
+.admin-income-list { display: grid; grid-template-columns: repeat(auto-fit, minmax(13rem, 1fr)); border-block: 1px solid var(--color-rule); }
+.admin-income-list > div { display: grid; gap: var(--space-3xs); padding: var(--space-md); border-inline-end: 1px solid var(--color-rule); }
+.admin-income-list small { color: var(--color-muted); }
+.admin-income-list strong { margin-top: var(--space-xs); font-family: var(--font-mono); font-size: var(--text-lg); }
+.admin-transaction-list article { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: var(--space-xs) var(--space-md); align-items: center; padding-block: var(--space-md); border-bottom: 1px solid var(--color-rule); }
+.admin-transaction-list article > div { display: flex; flex-wrap: wrap; align-items: center; gap: var(--space-sm); }
+.admin-transaction-list article > div:first-child { display: grid; gap: var(--space-3xs); }
+.admin-transaction-list article > div:first-child span,
+.admin-transaction-list article > small { color: var(--color-muted); }
+.admin-transaction-list article > small { grid-column: 1 / -1; }
+
+.admin-create-form { padding: var(--space-lg); background: var(--color-paper-2); border: 1px solid var(--color-rule); }
+.admin-editor__fields { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: var(--space-md); }
+.admin-create-form .admin-editor__fields { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+.admin-permission-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: var(--space-xs) var(--space-md); padding: 0; border: 0; }
+.admin-permission-grid legend { margin-bottom: var(--space-xs); font-weight: 700; }
+.admin-permission-grid label { display: grid; grid-template-columns: 1.25rem minmax(0, 1fr); align-items: start; min-height: var(--size-control); padding-block: var(--space-xs); }
+.admin-permission-grid input { width: 1.15rem; height: 1.15rem; margin-top: 0.1rem; accent-color: var(--color-accent); }
+.admin-record-disclosure { border-bottom: 1px solid var(--color-rule); }
+.admin-record-disclosure > summary { display: flex; align-items: center; justify-content: space-between; gap: var(--space-md); padding-block: var(--space-sm); }
+.admin-record-disclosure > summary > span:first-child { display: grid; gap: var(--space-3xs); }
+.admin-record-disclosure > summary small { color: var(--color-muted); overflow-wrap: anywhere; }
+.admin-editor { display: grid; gap: var(--space-md); padding: 0 0 var(--space-lg); }
+.admin-row-actions { display: flex; flex-wrap: wrap; gap: var(--space-sm); }
+.admin-inline-note { color: var(--color-muted); font-size: var(--text-sm); }
+
+.admin-booking-disclosure__content {
+  display: grid;
+  gap: var(--space-lg);
+  padding: 0 0 var(--space-lg);
+}
+
+.admin-booking-disclosure__content dl {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: var(--space-md);
+  padding: var(--space-md);
+  background: var(--color-paper-2);
+}
+
+.admin-booking-disclosure__content dt { color: var(--color-muted); font-size: var(--text-xs); }
+.admin-booking-disclosure__content dd { margin: var(--space-3xs) 0 0; overflow-wrap: anywhere; }
+.admin-booking-disclosure__content ol { display: grid; gap: var(--space-sm); margin: var(--space-sm) 0 0; padding-inline-start: var(--space-lg); }
+.admin-booking-disclosure__content li span { display: block; color: var(--color-muted); font-size: var(--text-sm); }
+
+.admin-pager {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-md);
+  padding-top: var(--space-sm);
+  color: var(--color-muted);
+  font-size: var(--text-sm);
+}
+
+.admin-pager > div {
+  display: flex;
+  align-items: center;
+  gap: var(--space-xs);
+}
+
+.admin-pager strong { min-width: 5.5rem; color: var(--color-ink); text-align: center; }
+.admin-pager button { min-width: var(--size-control); padding-inline: var(--space-sm); }
+
+@media (max-width: 64rem) {
+  .admin-operations__summary { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .admin-operations__summary > div:nth-child(2) { border-inline-end: 0; }
+  .admin-operations__summary > div:nth-child(-n + 2) { border-bottom: 1px solid var(--color-rule); }
+  .admin-create-form .admin-editor__fields { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+}
+
+@media (max-width: 47.99rem) {
+  .admin-operation-panel > header { align-items: stretch; flex-direction: column; }
+  .admin-booking-disclosure__content dl,
+  .admin-editor__fields,
+  .admin-create-form .admin-editor__fields,
+  .admin-permission-grid { grid-template-columns: minmax(0, 1fr); }
+  .admin-transaction-list article { grid-template-columns: minmax(0, 1fr); }
+  .admin-transaction-list article > small { grid-column: auto; }
+  .admin-pager { align-items: stretch; flex-direction: column; }
+  .admin-pager > div { justify-content: space-between; }
+}
+
+@media (max-width: 24rem) {
+  .admin-operations__summary > div { padding-inline: var(--space-sm); }
+  .admin-operations__summary strong { font-size: var(--text-lg); }
 }
 
 .trainer-demo-label {

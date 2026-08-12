@@ -21,6 +21,16 @@ CREATE TABLE IF NOT EXISTS users (
   KEY idx_users_role_status (role, status)
 ) ENGINE=InnoDB;
 
+CREATE TABLE IF NOT EXISTS admin_permissions (
+  user_id BIGINT UNSIGNED PRIMARY KEY,
+  manage_users TINYINT(1) NOT NULL DEFAULT 0,
+  review_trainers TINYINT(1) NOT NULL DEFAULT 0,
+  manage_bookings TINYINT(1) NOT NULL DEFAULT 0,
+  review_payments TINYINT(1) NOT NULL DEFAULT 0,
+  updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+  CONSTRAINT fk_admin_permission_user FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
+) ENGINE=InnoDB;
+
 CREATE TABLE IF NOT EXISTS member_profiles (
   user_id BIGINT UNSIGNED PRIMARY KEY,
   first_name VARCHAR(100) NULL,

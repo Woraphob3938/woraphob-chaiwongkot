@@ -12,7 +12,7 @@ import {
   ShieldCheck,
   UsersRound,
 } from "lucide-react";
-import { AdminReviewQueue } from "@/components/admin-review-queue";
+import { AdminOperations } from "@/components/admin-operations";
 import { DashboardSection, NextActionCard } from "@/components/dashboard-primitives";
 import { Button } from "@/components/ui/button";
 import {
@@ -38,7 +38,7 @@ import type { Booking, UserRole } from "@/lib/types";
 const roleCopy = {
   member: { index: "สมาชิก", title: "การฝึกของฉัน", lead: "ติดตามคำขอ นัดหมาย การชำระ และการสนทนาได้จากสถานะเดียวกัน" },
   trainer: { index: "เทรนเนอร์", title: "โต๊ะทำงานเทรนเนอร์", lead: "จัดการคุณสมบัติ ตารางว่าง และคำขอจองโดยไม่หลุดจากบริบท" },
-  admin: { index: "ผู้ดูแลระบบ", title: "ศูนย์ตรวจสอบ", lead: "ตรวจใบรับรอง สลิป และสถานะสำคัญก่อนข้อมูลถูกเผยแพร่หรือยืนยัน" },
+  admin: { index: "ผู้ดูแลระบบ", title: "พื้นที่ผู้ดูแลระบบ", lead: "จัดการบัญชี ตรวจเทรนเนอร์ ติดตามการจอง การชำระเงิน และสิทธิ์ของผู้ดูแลระบบ" },
 };
 
 const paymentCopy: Record<Booking["paymentStatus"], string> = {
@@ -252,7 +252,7 @@ export function RoleDashboard({
   const archiveBookings = bookings.filter((booking) => !visibleBookingIds.has(booking.id));
 
   return (
-    <main className="page-shell dashboard-shell">
+    <main className={`page-shell dashboard-shell dashboard-shell--${role}`}>
       <section className="dashboard-heading">
         <div><h1>{copy.title}</h1></div>
         <p>{copy.lead}</p>
@@ -315,7 +315,7 @@ export function RoleDashboard({
 
       {role === "trainer" && <TrainerWorkbench onIncompleteProfile={() => goTo("/trainer/apply")} />}
 
-      {role === "admin" && <AdminReviewQueue />}
+      {role === "admin" && <AdminOperations />}
     </main>
   );
 }

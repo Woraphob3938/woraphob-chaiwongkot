@@ -1,0 +1,389 @@
+"use client";
+
+import { FormEvent, KeyboardEvent, useCallback, useEffect, useMemo, useState } from "react";
+import { useRouter } from "next/navigation";
+import { Ban, BookOpen, ChevronLeft, ChevronRight, CircleDollarSign, RefreshCw, ShieldCheck, UserCog, UsersRound } from "lucide-react";
+import { AdminReviewQueue } from "@/components/admin-review-queue";
+import { StatusBadge } from "@/components/status-badge";
+import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
+import { ApiError, authenticatedRequest } from "@/lib/api";
+import type { AdminOperationsData, AdminPermissions } from "@/lib/types";
+
+type AdminTab = "review" | "users" | "bookings" | "finance" | "administrators" | "account";
+const pageSize = 10;
+
+const emptyPermissions: AdminPermissions = {
+  manageUsers: false,
+  reviewTrainers: false,
+  manageBookings: false,
+  reviewPayments: false,
+};
+
+const permissionLabels: Array<[keyof AdminPermissions, string]> = [
+  ["manageUsers", "จัดการบัญชีผู้ใช้และผู้ดูแลระบบ"],
+  ["reviewTrainers", "ตรวจใบสมัครและใบรับรองเทรนเนอร์"],
+  ["manageBookings", "ตรวจสอบและจัดการสถานะการจอง"],
+  ["reviewPayments", "ตรวจการชำระเงินและรายได้"],
+];
+
+const roleCopy = { member: "สมาชิก", trainer: "เทรนเนอร์", admin: "ผู้ดูแลระบบ" } as const;
+const bookingCopy: Record<string, string> = {
+  awaiting_payment: "รอชำระเงิน", payment_review: "รอตรวจหลักฐาน", confirmed: "ยืนยันแล้ว",
+  completed: "เสร็จสิ้น", cancelled: "ยกเลิก", expired: "หมดเวลา",
+};
+const paymentCopy: Record<string, string> = {
+  not_submitted: "ยังไม่ส่งหลักฐาน",
+  reviewing: "รอตรวจหลักฐาน",
+  approved: "อนุมัติแล้ว",
+  rejected: "ต้องส่งหลักฐานใหม่",
+};
+
+function leaveExpiredSession(error: unknown, navigate: (href: string) => void) {
+  if (!(error instanceof ApiError) || error.status !== 401) return false;
+  localStorage.removeItem("fitconnect_token");
+  navigate("/login");
+  return true;
+}
+
+function formatDate(value: string) {
+  return new Intl.DateTimeFormat("th-TH", { dateStyle: "medium", timeStyle: "short" }).format(new Date(value));
+}
+
+function formatMoney(value: number | null) {
+  return value === null ? "ไม่ระบุ" : new Intl.NumberFormat("th-TH", { style: "currency", currency: "THB", maximumFractionDigits: 0 }).format(value);
+}
+
+function AccountStatus({ status }: { status: "active" | "suspended" | "deleted" }) {
+  return <span className={`status-badge status-badge--${status === "active" ? "success" : "error"}`}>{status === "active" ? "ใช้งานอยู่" : status === "suspended" ? "ระงับบัญชี" : "ลบบัญชีแล้ว"}</span>;
+}
+
+function Pager({ label, page, total, onChange }: { label: string; page: number; total: number; onChange: (page: number) => void }) {
+  if (total === 0) return null;
+  const pageCount = Math.ceil(total / pageSize);
+  if (pageCount === 1) return null;
+  return (
+    <nav className="admin-pager" aria-label={`แบ่งหน้า${label}`}>
+      <span>{label} {page * pageSize + 1}–{Math.min((page + 1) * pageSize, total)} จาก {total}</span>
+      <div>
+        <Button type="button" variant="outline" disabled={page === 0} aria-label={`หน้า${label}ก่อนหน้า`} onClick={() => onChange(page - 1)}><ChevronLeft aria-hidden="true" /></Button>
+        <strong>หน้า {page + 1} / {pageCount}</strong>
+        <Button type="button" variant="outline" disabled={page + 1 >= pageCount} aria-label={`หน้า${label}ถัดไป`} onClick={() => onChange(page + 1)}><ChevronRight aria-hidden="true" /></Button>
+      </div>
+    </nav>
+  );
+}
+
+function PermissionFields({ value, allowed = { manageUsers: true, reviewTrainers: true, manageBookings: true, reviewPayments: true }, disabled = false, onChange }: {
+  value: AdminPermissions;
+  allowed?: AdminPermissions;
+  disabled?: boolean;
+  onChange: (value: AdminPermissions) => void;
+}) {
+  return (
+    <fieldset className="admin-permission-grid" disabled={disabled}>
+      <legend>ขอบเขตการเข้าถึง</legend>
+      {permissionLabels.map(([key, label]) => (
+        <label key={key}>
+          <input type="checkbox" checked={value[key]} disabled={disabled || !allowed[key]} onChange={(event) => onChange({ ...value, [key]: event.target.checked })} />
+          <span>{label}</span>
+        </label>
+      ))}
+    </fieldset>
+  );
+}
+
+type ManagedUser = AdminOperationsData["users"][number] | AdminOperationsData["administrators"][number];
+
+function AdministratorEditor({ user, currentUserId, assignablePermissions, busy, onSave, onToggle }: {
+  user: AdminOperationsData["administrators"][number];
+  currentUserId: number;
+  assignablePermissions: AdminPermissions;
+  busy: boolean;
+  onSave: (id: number, input: { displayName: string; email: string; permissions?: AdminPermissions }) => Promise<void>;
+  onToggle: (user: ManagedUser) => Promise<void>;
+}) {
+  const [displayName, setDisplayName] = useState(user.displayName);
+  const [email, setEmail] = useState(user.email);
+  const [permissions, setPermissions] = useState(user.permissions ?? emptyPermissions);
+  const isSelf = user.id === currentUserId;
+  const hasPermission = Object.values(permissions).some(Boolean);
+  return (
+    <details className="admin-record-disclosure">
+      <summary><span><strong>{user.displayName}</strong><small>{user.email}</small></span><AccountStatus status={user.status} /></summary>
+      <form className="admin-editor" onSubmit={(event) => { event.preventDefault(); void onSave(user.id, { displayName, email, ...(isSelf ? {} : { permissions }) }); }}>
+        <div className="admin-editor__fields">
+          <label><span>ชื่อที่แสดง</span><Input value={displayName} onChange={(event) => setDisplayName(event.target.value)} /></label>
+          <label><span>อีเมล</span><Input type="email" value={email} onChange={(event) => setEmail(event.target.value)} /></label>
+        </div>
+        <PermissionFields value={permissions} allowed={assignablePermissions} disabled={isSelf} onChange={setPermissions} />
+        {!isSelf && !hasPermission && <p className="row-error" role="alert">เลือกสิทธิ์อย่างน้อย 1 รายการ</p>}
+        {isSelf && <p className="admin-inline-note">บัญชีที่กำลังใช้งานแก้สิทธิ์หรือตั้งเป็นระงับไม่ได้</p>}
+        {!isSelf && Object.values(assignablePermissions).some((allowed) => !allowed) && <p className="admin-inline-note">สิทธิ์ที่บัญชีของคุณไม่มีจะดูได้อย่างเดียวและแก้ไขไม่ได้</p>}
+        <div className="admin-row-actions">
+          <Button type="submit" disabled={busy || (!isSelf && !hasPermission)}>บันทึกบัญชีผู้ดูแลระบบ</Button>
+          {!isSelf && user.status !== "deleted" && <Button type="button" variant={user.status === "active" ? "destructive" : "outline"} disabled={busy} onClick={() => void onToggle(user)}>{user.status === "active" ? "ระงับบัญชี" : "เปิดใช้งานบัญชี"}</Button>}
+        </div>
+      </form>
+    </details>
+  );
+}
+
+function AdministratorPasswordForm() {
+  const [currentPassword, setCurrentPassword] = useState("");
+  const [newPassword, setNewPassword] = useState("");
+  const [confirmation, setConfirmation] = useState("");
+  const [message, setMessage] = useState("");
+  const [busy, setBusy] = useState(false);
+
+  async function submit(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    if (newPassword !== confirmation) { setMessage("รหัสผ่านใหม่ทั้งสองช่องไม่ตรงกัน"); return; }
+    setBusy(true); setMessage("");
+    try {
+      await authenticatedRequest("/v1/profile/password", { method: "PATCH", body: JSON.stringify({ currentPassword, newPassword }) });
+      setCurrentPassword(""); setNewPassword(""); setConfirmation(""); setMessage("เปลี่ยนรหัสผ่านแล้ว");
+    } catch (requestError) {
+      setMessage(requestError instanceof Error ? requestError.message : "เปลี่ยนรหัสผ่านไม่สำเร็จ");
+    } finally { setBusy(false); }
+  }
+
+  return (
+    <details className="admin-record-disclosure admin-password-disclosure">
+      <summary><span><strong>รหัสผ่านของบัญชีนี้</strong><small>เปลี่ยนรหัสผ่านเริ่มต้นหลังเข้าสู่ระบบครั้งแรก</small></span></summary>
+      <form className="admin-editor" aria-label="เปลี่ยนรหัสผ่านผู้ดูแลระบบ" onSubmit={submit}>
+        <div className="admin-editor__fields">
+          <label><span>รหัสผ่านปัจจุบัน</span><Input required type="password" autoComplete="current-password" value={currentPassword} onChange={(event) => setCurrentPassword(event.target.value)} /></label>
+          <label><span>รหัสผ่านใหม่ อย่างน้อย 8 ตัวอักษร</span><Input required minLength={8} type="password" autoComplete="new-password" value={newPassword} onChange={(event) => setNewPassword(event.target.value)} /></label>
+          <label><span>ยืนยันรหัสผ่านใหม่</span><Input required minLength={8} type="password" autoComplete="new-password" value={confirmation} onChange={(event) => setConfirmation(event.target.value)} /></label>
+        </div>
+        {message && <p className={message === "เปลี่ยนรหัสผ่านแล้ว" ? "queue-notice" : "row-error"} role="status">{message}</p>}
+        <Button type="submit" disabled={busy}>{busy ? "กำลังเปลี่ยน…" : "เปลี่ยนรหัสผ่าน"}</Button>
+      </form>
+    </details>
+  );
+}
+
+function UserEditor({ user, busy, onSave, onToggle }: {
+  user: AdminOperationsData["users"][number];
+  busy: boolean;
+  onSave: (id: number, input: { displayName: string; email: string }) => Promise<void>;
+  onToggle: (user: ManagedUser) => Promise<void>;
+}) {
+  const [displayName, setDisplayName] = useState(user.displayName);
+  const [email, setEmail] = useState(user.email);
+  return (
+    <details className="admin-record-disclosure admin-user-editor">
+      <summary>
+        <span><strong>{user.displayName}</strong><small>{user.email} · {roleCopy[user.role]}</small></span>
+        <span className="admin-account-row__status"><AccountStatus status={user.status} />{user.approvalStatus && <StatusBadge status={user.approvalStatus} />}</span>
+      </summary>
+      <form className="admin-editor" onSubmit={(event) => { event.preventDefault(); void onSave(user.id, { displayName, email }); }}>
+        <div className="admin-editor__fields">
+          <label><span>ชื่อที่แสดง</span><Input required value={displayName} onChange={(event) => setDisplayName(event.target.value)} /></label>
+          <label><span>อีเมล</span><Input required type="email" value={email} onChange={(event) => setEmail(event.target.value)} /></label>
+        </div>
+        <p className="admin-inline-note">สมัครเมื่อ {formatDate(user.createdAt)}</p>
+        <div className="admin-row-actions">
+          <Button type="submit" disabled={busy}>บันทึกข้อมูลบัญชี</Button>
+          {user.status !== "deleted" && <Button type="button" variant={user.status === "active" ? "destructive" : "outline"} disabled={busy} aria-label={`${user.status === "active" ? "ระงับ" : "เปิดใช้งาน"}บัญชี ${user.displayName}`} onClick={() => void onToggle(user)}>
+            {user.status === "active" ? <><Ban aria-hidden="true" /> ระงับบัญชี</> : "เปิดใช้งานบัญชี"}
+          </Button>}
+        </div>
+      </form>
+    </details>
+  );
+}
+
+export function AdminOperations() {
+  const router = useRouter();
+  const navigate = router.push;
+  const [data, setData] = useState<AdminOperationsData | null>(null);
+  const [activeTab, setActiveTab] = useState<AdminTab>("review");
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState("");
+  const [notice, setNotice] = useState("");
+  const [busy, setBusy] = useState<string | null>(null);
+  const [query, setQuery] = useState("");
+  const [bookingStatus, setBookingStatus] = useState("all");
+  const [userPage, setUserPage] = useState(0);
+  const [bookingPage, setBookingPage] = useState(0);
+  const [incomePage, setIncomePage] = useState(0);
+  const [paymentPage, setPaymentPage] = useState(0);
+  const [administratorPage, setAdministratorPage] = useState(0);
+  const [newAdmin, setNewAdmin] = useState({ displayName: "", email: "", password: "", permissions: emptyPermissions });
+
+  const loadOperations = useCallback(async () => {
+    setLoading(true);
+    try {
+      const params = new URLSearchParams({
+        userPage: String(userPage),
+        userQuery: query,
+        administratorPage: String(administratorPage),
+        bookingPage: String(bookingPage),
+        bookingStatus,
+        incomePage: String(incomePage),
+        paymentPage: String(paymentPage),
+      });
+      const response = await authenticatedRequest<AdminOperationsData>(`/v1/admin/operations?${params.toString()}`);
+      setData(response);
+      setError("");
+      const canReview = response.permissions.reviewTrainers || response.permissions.reviewPayments;
+      if (!canReview) setActiveTab((current) => current === "review" ? (response.permissions.manageUsers ? "users" : response.permissions.manageBookings ? "bookings" : "finance") : current);
+    } catch (requestError) {
+      if (leaveExpiredSession(requestError, navigate)) return;
+      setError(requestError instanceof Error ? requestError.message : "โหลดข้อมูลผู้ดูแลระบบไม่สำเร็จ");
+    } finally {
+      setLoading(false);
+    }
+  }, [administratorPage, bookingPage, bookingStatus, incomePage, navigate, paymentPage, query, userPage]);
+
+  useEffect(() => {
+    const request = window.setTimeout(() => { void loadOperations(); }, query ? 200 : 0);
+    return () => window.clearTimeout(request);
+  }, [loadOperations, query]);
+
+  const tabs = useMemo(() => {
+    if (!data) return [];
+    const result: Array<{ id: AdminTab; label: string; icon: typeof ShieldCheck }> = [];
+    if (data.permissions.reviewTrainers || data.permissions.reviewPayments) result.push({ id: "review", label: "คิวตรวจสอบ", icon: ShieldCheck });
+    if (data.permissions.manageUsers) result.push({ id: "users", label: "บัญชีผู้ใช้", icon: UsersRound });
+    if (data.permissions.manageBookings) result.push({ id: "bookings", label: "การจองทั้งหมด", icon: BookOpen });
+    if (data.permissions.reviewPayments) result.push({ id: "finance", label: "การเงิน", icon: CircleDollarSign });
+    if (data.permissions.manageUsers) result.push({ id: "administrators", label: "ผู้ดูแลระบบ", icon: UserCog });
+    result.push({ id: "account", label: "บัญชีของฉัน", icon: UserCog });
+    return result;
+  }, [data]);
+
+  const visibleUsers = data?.users ?? [];
+  const visibleBookings = data?.bookings ?? [];
+  const visibleIncome = data?.trainerIncome ?? [];
+  const visiblePayments = data?.payments ?? [];
+  const canCreateAdministrator = Object.values(newAdmin.permissions).some(Boolean);
+
+  function handleTabKeyDown(event: KeyboardEvent<HTMLButtonElement>, index: number) {
+    if (!["ArrowLeft", "ArrowRight", "Home", "End"].includes(event.key)) return;
+    event.preventDefault();
+    const nextIndex = event.key === "Home" ? 0
+      : event.key === "End" ? tabs.length - 1
+        : (index + (event.key === "ArrowRight" ? 1 : -1) + tabs.length) % tabs.length;
+    const nextTab = tabs[nextIndex];
+    if (!nextTab) return;
+    setActiveTab(nextTab.id);
+    window.requestAnimationFrame(() => document.getElementById(`admin-tab-${nextTab.id}`)?.focus());
+  }
+
+  async function updateUser(user: ManagedUser, status: "active" | "suspended") {
+    const action = status === "suspended" ? "ระงับ" : "เปิดใช้งาน";
+    if (!window.confirm(`${action}บัญชี ${user.displayName} หรือไม่?`)) return;
+    setBusy(`user-${user.id}`); setError(""); setNotice("");
+    try {
+      await authenticatedRequest(`/v1/admin/users/${user.id}`, { method: "PATCH", body: JSON.stringify({ status }) });
+      await loadOperations();
+      setNotice(`${action}บัญชี “${user.displayName}” แล้ว`);
+    } catch (requestError) {
+      if (leaveExpiredSession(requestError, navigate)) return;
+      setError(requestError instanceof Error ? requestError.message : `${action}บัญชีไม่สำเร็จ`);
+    } finally { setBusy(null); }
+  }
+
+  async function saveAccount(id: number, input: { displayName: string; email: string; permissions?: AdminPermissions }) {
+    setBusy(`user-${id}`); setError(""); setNotice("");
+    try {
+      await authenticatedRequest(`/v1/admin/users/${id}`, { method: "PATCH", body: JSON.stringify(input) });
+      await loadOperations();
+      setNotice("บันทึกข้อมูลบัญชีแล้ว");
+    } catch (requestError) {
+      if (leaveExpiredSession(requestError, navigate)) return;
+      setError(requestError instanceof Error ? requestError.message : "บันทึกข้อมูลบัญชีไม่สำเร็จ");
+    } finally { setBusy(null); }
+  }
+
+  async function createAdministrator(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault(); setBusy("create-admin"); setError(""); setNotice("");
+    try {
+      await authenticatedRequest("/v1/admin/users", { method: "POST", body: JSON.stringify(newAdmin) });
+      setNewAdmin({ displayName: "", email: "", password: "", permissions: emptyPermissions });
+      await loadOperations();
+      setNotice("เพิ่มผู้ดูแลระบบแล้ว");
+    } catch (requestError) {
+      if (leaveExpiredSession(requestError, navigate)) return;
+      setError(requestError instanceof Error ? requestError.message : "เพิ่มผู้ดูแลระบบไม่สำเร็จ");
+    } finally { setBusy(null); }
+  }
+
+  if (loading && !data) return <section className="queue-loading" aria-live="polite">กำลังโหลดพื้นที่ผู้ดูแลระบบ…</section>;
+  if (error && !data) return <section className="queue-retry" role="alert"><strong>ยังเปิดพื้นที่ผู้ดูแลระบบไม่ได้</strong><p>{error}</p><Button onClick={() => void loadOperations()}><RefreshCw aria-hidden="true" /> ลองใหม่</Button></section>;
+  if (!data) return null;
+
+  return (
+    <div className="admin-operations" aria-busy={loading}>
+      <section className="admin-operations__summary" aria-label="ภาพรวมระบบ">
+        {data.summary.activeMembers !== null && <div><span>สมาชิกที่ใช้งาน</span><strong>{data.summary.activeMembers}</strong></div>}
+        {data.summary.activeTrainers !== null && <div><span>เทรนเนอร์ที่ใช้งาน</span><strong>{data.summary.activeTrainers}</strong></div>}
+        {data.summary.totalBookings !== null && <div><span>การจองทั้งหมด</span><strong>{data.summary.totalBookings}</strong></div>}
+        {data.summary.approvedRevenue !== null && <div><span>ยอดชำระที่อนุมัติ</span><strong>{formatMoney(data.summary.approvedRevenue)}</strong></div>}
+      </section>
+
+      <div className="admin-operations__tabs" role="tablist" aria-label="งานผู้ดูแลระบบ">
+        {tabs.map(({ id, label, icon: Icon }, index) => <button key={id} id={`admin-tab-${id}`} type="button" role="tab" tabIndex={activeTab === id ? 0 : -1} aria-selected={activeTab === id} aria-controls="admin-workspace-panel" onKeyDown={(event) => handleTabKeyDown(event, index)} onClick={() => setActiveTab(id)}><Icon aria-hidden="true" />{label}</button>)}
+      </div>
+      {notice && <p className="queue-notice" role="status">{notice}</p>}
+      {error && <p className="row-error" role="alert">{error}</p>}
+
+      <section id="admin-workspace-panel" role="tabpanel" aria-labelledby={`admin-tab-${activeTab}`}>
+        {activeTab === "review" && <AdminReviewQueue />}
+        {activeTab === "users" && (
+          <div className="admin-operation-panel">
+            <header>
+              <div><h2>บัญชีสมาชิกและเทรนเนอร์</h2><p>กดชื่อบัญชีเมื่อต้องการแก้ข้อมูลหรือระงับการใช้งาน</p></div>
+              <label className="admin-search"><span>ค้นหาบัญชี</span><Input type="search" value={query} onChange={(event) => { setQuery(event.target.value); setUserPage(0); }} placeholder="ชื่อหรืออีเมล" /></label>
+            </header>
+            <div className="admin-record-list">{visibleUsers.map((user) => <UserEditor key={user.id} user={user} busy={busy === `user-${user.id}`} onSave={saveAccount} onToggle={(target) => updateUser(target, target.status === "active" ? "suspended" : "active")} />)}</div>
+            {visibleUsers.length === 0 ? <div className="empty-state"><strong>ไม่พบบัญชีที่ตรงกับคำค้น</strong><p>ลองค้นหาด้วยชื่อหรืออีเมลอื่น</p></div> : <Pager label="บัญชี" page={userPage} total={data.pagination.users.total} onChange={setUserPage} />}
+          </div>
+        )}
+
+        {activeTab === "bookings" && (
+          <div className="admin-operation-panel">
+            <header>
+              <div><h2>การจองและประวัติสถานะ</h2><p>กดรายการเพื่อดูเวลานัด การชำระเงิน และประวัติย้อนหลัง</p></div>
+              <label><span>สถานะการจอง</span><select value={bookingStatus} onChange={(event) => { setBookingStatus(event.target.value); setBookingPage(0); }}><option value="all">ทุกสถานะ</option>{Object.entries(bookingCopy).map(([value, label]) => <option key={value} value={value}>{label}</option>)}</select></label>
+            </header>
+            <div className="admin-booking-list">
+              {visibleBookings.map((booking) => (
+                <details key={booking.id} className="admin-record-disclosure admin-booking-disclosure">
+                  <summary><span><strong>{booking.id}</strong><small>{booking.memberName} กับ {booking.trainerName} · {formatDate(booking.startsAt)}</small></span><StatusBadge status={booking.status} /></summary>
+                  <div className="admin-booking-disclosure__content">
+                    <dl><div><dt>วันและเวลานัด</dt><dd>{formatDate(booking.startsAt)} ถึง {formatDate(booking.endsAt)}</dd></div><div><dt>ค่าฝึก</dt><dd>{formatMoney(booking.quotedPrice)}</dd></div><div><dt>การชำระเงิน</dt><dd>{paymentCopy[booking.paymentStatus] ?? booking.paymentStatus}</dd></div></dl>
+                    <section aria-label={`ประวัติสถานะ ${booking.id}`}><h3>ประวัติสถานะ</h3>{booking.history.length > 0 ? <ol>{booking.history.map((item, index) => <li key={`${item.createdAt}-${index}`}><strong>{bookingCopy[item.toStatus] ?? item.toStatus}</strong><span>{formatDate(item.createdAt)} · {item.changedBy ?? "ระบบ"}</span>{item.note && <p>{item.note}</p>}</li>)}</ol> : <p className="admin-inline-note">ยังไม่มีประวัติสถานะเพิ่มเติม</p>}</section>
+                  </div>
+                </details>
+              ))}
+            </div>
+            {visibleBookings.length === 0 ? <div className="empty-state"><strong>ไม่มีการจองในสถานะนี้</strong><p>เลือกสถานะอื่นเพื่อดูรายการ</p></div> : <Pager label="การจอง" page={bookingPage} total={data.pagination.bookings.total} onChange={setBookingPage} />}
+          </div>
+        )}
+
+        {activeTab === "finance" && (
+          <div className="admin-operation-panel admin-finance">
+            <header><div><h2>รายได้เทรนเนอร์และธุรกรรม</h2><p>แสดงเฉพาะหลักฐานการชำระเงินที่บันทึกในระบบ</p></div></header>
+            <section aria-labelledby="trainer-income-title">
+              <h3 id="trainer-income-title">รายได้แยกตามเทรนเนอร์</h3>
+              <div className="admin-income-list">{visibleIncome.map((item) => <div key={item.trainerId}><span>{item.trainerName}</span><small>{item.paidSessions} นัดที่ชำระแล้ว</small><strong>{formatMoney(item.revenue)}</strong></div>)}</div>
+              {data.trainerIncome.length === 0 ? <p className="admin-inline-note">ยังไม่มีรายได้ที่อนุมัติ</p> : <Pager label="รายได้เทรนเนอร์" page={incomePage} total={data.pagination.trainerIncome.total} onChange={setIncomePage} />}
+            </section>
+            <section aria-labelledby="transaction-history-title">
+              <h3 id="transaction-history-title">ประวัติธุรกรรมย้อนหลัง</h3>
+              <div className="admin-transaction-list">{visiblePayments.map((payment) => <article key={payment.id}><div><strong>PAY-{String(payment.id).padStart(6, "0")}</strong><span>{payment.bookingId} · {payment.memberName} → {payment.trainerName}</span></div><div><strong>{formatMoney(payment.amount)}</strong><StatusBadge status={payment.status} /></div><small>ส่ง {formatDate(payment.submittedAt)}{payment.reviewedAt ? ` · ตรวจ ${formatDate(payment.reviewedAt)} โดย ${payment.reviewedBy ?? "ผู้ดูแลระบบ"}` : ""}</small></article>)}</div>
+              {data.payments.length === 0 ? <p className="admin-inline-note">ยังไม่มีธุรกรรม</p> : <Pager label="ธุรกรรม" page={paymentPage} total={data.pagination.payments.total} onChange={setPaymentPage} />}
+            </section>
+          </div>
+        )}
+
+        {activeTab === "administrators" && <div className="admin-operation-panel admin-administrators"><header><div><h2>บัญชีและสิทธิ์ผู้ดูแลระบบ</h2><p>กำหนดได้เฉพาะสิทธิ์ที่บัญชีของคุณมีอยู่</p></div></header><form aria-label="เพิ่มผู้ดูแลระบบ" className="admin-create-form" onSubmit={createAdministrator}><h3>เพิ่มผู้ดูแลระบบ</h3><div className="admin-editor__fields"><label><span>ชื่อที่แสดง</span><Input required autoComplete="name" value={newAdmin.displayName} onChange={(event) => setNewAdmin({ ...newAdmin, displayName: event.target.value })} /></label><label><span>อีเมล</span><Input required type="email" autoComplete="email" value={newAdmin.email} onChange={(event) => setNewAdmin({ ...newAdmin, email: event.target.value })} /></label><label><span>รหัสผ่านเริ่มต้น อย่างน้อย 8 ตัวอักษร</span><Input required minLength={8} type="password" autoComplete="new-password" value={newAdmin.password} onChange={(event) => setNewAdmin({ ...newAdmin, password: event.target.value })} /></label></div><PermissionFields value={newAdmin.permissions} allowed={data.permissions} onChange={(permissions) => setNewAdmin({ ...newAdmin, permissions })} />{!canCreateAdministrator && <p className="admin-inline-note">เลือกสิทธิ์อย่างน้อย 1 รายการก่อนเพิ่มบัญชี</p>}<Button type="submit" disabled={busy === "create-admin" || !canCreateAdministrator}>{busy === "create-admin" ? "กำลังเพิ่ม…" : "เพิ่มผู้ดูแลระบบ"}</Button></form><section aria-labelledby="administrator-list-title"><h3 id="administrator-list-title">ผู้ดูแลระบบที่มีอยู่</h3>{data.administrators.map((user) => <AdministratorEditor key={user.id} user={user} currentUserId={data.currentUserId} assignablePermissions={data.permissions} busy={busy === `user-${user.id}`} onSave={saveAccount} onToggle={(target) => updateUser(target, target.status === "active" ? "suspended" : "active")} />)}<Pager label="ผู้ดูแลระบบ" page={administratorPage} total={data.pagination.administrators.total} onChange={setAdministratorPage} /></section></div>}
+        {activeTab === "account" && <div className="admin-operation-panel"><header><div><h2>บัญชีของฉัน</h2><p>เปลี่ยนรหัสผ่านเริ่มต้นและดูแลความปลอดภัยของบัญชีนี้</p></div></header><AdministratorPasswordForm /></div>}
+      </section>
+    </div>
+  );
+}
