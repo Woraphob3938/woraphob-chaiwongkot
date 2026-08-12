@@ -1,6 +1,6 @@
 import type { UserRole } from "@/lib/types";
 
-export type NavigationIcon = "home" | "search" | "bookings" | "workspace" | "chat" | "profile" | "login" | "register";
+export type NavigationIcon = "home" | "search" | "bookings" | "workspace" | "notifications" | "chat" | "profile" | "login" | "register";
 
 export type RoleNavigationItem = {
   href: string;
@@ -19,11 +19,13 @@ const navigationByAudience: Record<"guest" | UserRole, RoleNavigationItem[]> = {
   member: [
     { href: "/trainers", label: "ค้นหาเทรนเนอร์", icon: "search", desktop: true, mobile: true },
     { href: "/member", label: "การจองของฉัน", icon: "bookings", desktop: true, mobile: true },
+    { href: "/notifications", label: "การแจ้งเตือน", icon: "notifications", desktop: true, mobile: true },
     { href: "/chat", label: "แชต", icon: "chat", desktop: true, mobile: true },
     { href: "/profile", label: "โปรไฟล์", icon: "profile", desktop: true, mobile: true },
   ],
   trainer: [
     { href: "/trainer", label: "พื้นที่เทรนเนอร์", icon: "workspace", desktop: true, mobile: true },
+    { href: "/notifications", label: "การแจ้งเตือน", icon: "notifications", desktop: true, mobile: true },
     { href: "/chat", label: "แชต", icon: "chat", desktop: true, mobile: true },
     { href: "/profile", label: "โปรไฟล์", icon: "profile", desktop: true, mobile: true },
   ],

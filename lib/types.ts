@@ -318,6 +318,50 @@ export type CreateBookingResponse = {
   paymentDeadlineAt: string;
 };
 
+export type NotificationCategory = "all" | "booking" | "payment" | "appointment";
+
+export type NotificationItem = {
+  id: number;
+  type: string;
+  category: Exclude<NotificationCategory, "all">;
+  title: string;
+  message: string;
+  bookingId: string;
+  actionPath: string;
+  readAt: string | null;
+  createdAt: string;
+};
+
+export type NotificationListResponse = {
+  items: NotificationItem[];
+  unread: Record<NotificationCategory, number>;
+  pagination: {
+    page: number;
+    pageSize: 10;
+    total: number;
+    totalPages: number;
+  };
+};
+
+export type NotificationDetail = NotificationItem & {
+  booking: {
+    id: string;
+    memberName: string;
+    trainerName: string;
+    startsAt: string;
+    endsAt: string;
+    status: BookingStatus;
+    paymentStatus: Booking["paymentStatus"];
+    quotedPrice: number | null;
+    history: Array<{
+      fromStatus: string | null;
+      toStatus: string;
+      note: string | null;
+      createdAt: string;
+    }>;
+  };
+};
+
 export type ApiEnvelope<T> = {
   data: T;
   meta?: Record<string, unknown>;

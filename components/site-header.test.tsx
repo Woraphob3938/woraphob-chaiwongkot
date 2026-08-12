@@ -2,7 +2,7 @@ import { fireEvent, render, screen, waitFor, within } from "@testing-library/rea
 import { renderToStaticMarkup } from "react-dom/server";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { usePathname, useRouter } from "next/navigation";
-import { apiRequest } from "@/lib/api";
+import { apiRequest, authenticatedRequest } from "@/lib/api";
 import { MobileRoleNav } from "@/components/mobile-role-nav";
 import { SiteHeader } from "@/components/site-header";
 import type { AuthenticatedUser, UserRole } from "@/lib/types";
@@ -14,13 +14,14 @@ vi.mock("next/navigation", () => ({
 
 vi.mock("@/lib/api", async (importOriginal) => {
   const actual = await importOriginal<typeof import("@/lib/api")>();
-  return { ...actual, apiRequest: vi.fn() };
+  return { ...actual, apiRequest: vi.fn(), authenticatedRequest: vi.fn() };
 });
 
 const mockedPathname = vi.mocked(usePathname);
 const push = vi.fn();
 vi.mocked(useRouter).mockReturnValue({ push } as unknown as ReturnType<typeof useRouter>);
 const mockedApiRequest = vi.mocked(apiRequest);
+const mockedAuthenticatedRequest = vi.mocked(authenticatedRequest);
 
 function user(role: UserRole): AuthenticatedUser {
   return {
@@ -57,8 +58,8 @@ describe("MobileRoleNav", () => {
   });
 
   it.each([
-    ["member", "/member", "การจองของฉัน", ["ค้นหาเทรนเนอร์", "การจองของฉัน", "แชต", "โปรไฟล์"]],
-    ["trainer", "/trainer", "พื้นที่เทรนเนอร์", ["พื้นที่เทรนเนอร์", "แชต", "โปรไฟล์"]],
+    ["member", "/member", "การจองของฉัน", ["ค้นหาเทรนเนอร์", "การจองของฉัน", "การแจ้งเตือน", "แชต", "โปรไฟล์"]],
+    ["trainer", "/trainer", "พื้นที่เทรนเนอร์", ["พื้นที่เทรนเนอร์", "การแจ้งเตือน", "แชต", "โปรไฟล์"]],
     ["admin", "/admin", "พื้นที่ผู้ดูแลระบบ", ["พื้นที่ผู้ดูแลระบบ"]],
   ] as const)("routes %s users to their role workspace", (role, workspaceHref, workspaceLabel, expectedLabels) => {
     mockedPathname.mockReturnValue(workspaceHref);
@@ -74,7 +75,7 @@ describe("MobileRoleNav", () => {
     expect(within(nav).getByRole("link", { name: workspaceLabel })).toHaveAttribute("aria-current", "page");
     if (role !== "admin") expect(within(nav).getByRole("link", { name: "แชต" })).toHaveAttribute("href", "/chat");
     expect(within(nav).queryByRole("link", { name: "สมัครเป็นเทรนเนอร์" })).not.toBeInTheDocument();
-    expect(links.length).toBeLessThanOrEqual(4);
+    expect(links.length).toBeLessThanOrEqual(5);
     for (const link of links) expectIconAndText(link, link.textContent ?? "");
   });
 
@@ -92,6 +93,12 @@ describe("SiteHeader", () => {
     localStorage.clear();
     mockedPathname.mockReturnValue("/");
     mockedApiRequest.mockReset();
+    mockedAuthenticatedRequest.mockReset();
+    mockedAuthenticatedRequest.mockResolvedValue({
+      items: [],
+      unread: { all: 0, booking: 0, payment: 0, appointment: 0 },
+      pagination: { page: 0, pageSize: 10, total: 0, totalPages: 0 },
+    });
     push.mockReset();
   });
 
@@ -133,8 +140,8 @@ describe("SiteHeader", () => {
   });
 
   it.each([
-    ["member", "/member", ["ค้นหาเทรนเนอร์", "การจองของฉัน", "แชต", "โปรไฟล์"]],
-    ["trainer", "/trainer", ["พื้นที่เทรนเนอร์", "แชต", "โปรไฟล์"]],
+    ["member", "/member", ["ค้นหาเทรนเนอร์", "การจองของฉัน", "การแจ้งเตือน", "แชต", "โปรไฟล์"]],
+    ["trainer", "/trainer", ["พื้นที่เทรนเนอร์", "การแจ้งเตือน", "แชต", "โปรไฟล์"]],
     ["admin", "/admin", ["พื้นที่ผู้ดูแลระบบ"]],
   ] as const)("moves %s navigation into the authenticated side rail", async (role, pathname, labels) => {
     const signedInUser = user(role);
@@ -160,6 +167,25 @@ describe("SiteHeader", () => {
 
     expect(screen.queryByRole("navigation", { name: "เมนูหลักด้านข้าง" })).not.toBeInTheDocument();
     expect(screen.getByRole("banner")).toHaveClass("site-header");
+  });
+
+  it("shows the unread notification count for a member", async () => {
+    const member = user("member");
+    localStorage.setItem("fitconnect_token", "test-token");
+    localStorage.setItem("fitconnect_user", JSON.stringify(member));
+    mockedApiRequest.mockResolvedValue(member);
+    mockedAuthenticatedRequest.mockResolvedValue({
+      items: [],
+      unread: { all: 3, booking: 1, payment: 1, appointment: 1 },
+      pagination: { page: 0, pageSize: 10, total: 3, totalPages: 1 },
+    });
+
+    render(<SiteHeader />);
+
+    const sidebar = await screen.findByRole("complementary", { name: "แถบนำทาง FitConnect" });
+    const notificationLink = within(sidebar).getByRole("link", { name: "การแจ้งเตือน" });
+    await waitFor(() => expect(within(notificationLink).getByText("3")).toBeInTheDocument());
+    expect(within(notificationLink).getByText("มีการแจ้งเตือนที่ยังไม่ได้อ่าน 3 รายการ")).toHaveClass("sr-only");
   });
 
   it("server-renders a stable sidebar shell while the stored session hydrates", () => {

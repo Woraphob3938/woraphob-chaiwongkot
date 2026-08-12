@@ -5,6 +5,7 @@ import Image from "next/image";
 import { usePathname, useRouter } from "next/navigation";
 import { FormEvent, useEffect, useLayoutEffect, useRef, useState } from "react";
 import {
+  Bell,
   CalendarCheck2,
   ChevronDown,
   Dumbbell,
@@ -20,9 +21,9 @@ import {
   type LucideIcon,
 } from "lucide-react";
 import { MobileRoleNav } from "@/components/mobile-role-nav";
-import { ApiError, apiAssetUrl, apiRequest } from "@/lib/api";
+import { ApiError, apiAssetUrl, apiRequest, authenticatedRequest } from "@/lib/api";
 import { navigationFor, type NavigationIcon } from "@/lib/role-navigation";
-import type { AuthenticatedUser, UserRole } from "@/lib/types";
+import type { AuthenticatedUser, NotificationListResponse, UserRole } from "@/lib/types";
 
 const validRoles: Record<UserRole, true> = {
   member: true,
@@ -35,6 +36,7 @@ const sidebarIcons: Partial<Record<NavigationIcon, LucideIcon>> = {
   search: Search,
   bookings: CalendarCheck2,
   workspace: LayoutDashboard,
+  notifications: Bell,
   chat: MessageCircle,
   profile: UserRound,
 };
@@ -95,6 +97,7 @@ export function SiteHeader() {
   const [sessionReady, setSessionReady] = useState(false);
   const [user, setUser] = useState<AuthenticatedUser | null>(null);
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
+  const [notificationUnreadCount, setNotificationUnreadCount] = useState(0);
   const profileRevisionRef = useRef(0);
 
   useLayoutEffect(() => {
@@ -198,6 +201,36 @@ export function SiteHeader() {
       window.removeEventListener("fitconnect:profile-updated", onProfileUpdated);
     };
   }, []);
+
+  useEffect(() => {
+    const roleCanReceiveNotifications = user?.role === "member" || user?.role === "trainer";
+    if (!roleCanReceiveNotifications) return;
+
+    let active = true;
+    async function refreshUnreadCount() {
+      try {
+        const response = await authenticatedRequest<NotificationListResponse>(
+          "/v1/notifications?page=0&category=all&unread=false",
+        );
+        if (active) setNotificationUnreadCount(response.unread.all);
+      } catch {
+        // Navigation remains usable when the inbox service is temporarily unavailable.
+      }
+    }
+
+    function refreshFromNotificationEvent() {
+      void refreshUnreadCount();
+    }
+
+    void refreshUnreadCount();
+    window.addEventListener("fitconnect:notifications-changed", refreshFromNotificationEvent);
+    window.addEventListener("focus", refreshFromNotificationEvent);
+    return () => {
+      active = false;
+      window.removeEventListener("fitconnect:notifications-changed", refreshFromNotificationEvent);
+      window.removeEventListener("focus", refreshFromNotificationEvent);
+    };
+  }, [user?.role]);
 
   useEffect(() => {
     function expandSidebarAfterPageShow() {
@@ -327,6 +360,14 @@ export function SiteHeader() {
                 >
                   <span className="app-sidebar__nav-icon" aria-hidden="true"><Icon size={19} /></span>
                   <span className="app-sidebar__nav-label">{item.label}</span>
+                  {item.icon === "notifications" && notificationUnreadCount > 0 && (
+                    <>
+                      <span className="app-sidebar__nav-badge" aria-hidden="true">
+                        {notificationUnreadCount > 99 ? "99+" : notificationUnreadCount}
+                      </span>
+                      <span className="sr-only">มีการแจ้งเตือนที่ยังไม่ได้อ่าน {notificationUnreadCount} รายการ</span>
+                    </>
+                  )}
                 </Link>
               );
             })}
@@ -391,7 +432,7 @@ export function SiteHeader() {
           </div>
         </div>
       </dialog>}
-      {sessionReady && <MobileRoleNav user={user} />}
+      {sessionReady && <MobileRoleNav user={user} notificationUnreadCount={notificationUnreadCount} />}
     </>
   );
 }
