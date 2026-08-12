@@ -33,18 +33,18 @@ Windows Task Scheduler จะเก็บงานชื่อ `FitConnect-Expir
 - `DELETE /v1/availability-slots/{id}`
 - `GET|POST /v1/bookings`
 - `POST /v1/bookings/{publicId}/cancel` — สมาชิกยกเลิกคำขอที่ยังไม่ส่งสลิป ระบบคืนช่วงเวลาให้จองต่อทันที
-- `PATCH /v1/bookings/{publicId}/status` — เทรนเนอร์บันทึกว่าฝึกเสร็จแล้ว หรือแอดมินยืนยันและยกเลิกตามสิทธิ์
+- `PATCH /v1/bookings/{publicId}/status` — เทรนเนอร์บันทึกว่าฝึกเสร็จแล้ว หรือผู้ดูแลระบบยืนยันและยกเลิกตามสิทธิ์
 - `POST /v1/payments` — สมาชิกส่งหลักฐานการชำระเงินแบบ multipart
 - `GET|POST /v1/chat-rooms/{id}/messages` — อ่านและส่งข้อความหรือไฟล์แนบในห้องของการจอง
 - `GET /v1/chat-rooms/{id}/messages/{messageId}/attachment` — ดาวน์โหลดไฟล์แนบสำหรับคู่สนทนาเท่านั้น
 - `POST /v1/reviews` — สมาชิกเจ้าของการจองเผยแพร่รีวิวหลังจบการฝึก
 - `POST /v1/admin/trainers/{id}/approve`
 - `POST /v1/admin/trainers/{id}/reject`
-- `GET /v1/admin/review-queue` — คิวหลักฐานที่รอแอดมินตรวจ
+- `GET /v1/admin/review-queue` — คิวหลักฐานที่รอผู้ดูแลระบบตรวจ
 - `GET /v1/admin/files/{payment|certificate}/{id}` — เปิดหลักฐานที่มีสิทธิ์ดู
-- `POST /v1/admin/payments/{id}/{approve|reject}` — แอดมินอนุมัติหรือปฏิเสธพร้อมเหตุผล
+- `POST /v1/admin/payments/{id}/{approve|reject}` — ผู้ดูแลระบบอนุมัติหรือปฏิเสธพร้อมเหตุผล
 
-เส้นทางที่เกี่ยวกับบัญชีต้องใส่ `Authorization: Bearer <token>`. การตรวจใบรับรองและสลิปเป็นการตรวจโดยแอดมินจริง ไม่ใช่การตรวจอัตโนมัติหรือระบบชำระเงินอัตโนมัติ เมื่อปฏิเสธ แอดมินต้องระบุเหตุผลให้สมาชิกแก้ไขและส่งหลักฐานใหม่
+เส้นทางที่เกี่ยวกับบัญชีต้องใส่ `Authorization: Bearer <token>`. การตรวจใบรับรองและสลิปเป็นการตรวจโดยผู้ดูแลระบบจริง ไม่ใช่การตรวจอัตโนมัติหรือระบบชำระเงินอัตโนมัติ เมื่อปฏิเสธ ผู้ดูแลระบบต้องระบุเหตุผลให้สมาชิกแก้ไขและส่งหลักฐานใหม่
 
 ## ตรวจขั้นตอนหลักในเครื่อง
 
@@ -74,7 +74,7 @@ npm run smoke:trainer-onboarding
 
 ## ตรวจ flow หลังการจองและเปิดดูใน phpMyAdmin
 
-รัน flow เดียวตั้งแต่สร้างการจอง แชต ส่งสลิปสองครั้ง ให้แอดมินตรวจ จบการฝึก และรีวิว:
+รัน flow เดียวตั้งแต่สร้างการจอง แชต ส่งสลิปสองครั้ง ให้ผู้ดูแลระบบตรวจ จบการฝึก และรีวิว:
 
 ```powershell
 npm run smoke:postbooking

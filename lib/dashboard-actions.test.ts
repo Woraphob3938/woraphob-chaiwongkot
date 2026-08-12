@@ -91,7 +91,7 @@ describe("getTrainerNextAction", () => {
       profile: { ...workspace.profile!, approvalStatus: "pending" },
       slots: [],
     }, [])).toMatchObject({
-      title: "รอผู้ดูแลตรวจใบสมัคร",
+      title: "รอผู้ดูแลระบบตรวจใบสมัคร",
       href: "/trainer#approval-status",
       cta: "ดูสถานะการสมัคร",
       state: "waiting",

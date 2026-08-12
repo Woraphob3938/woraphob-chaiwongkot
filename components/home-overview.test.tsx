@@ -14,7 +14,7 @@ describe("HomeOverview", () => {
       "href",
       `/trainers?type=${trainingTypes[0].slug}`,
     );
-    expect(screen.getByText(/ผู้ดูแลตรวจหลักฐานด้วยตนเอง/)).toBeInTheDocument();
+    expect(screen.getByText(/ผู้ดูแลระบบตรวจหลักฐานด้วยตนเอง/)).toBeInTheDocument();
     expect(screen.getByText("เริ่มจากประเภทที่สนใจ แล้วปรับราคาและเวลาในหน้าค้นหา")).toBeInTheDocument();
     expect(screen.queryByText(/ข้อมูลสาธิต|ภาพสังเคราะห์/)).not.toBeInTheDocument();
     expect(screen.queryByText(/ปรับพื้นที่/)).not.toBeInTheDocument();

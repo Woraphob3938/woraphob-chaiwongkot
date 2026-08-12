@@ -33,9 +33,9 @@ const bookingStatusCopy: Record<Booking["status"], string> = {
 
 const paymentStatusCopy: Record<Booking["paymentStatus"], string> = {
   not_submitted: "ยังไม่ส่งหลักฐาน",
-  reviewing: "รอผู้ดูแลตรวจสลิป",
-  approved: "ผู้ดูแลตรวจสลิปแล้ว",
-  rejected: "ผู้ดูแลขอหลักฐานใหม่",
+  reviewing: "รอผู้ดูแลระบบตรวจสลิป",
+  approved: "ผู้ดูแลระบบตรวจสลิปแล้ว",
+  rejected: "ผู้ดูแลระบบขอหลักฐานใหม่",
 };
 
 function mergeMessages(current: ChatMessage[], incoming: ChatMessage[]): ChatMessage[] {

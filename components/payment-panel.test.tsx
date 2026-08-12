@@ -114,7 +114,7 @@ describe("PaymentPanel", () => {
     expect(body.get("amount")).toBe("1200.00");
     expect(body.get("slip")).toBe(slip);
     await waitFor(() => expect(onUpdated).toHaveBeenCalledTimes(1));
-    expect(screen.getByRole("status")).toHaveTextContent("ส่งสลิปให้ผู้ดูแลตรวจแล้ว");
+    expect(screen.getByRole("status")).toHaveTextContent("ส่งสลิปให้ผู้ดูแลระบบตรวจแล้ว");
   });
 
   it.each(["", "0", "-10", "abc"])("blocks invalid amount %j", async (amount) => {

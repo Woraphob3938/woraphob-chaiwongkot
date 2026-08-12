@@ -28,7 +28,7 @@ const navigationByAudience: Record<"guest" | UserRole, RoleNavigationItem[]> = {
     { href: "/profile", label: "โปรไฟล์", icon: "profile", desktop: true, mobile: true },
   ],
   admin: [
-    { href: "/admin", label: "พื้นที่แอดมิน", icon: "workspace", desktop: true, mobile: true },
+    { href: "/admin", label: "พื้นที่ผู้ดูแลระบบ", icon: "workspace", desktop: true, mobile: true },
   ],
 };
 

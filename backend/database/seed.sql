@@ -13,7 +13,7 @@ INSERT INTO users (id, email, password_hash, display_name, role, status) VALUES
   (2, 'trainer.a@fitconnect.local', '$2y$10$UAHptYudXBuQG5HZCuzvLufSI45l0ElKtaw591f2fyLcR/4RWTmOu', 'เทรนเนอร์สาธิต ก.', 'trainer', 'active'),
   (3, 'trainer.b@fitconnect.local', '$2y$10$UAHptYudXBuQG5HZCuzvLufSI45l0ElKtaw591f2fyLcR/4RWTmOu', 'เทรนเนอร์สาธิต ข.', 'trainer', 'active'),
   (4, 'trainer.c@fitconnect.local', '$2y$10$UAHptYudXBuQG5HZCuzvLufSI45l0ElKtaw591f2fyLcR/4RWTmOu', 'เทรนเนอร์สาธิต ค.', 'trainer', 'active'),
-  (5, 'admin.demo@fitconnect.local', '$2y$10$UAHptYudXBuQG5HZCuzvLufSI45l0ElKtaw591f2fyLcR/4RWTmOu', 'แอดมินสาธิต', 'admin', 'active')
+  (5, 'admin.demo@fitconnect.local', '$2y$10$UAHptYudXBuQG5HZCuzvLufSI45l0ElKtaw591f2fyLcR/4RWTmOu', 'ผู้ดูแลระบบสาธิต', 'admin', 'active')
 ON DUPLICATE KEY UPDATE password_hash = VALUES(password_hash), display_name = VALUES(display_name), role = VALUES(role), status = 'active';
 
 INSERT INTO member_profiles (user_id, goals) VALUES (1, 'ข้อมูลสาธิตสำหรับตรวจขั้นตอนจอง')

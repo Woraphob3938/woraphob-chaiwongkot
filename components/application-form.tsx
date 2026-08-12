@@ -23,7 +23,7 @@ export function ApplicationForm() {
         headers: token ? { Authorization: `Bearer ${token}` } : {},
       });
       form.reset();
-      setMessage({ tone: "success", text: "ส่งเอกสารแล้ว ระบบจะเปลี่ยนสถานะเมื่อแอดมินตรวจเสร็จ" });
+      setMessage({ tone: "success", text: "ส่งเอกสารแล้ว ระบบจะเปลี่ยนสถานะเมื่อผู้ดูแลระบบตรวจเสร็จ" });
     } catch (error) {
       setMessage({ tone: "error", text: error instanceof Error ? error.message : "ส่งใบสมัครไม่สำเร็จ" });
     } finally {
@@ -47,7 +47,7 @@ export function ApplicationForm() {
       <div className="form-message-slot" aria-live="polite">
         {message && <div className={`form-message form-message--${message.tone}`} role="status"><CircleAlert aria-hidden="true" size={18} /> {message.text}</div>}
       </div>
-      <button className="button button--accent" type="submit" disabled={pending}>{pending ? <><LoaderCircle className="spin" aria-hidden="true" size={18} /> กำลังส่ง</> : <>ส่งให้แอดมินตรวจ <ArrowRight aria-hidden="true" size={18} /></>}</button>
+      <button className="button button--accent" type="submit" disabled={pending}>{pending ? <><LoaderCircle className="spin" aria-hidden="true" size={18} /> กำลังส่ง</> : <>ส่งให้ผู้ดูแลระบบตรวจ <ArrowRight aria-hidden="true" size={18} /></>}</button>
     </form>
   );
 }

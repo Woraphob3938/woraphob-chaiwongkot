@@ -157,10 +157,10 @@ export function AdminReviewQueue() {
       if (error instanceof ApiError && error.status === 409) {
         const refreshResult = await loadQueue();
         if (refreshResult === "applied") {
-          setNotice("ผู้ดูแลคนอื่นบันทึกผลรายการนี้แล้ว โหลดคิวล่าสุดแล้ว");
+          setNotice("ผู้ดูแลระบบคนอื่นบันทึกผลรายการนี้แล้ว โหลดคิวล่าสุดแล้ว");
         } else if (refreshResult === "failed") {
           setRowErrors((current) => ({ ...current, [rowKey]: "รายการนี้มีผลตรวจแล้ว แต่ยังโหลดคิวล่าสุดไม่ได้" }));
-          setNotice("ผู้ดูแลคนอื่นบันทึกผลรายการนี้แล้ว แต่ยังโหลดคิวล่าสุดไม่ได้");
+          setNotice("ผู้ดูแลระบบคนอื่นบันทึกผลรายการนี้แล้ว แต่ยังโหลดคิวล่าสุดไม่ได้");
         }
       } else {
         const message = error instanceof Error ? error.message : "บันทึกผลไม่สำเร็จ";
@@ -209,10 +209,10 @@ export function AdminReviewQueue() {
         setResolvedPayments((current) => ({ ...current, [paymentId]: true }));
         const refreshResult = await loadQueue();
         if (refreshResult === "applied") {
-          setNotice("ผู้ดูแลคนอื่นบันทึกผลรายการนี้แล้ว โหลดคิวล่าสุดแล้ว");
+          setNotice("ผู้ดูแลระบบคนอื่นบันทึกผลรายการนี้แล้ว โหลดคิวล่าสุดแล้ว");
         } else if (refreshResult === "failed") {
           setRowErrors((current) => ({ ...current, [rowKey]: "รายการนี้มีผลตรวจแล้ว แต่ยังโหลดคิวล่าสุดไม่ได้" }));
-          setNotice("ผู้ดูแลคนอื่นบันทึกผลรายการนี้แล้ว แต่ยังโหลดคิวล่าสุดไม่ได้");
+          setNotice("ผู้ดูแลระบบคนอื่นบันทึกผลรายการนี้แล้ว แต่ยังโหลดคิวล่าสุดไม่ได้");
         }
       } else {
         const message = error instanceof Error ? error.message : "บันทึกผลไม่สำเร็จ กรุณาลองอีกครั้ง";
@@ -401,7 +401,7 @@ export function AdminReviewQueue() {
                         <div><span>{paymentCode}</span><h3 style={wrapAnywhereStyle}>คำขอจอง {selectedPayment.bookingId}</h3></div>
                         <StatusBadge status="reviewing" />
                       </header>
-                      <p>ผู้ดูแลกำลังตรวจหลักฐาน</p>
+                      <p>ผู้ดูแลระบบกำลังตรวจหลักฐาน</p>
                       <dl className="admin-evidence-facts admin-evidence-facts--payment">
                         {evidence.map(([label, value]) => (
                           <div key={label}><dt>{label}</dt><dd style={wrapAnywhereStyle}>{value}</dd></div>

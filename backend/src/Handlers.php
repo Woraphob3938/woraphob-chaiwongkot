@@ -493,7 +493,7 @@ final class Handlers
             throw $error;
         }
 
-        Http::json(['trainerProfileId' => $profileId, 'status' => 'pending', 'message' => 'ส่งใบสมัครให้แอดมินตรวจแล้ว'], 201);
+        Http::json(['trainerProfileId' => $profileId, 'status' => 'pending', 'message' => 'ส่งใบสมัครให้ผู้ดูแลระบบตรวจแล้ว'], 201);
     }
 
     public function listBookings(): never
@@ -774,7 +774,7 @@ final class Handlers
             $this->removeUpload($file['path']);
             throw new HttpException(409, 'หมดเวลาส่งหลักฐาน กรุณาเลือกเวลาใหม่', 'PAYMENT_DEADLINE_EXPIRED');
         }
-        Http::json(['paymentId' => $result['paymentId'], 'bookingId' => $input['bookingId'], 'status' => 'reviewing', 'message' => 'ส่งสลิปให้แอดมินตรวจแล้ว'], 201);
+        Http::json(['paymentId' => $result['paymentId'], 'bookingId' => $input['bookingId'], 'status' => 'reviewing', 'message' => 'ส่งสลิปให้ผู้ดูแลระบบตรวจแล้ว'], 201);
     }
 
     public function messages(string $roomId): never

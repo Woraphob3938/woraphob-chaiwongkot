@@ -171,7 +171,7 @@ describe("AdminReviewQueue", () => {
     expect(within(row).getByText("฿1,000.00")).toBeInTheDocument();
     expect(within(row).getByText("-฿200.00")).toBeInTheDocument();
     expect(within(row).getByText("เสาร์ 1 ส.ค. · 09:00 น.")).toBeInTheDocument();
-    expect(within(row).getByText("ผู้ดูแลกำลังตรวจหลักฐาน")).toBeInTheDocument();
+    expect(within(row).getByText("ผู้ดูแลระบบกำลังตรวจหลักฐาน")).toBeInTheDocument();
   });
 
   it("gives long unbroken evidence values an explicit wrapping contract", async () => {
@@ -342,7 +342,7 @@ describe("AdminReviewQueue", () => {
     fireEvent.click(screen.getByRole("button", { name: "อนุมัติสลิป PAY-000021" }));
 
     await waitFor(() => expect(authenticatedRequest).toHaveBeenCalledTimes(3));
-    expect(screen.getByRole("status")).toHaveTextContent("ผู้ดูแลคนอื่นบันทึกผลรายการนี้แล้ว");
+    expect(screen.getByRole("status")).toHaveTextContent("ผู้ดูแลระบบคนอื่นบันทึกผลรายการนี้แล้ว");
     expect(screen.queryByText("PAY-000021")).not.toBeInTheDocument();
   });
 

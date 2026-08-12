@@ -22,7 +22,7 @@ describe("ApplicationForm", () => {
     fireEvent.change(screen.getByLabelText(/ใบรับรอง/), {
       target: { files: [new File(["certificate"], "certificate.pdf", { type: "application/pdf" })] },
     });
-    fireEvent.submit(screen.getByRole("button", { name: /ส่งให้แอดมินตรวจ/ }).closest("form")!);
+    fireEvent.submit(screen.getByRole("button", { name: /ส่งให้ผู้ดูแลระบบตรวจ/ }).closest("form")!);
 
     await waitFor(() => expect(apiRequest).toHaveBeenCalledTimes(1));
     const request = vi.mocked(apiRequest).mock.calls[0]?.[1];

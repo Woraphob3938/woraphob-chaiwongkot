@@ -19,9 +19,9 @@ const ACCEPTED_SLIP_TYPES = new Set([
 
 const paymentStatusCopy: Record<Booking["paymentStatus"], string> = {
   not_submitted: "ยังไม่ส่งหลักฐาน",
-  reviewing: "รอผู้ดูแลตรวจสลิป",
-  approved: "ผู้ดูแลตรวจสลิปแล้ว",
-  rejected: "ผู้ดูแลขอหลักฐานใหม่",
+  reviewing: "รอผู้ดูแลระบบตรวจสลิป",
+  approved: "ผู้ดูแลระบบตรวจสลิปแล้ว",
+  rejected: "ผู้ดูแลระบบขอหลักฐานใหม่",
 };
 
 function formatAmount(amount: number | null): string {
@@ -111,7 +111,7 @@ export function PaymentPanel({ booking, onUpdated }: PaymentPanelProps) {
     try {
       await authenticatedRequest("/v1/payments", { method: "POST", body });
       setUploaded(true);
-      setNotice("ส่งสลิปให้ผู้ดูแลตรวจแล้ว ผู้ดูแลจะตรวจหลักฐานด้วยตนเอง");
+      setNotice("ส่งสลิปให้ผู้ดูแลระบบตรวจแล้ว ผู้ดูแลระบบจะตรวจหลักฐานด้วยตนเอง");
     } catch (error) {
       setRequestError("upload");
       setRequestMessage(error instanceof Error ? error.message : "อัปโหลดสลิปไม่สำเร็จ กรุณาลองอีกครั้ง");
@@ -163,7 +163,7 @@ export function PaymentPanel({ booking, onUpdated }: PaymentPanelProps) {
         <span>สถานะหลักฐาน</span>
         <strong id={`${amountId}-title`}>{visiblePaymentStatus}</strong>
         {booking.payment?.reviewNote && (
-          <p><span>หมายเหตุจากผู้ดูแล</span>{booking.payment.reviewNote}</p>
+          <p><span>หมายเหตุจากผู้ดูแลระบบ</span>{booking.payment.reviewNote}</p>
         )}
       </div>
 
@@ -171,7 +171,7 @@ export function PaymentPanel({ booking, onUpdated }: PaymentPanelProps) {
         <form className="booking-fields payment-panel__form transaction-primary-action" onSubmit={submit} aria-busy={busy} noValidate>
           <div className="transaction-primary-action__heading">
             <strong>{booking.paymentStatus === "rejected" ? "สลิปไม่ผ่าน กรุณาส่งใหม่ภายใน 10 นาที" : "อัปโหลดสลิปภายใน 10 นาที"}</strong>
-            <span>ผู้ดูแลจะตรวจหลักฐานด้วยตนเอง</span>
+            <span>ผู้ดูแลระบบจะตรวจหลักฐานด้วยตนเอง</span>
           </div>
           <div className="form-grid">
             <div className="field">

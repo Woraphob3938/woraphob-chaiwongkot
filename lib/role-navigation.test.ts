@@ -24,7 +24,7 @@ describe("navigationFor", () => {
       expect.objectContaining({ href: "/trainer", label: "พื้นที่เทรนเนอร์" }),
     ]));
     expect(navigationFor("admin")).toEqual(expect.arrayContaining([
-      expect.objectContaining({ href: "/admin", label: "พื้นที่แอดมิน" }),
+      expect.objectContaining({ href: "/admin", label: "พื้นที่ผู้ดูแลระบบ" }),
     ]));
   });
 

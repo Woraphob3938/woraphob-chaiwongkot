@@ -361,7 +361,7 @@ export function TrainerWorkbench({ onIncompleteProfile }: { onIncompleteProfile?
     return (
       <div className="trainer-workbench">
         <section className="approval-panel approval-panel--empty">
-          <div><h2>ข้อมูลวิชาชีพยังไม่ครบ</h2><p>บัญชีเทรนเนอร์สร้างแล้ว กรอกข้อมูลการให้บริการและใบรับรองเพื่อส่งให้แอดมินตรวจ</p></div>
+          <div><h2>ข้อมูลวิชาชีพยังไม่ครบ</h2><p>บัญชีเทรนเนอร์สร้างแล้ว กรอกข้อมูลการให้บริการและใบรับรองเพื่อส่งให้ผู้ดูแลระบบตรวจ</p></div>
           {workspaceError && <div className="workbench-error" role="alert"><span>{workspaceError}</span><button type="button" onClick={() => void loadWorkspace()}>ลองใหม่</button></div>}
         </section>
         {bookingError && <div className="workbench-error" role="alert"><span>{bookingError}</span><button type="button" onClick={() => void loadBookings()}><RefreshCw aria-hidden="true" size={15} /> ลองใหม่</button></div>}
@@ -375,7 +375,7 @@ export function TrainerWorkbench({ onIncompleteProfile }: { onIncompleteProfile?
       <section className="approval-panel" id="approval-status">
         <div>
           <h2>{approved ? "โปรไฟล์พร้อมเปิดตาราง" : "โปรไฟล์ยังเปิดตารางไม่ได้"}</h2>
-          <p>{workspace?.profile?.approvalNote ?? (approved ? "สร้างช่วงเวลาว่างล่วงหน้าได้ไม่เกิน 2 เดือน" : "รอผู้ดูแลตรวจใบรับรองก่อนสร้างช่วงเวลาว่าง")}</p>
+          <p>{workspace?.profile?.approvalNote ?? (approved ? "สร้างช่วงเวลาว่างล่วงหน้าได้ไม่เกิน 2 เดือน" : "รอผู้ดูแลระบบตรวจใบรับรองก่อนสร้างช่วงเวลาว่าง")}</p>
         </div>
         {workspace?.profile && (
           <div className="approval-panel__actions">
@@ -500,7 +500,7 @@ export function TrainerWorkbench({ onIncompleteProfile }: { onIncompleteProfile?
             </div>
           )}
           {confirmedBookings.map(renderConfirmedBooking)}
-          {bookingsReady && confirmedBookings.length === 0 && <div className="empty-state"><strong>ยังไม่มีนัดที่ยืนยันแล้ว</strong><p>นัดหมายจะย้ายมาที่นี่หลังผู้ดูแลอนุมัติการชำระเงิน</p></div>}
+          {bookingsReady && confirmedBookings.length === 0 && <div className="empty-state"><strong>ยังไม่มีนัดที่ยืนยันแล้ว</strong><p>นัดหมายจะย้ายมาที่นี่หลังผู้ดูแลระบบอนุมัติการชำระเงิน</p></div>}
         </details>
       </section>
 

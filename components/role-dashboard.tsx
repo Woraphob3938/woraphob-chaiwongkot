@@ -43,9 +43,9 @@ const roleCopy = {
 
 const paymentCopy: Record<Booking["paymentStatus"], string> = {
   not_submitted: "ยังไม่ส่งหลักฐาน",
-  reviewing: "รอผู้ดูแลตรวจสลิป",
-  approved: "ผู้ดูแลตรวจสลิปแล้ว",
-  rejected: "ผู้ดูแลขอหลักฐานใหม่",
+  reviewing: "รอผู้ดูแลระบบตรวจสลิป",
+  approved: "ผู้ดูแลระบบตรวจสลิปแล้ว",
+  rejected: "ผู้ดูแลระบบขอหลักฐานใหม่",
 };
 
 function formatAmount(amount: number | null): string {
@@ -56,9 +56,9 @@ function formatAmount(amount: number | null): string {
 
 function nextStepCopy(booking: Booking): string {
   if (booking.review) return "รีวิวนี้เผยแพร่แล้ว";
-  if (booking.actions.canPay) return "ส่งหลักฐานให้ผู้ดูแลตรวจภายในเวลาที่เหลือ";
+  if (booking.actions.canPay) return "ส่งหลักฐานให้ผู้ดูแลระบบตรวจภายในเวลาที่เหลือ";
   if (booking.actions.canReview) return "เขียนรีวิวหลังการฝึก";
-  if (booking.status === "payment_review") return "รอผู้ดูแลตรวจหลักฐานด้วยตนเอง";
+  if (booking.status === "payment_review") return "รอผู้ดูแลระบบตรวจหลักฐานด้วยตนเอง";
   if (booking.status === "confirmed") return "เตรียมตัวตามวันและเวลานัด";
   if (booking.status === "cancelled") return "คำขอนี้สิ้นสุดแล้ว";
   if (booking.status === "expired") return "การจองหมดเวลา ช่วงเวลานี้ถูกคืนแล้ว";
@@ -199,7 +199,7 @@ export function RoleDashboard({
       <div className="ledger-row"><span><ShieldCheck aria-hidden="true" size={17} /> การชำระ</span><strong>{paymentCopy[booking.paymentStatus]}</strong></div>
       <div className="ledger-row"><span>ยอดที่โอน</span><strong>{formatAmount(booking.payment?.amount ?? null)}</strong></div>
       {booking.payment?.status === "rejected" && booking.payment.reviewNote && (
-        <div className="ledger-row"><span>หมายเหตุจากผู้ดูแล</span><strong>{booking.payment.reviewNote}</strong></div>
+        <div className="ledger-row"><span>หมายเหตุจากผู้ดูแลระบบ</span><strong>{booking.payment.reviewNote}</strong></div>
       )}
       <div className="ledger-row"><span>ขั้นตอนถัดไป</span><strong>{nextStepCopy(booking)}</strong></div>
       {booking.actions.canPay && booking.paymentDeadlineAt && (

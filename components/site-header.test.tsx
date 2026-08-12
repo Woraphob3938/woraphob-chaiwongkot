@@ -59,7 +59,7 @@ describe("MobileRoleNav", () => {
   it.each([
     ["member", "/member", "การจองของฉัน", ["ค้นหาเทรนเนอร์", "การจองของฉัน", "แชต", "โปรไฟล์"]],
     ["trainer", "/trainer", "พื้นที่เทรนเนอร์", ["พื้นที่เทรนเนอร์", "แชต", "โปรไฟล์"]],
-    ["admin", "/admin", "พื้นที่แอดมิน", ["พื้นที่แอดมิน"]],
+    ["admin", "/admin", "พื้นที่ผู้ดูแลระบบ", ["พื้นที่ผู้ดูแลระบบ"]],
   ] as const)("routes %s users to their role workspace", (role, workspaceHref, workspaceLabel, expectedLabels) => {
     mockedPathname.mockReturnValue(workspaceHref);
     render(<MobileRoleNav user={user(role)} />);
@@ -135,7 +135,7 @@ describe("SiteHeader", () => {
   it.each([
     ["member", "/member", ["ค้นหาเทรนเนอร์", "การจองของฉัน", "แชต", "โปรไฟล์"]],
     ["trainer", "/trainer", ["พื้นที่เทรนเนอร์", "แชต", "โปรไฟล์"]],
-    ["admin", "/admin", ["พื้นที่แอดมิน"]],
+    ["admin", "/admin", ["พื้นที่ผู้ดูแลระบบ"]],
   ] as const)("moves %s navigation into the authenticated side rail", async (role, pathname, labels) => {
     const signedInUser = user(role);
     mockedPathname.mockReturnValue(pathname);

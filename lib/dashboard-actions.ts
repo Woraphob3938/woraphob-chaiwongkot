@@ -16,7 +16,7 @@ export function getMemberNextAction(bookings: Booking[]): DashboardAction {
   if (review) return { title: "แบ่งปันผลการฝึก", description: `คำขอ ${review.id}`, href: `/member#booking-${review.id}`, cta: "เขียนรีวิว", state: "action" };
 
   const paymentReview = bookings.find((booking) => booking.status === "payment_review");
-  if (paymentReview) return { title: "รอผู้ดูแลตรวจหลักฐาน", description: `คำขอ ${paymentReview.id}`, href: `/member#booking-${paymentReview.id}`, cta: "ดูสถานะ", state: "waiting" };
+  if (paymentReview) return { title: "รอผู้ดูแลระบบตรวจหลักฐาน", description: `คำขอ ${paymentReview.id}`, href: `/member#booking-${paymentReview.id}`, cta: "ดูสถานะ", state: "waiting" };
 
   const confirmed = bookings.find((booking) => booking.status === "confirmed");
   if (confirmed) return { title: "เตรียมตัวสำหรับการฝึก", description: `คำขอ ${confirmed.id}`, href: `/member#booking-${confirmed.id}`, cta: "ดูนัดหมาย", state: "waiting" };
@@ -32,7 +32,7 @@ export function getTrainerNextAction(workspace: TrainerWorkspace | null, booking
 
   if (workspace.profile.approvalStatus === "pending") {
     return {
-      title: "รอผู้ดูแลตรวจใบสมัคร",
+      title: "รอผู้ดูแลระบบตรวจใบสมัคร",
       description: "ยังไม่สามารถเปิดตารางได้จนกว่าจะได้รับอนุมัติ",
       href: "/trainer#approval-status",
       cta: "ดูสถานะการสมัคร",
