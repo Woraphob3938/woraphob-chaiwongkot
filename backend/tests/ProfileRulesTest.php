@@ -100,6 +100,8 @@ test('normalizes a trainer profile', function (): void {
         'serviceMode' => 'both',
         'gymName' => 'Fit Gym',
         'priceFrom' => 650.0,
+        'monthlyPrice' => 2400.0,
+        'monthlySessionCount' => 4,
         'trainingTypeIds' => [1, 3],
     ], ProfileRules::trainer([
         'displayName' => ' ครูเมย์ ',
@@ -111,8 +113,33 @@ test('normalizes a trainer profile', function (): void {
         'serviceMode' => 'both',
         'gymName' => ' Fit Gym ',
         'priceFrom' => '650',
+        'monthlyPrice' => '2400',
+        'monthlySessionCount' => '4',
         'trainingTypeIds' => [3, 1, 3],
     ]));
+});
+
+test('requires monthly price and session count together', function (): void {
+    expectHttp(422, 'VALIDATION_FAILED', fn() => ProfileRules::trainer([
+        'displayName' => 'ครูเมย์',
+        'legalName' => 'เมย์ ใจดี',
+        'serviceMode' => 'freelance',
+        'yearsExperience' => 3,
+        'monthlyPrice' => 2400,
+        'trainingTypeIds' => [1],
+    ]), 'monthlySessionCount');
+});
+
+test('limits a monthly package to thirty sessions', function (): void {
+    expectHttp(422, 'VALIDATION_FAILED', fn() => ProfileRules::trainer([
+        'displayName' => 'ครูเมย์',
+        'legalName' => 'เมย์ ใจดี',
+        'serviceMode' => 'freelance',
+        'yearsExperience' => 3,
+        'monthlyPrice' => 2400,
+        'monthlySessionCount' => 31,
+        'trainingTypeIds' => [1],
+    ]), 'monthlySessionCount');
 });
 
 test('requires a gym name for gym service', function (): void {

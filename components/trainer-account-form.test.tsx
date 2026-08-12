@@ -16,6 +16,7 @@ const profile: TrainerAccountProfile = {
   trainer: {
     legalName: "เมย์ ใจดี", phone: "0812345678", headline: "ฝึกให้แข็งแรง", bio: "ดูแลอย่างเป็นระบบ",
     yearsExperience: 3, serviceMode: "freelance", gymName: null, priceFrom: 650,
+    monthlyPrice: 2400, monthlySessionCount: 4,
     trainingTypeIds: [1], approvalStatus: "rejected", approvalNote: "แก้ชื่อใบรับรอง",
     certificates: [{ id: 9, name: "CPT", issuer: "FIT", issuedYear: 2025, status: "pending" }],
   },
@@ -52,6 +53,7 @@ describe("TrainerAccountForm", () => {
         displayName: "เมย์ ฟิต", legalName: "เมย์ ใจดี", phone: "0812345678",
         headline: "ฝึกให้แข็งแรง", bio: "ดูแลอย่างเป็นระบบ", yearsExperience: 3,
         serviceMode: "both", gymName: "Fit Gym", priceFrom: 650, trainingTypeIds: [1, 2],
+        monthlyPrice: 2400, monthlySessionCount: 4,
       }),
     }));
     const sentBody = JSON.parse(String(vi.mocked(authenticatedRequest).mock.calls.find(([path]) => path === "/v1/profile")?.[1]?.body));

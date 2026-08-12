@@ -107,6 +107,43 @@ final class WorkflowRules
         return number_format((float) $raw, 2, '.', '');
     }
 
+    public static function availabilityEnd(DateTimeImmutable $startsAt): DateTimeImmutable
+    {
+        return $startsAt->modify('+1 hour');
+    }
+
+    public static function assertMonthlyBookingSlots(array $slots, int $expectedCount): void
+    {
+        if ($expectedCount < 2 || $expectedCount > 30 || count($slots) !== $expectedCount) {
+            throw new HttpException(
+                422,
+                'จำนวนครั้งในแพ็กเกจไม่ถูกต้อง',
+                'VALIDATION_FAILED',
+                ['slotIds' => "เลือกเวลาให้ครบ {$expectedCount} ครั้ง"]
+            );
+        }
+
+        $ids = array_map(fn(array $slot): int => (int) $slot['id'], $slots);
+        if (count(array_unique($ids)) !== count($ids)) {
+            throw new HttpException(422, 'เลือกช่วงเวลาซ้ำกัน', 'VALIDATION_FAILED', ['slotIds' => 'เลือกแต่ละช่วงเวลาได้หนึ่งครั้ง']);
+        }
+
+        usort($slots, fn(array $left, array $right): int => strcmp((string) $left['starts_at'], (string) $right['starts_at']));
+        $periodStart = new DateTimeImmutable((string) $slots[0]['starts_at'], new DateTimeZone('UTC'));
+        $periodEnd = $periodStart->modify('+30 days');
+        foreach ($slots as $slot) {
+            $endsAt = new DateTimeImmutable((string) $slot['ends_at'], new DateTimeZone('UTC'));
+            if ($endsAt > $periodEnd) {
+                throw new HttpException(
+                    422,
+                    'เวลาฝึกต้องอยู่ภายใน 30 วัน',
+                    'VALIDATION_FAILED',
+                    ['slotIds' => 'เลือกช่วงเวลาภายใน 30 วันนับจากครั้งแรก']
+                );
+            }
+        }
+    }
+
     public static function assertPaymentDecision(
         string $paymentStatus,
         string $bookingStatus,

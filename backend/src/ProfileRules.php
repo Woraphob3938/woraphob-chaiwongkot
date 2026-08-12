@@ -63,6 +63,22 @@ final class ProfileRules
         }
 
         $priceFrom = self::nullablePositiveNumber($input['priceFrom'] ?? null, 'priceFrom', $fields, 99999999.99);
+        $monthlyPrice = self::nullablePositiveNumber($input['monthlyPrice'] ?? null, 'monthlyPrice', $fields, 99999999.99);
+        $monthlySessionCount = null;
+        $monthlySessionValue = $input['monthlySessionCount'] ?? null;
+        if ($monthlySessionValue !== null && trim((string) $monthlySessionValue) !== '') {
+            $monthlySessionCount = filter_var($monthlySessionValue, FILTER_VALIDATE_INT);
+            if ($monthlySessionCount === false || $monthlySessionCount < 2 || $monthlySessionCount > 30) {
+                $fields['monthlySessionCount'] = 'กรอกจำนวนครั้งตั้งแต่ 2 ถึง 30';
+                $monthlySessionCount = null;
+            }
+        }
+        if ($monthlyPrice !== null && $monthlySessionCount === null) {
+            $fields['monthlySessionCount'] = 'กรอกจำนวนครั้งในแพ็กเกจ';
+        }
+        if ($monthlyPrice === null && $monthlySessionCount !== null) {
+            $fields['monthlyPrice'] = 'กรอกราคาแพ็กเกจ 30 วัน';
+        }
         $trainingTypeIds = [];
         if (is_array($input['trainingTypeIds'] ?? null)) {
             foreach ($input['trainingTypeIds'] as $typeId) {
@@ -87,6 +103,8 @@ final class ProfileRules
             'serviceMode' => $serviceMode,
             'gymName' => in_array($serviceMode, ['gym', 'both'], true) ? $gymName : '',
             'priceFrom' => $priceFrom,
+            'monthlyPrice' => $monthlyPrice,
+            'monthlySessionCount' => $monthlySessionCount,
             'trainingTypeIds' => $trainingTypeIds,
         ];
     }

@@ -74,4 +74,27 @@ describe("ProfileBookingPanel", () => {
     expect(screen.getByRole("button", { name: "ยังจองไม่ได้" })).toBeDisabled();
     expect(screen.queryByRole("link", { name: "จองเวลานี้" })).not.toBeInTheDocument();
   });
+
+  it("builds one monthly booking from the trainer package and selected sessions", () => {
+    const trainer = {
+      ...trainers[0],
+      demo: false,
+      monthlyPrice: 2400,
+      monthlySessionCount: 2,
+    };
+    render(<BookingPanelHarness trainer={trainer} />);
+
+    fireEvent.click(screen.getByRole("button", { name: "แพ็กเกจ 30 วัน" }));
+    expect(screen.getByText("2 ครั้ง ภายใน 30 วัน")).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: /เลือกเวลาในแพ็กเกจ/ }));
+    const dialog = screen.getByRole("dialog", { name: "เลือกวันและเวลาฝึกในแพ็กเกจ" });
+    fireEvent.click(within(dialog).getByRole("button", { name: "09:00 ถึง 10:00" }));
+    fireEvent.click(within(dialog).getByRole("button", { name: "17:00 ถึง 18:00" }));
+    fireEvent.click(within(dialog).getByRole("button", { name: "ยืนยัน 2 ช่วงเวลา" }));
+
+    expect(screen.getByRole("link", { name: "จองแพ็กเกจนี้" })).toHaveAttribute(
+      "href",
+      `/booking?trainer=${trainer.slug}&type=monthly&slots=${trainer.slots[0].id}%2C${trainer.slots[1].id}`,
+    );
+  });
 });

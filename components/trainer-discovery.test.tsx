@@ -14,6 +14,14 @@ function renderDiscovery(initialTrainers = trainers) {
 }
 
 describe("TrainerDiscovery", () => {
+  it("keeps the page name accessible without repeating a large visible intro", () => {
+    renderDiscovery();
+
+    expect(screen.getByRole("heading", { name: "ค้นหาเทรนเนอร์" })).toHaveClass("sr-only");
+    expect(screen.queryByText("ค้นหาเทรนเนอร์ที่เหมาะกับคุณ")).not.toBeInTheDocument();
+    expect(screen.queryByText(/ดูความเชี่ยวชาญ ค่าฝึกต่อครั้ง/)).not.toBeInTheDocument();
+  });
+
   it("does not show demo explanations in the discovery experience", () => {
     render(
       <TrainerDiscovery

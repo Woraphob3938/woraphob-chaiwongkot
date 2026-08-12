@@ -23,6 +23,8 @@ const liveTrainer = {
   trainingTypes: [],
   serviceMode: "freelance" as const,
   priceFrom: 500,
+  monthlyPrice: 1800,
+  monthlySessionCount: 2,
   reviewCount: 0,
   verification: "verified" as const,
   certificates: [],
@@ -153,5 +155,26 @@ describe("BookingForm", () => {
     fireEvent.click(screen.getByRole("button", { name: /ตรวจสอบและยืนยัน/ }));
     fireEvent.click(screen.getByRole("button", { name: "ยืนยันและเริ่มเวลา 10 นาที" }));
     expect(await screen.findByText("เกิดข้อผิดพลาดจากระบบ")).toBeInTheDocument();
+  });
+
+  it("submits one monthly booking with every selected slot", async () => {
+    const secondSlot = { id: 45, startsAt: "2026-08-17T02:00:00.000Z", endsAt: "2026-08-17T03:00:00.000Z", available: true };
+    vi.mocked(apiRequest).mockResolvedValue({ ...liveTrainer, slots: [...liveTrainer.slots, secondSlot] });
+    vi.mocked(authenticatedRequest).mockResolvedValue({
+      id: "BK-MONTHLY",
+      status: "awaiting_payment",
+      quotedPrice: 1800,
+      paymentDeadlineAt: "2026-08-10T02:10:00.000Z",
+    });
+
+    render(<BookingForm trainerSlug="live-trainer" bookingType="monthly" slotIds="44,45" />);
+    await screen.findByText("แพ็กเกจ 30 วัน");
+    fireEvent.click(screen.getByRole("button", { name: /ตรวจสอบและยืนยัน/ }));
+    fireEvent.click(screen.getByRole("button", { name: "ยืนยันและเริ่มเวลา 10 นาที" }));
+
+    await waitFor(() => expect(authenticatedRequest).toHaveBeenCalledWith("/v1/bookings", {
+      method: "POST",
+      body: JSON.stringify({ trainerId: 1, bookingType: "monthly", slotIds: [44, 45], note: "" }),
+    }));
   });
 });

@@ -186,16 +186,33 @@ export function RoleDashboard({
     return () => { cancelled = true; };
   }, [role]);
 
+  useEffect(() => {
+    if (role !== "member") return;
+    const refreshWhenMemberReturns = () => void loadMemberBookings();
+    window.addEventListener("focus", refreshWhenMemberReturns);
+    return () => window.removeEventListener("focus", refreshWhenMemberReturns);
+  }, [loadMemberBookings, role]);
+
   const renderBookingFactsAndActions = (booking: Booking) => (
     <>
       <div className="ledger-heading">
         <div><h3>คำขอ {booking.id}</h3></div>
         <StatusBadge status={booking.status} />
       </div>
+      {booking.bookingType === "monthly" && (
+        <div className="monthly-booking-sessions">
+          <strong>แพ็กเกจ 30 วัน · {booking.sessionCount ?? booking.sessions?.length ?? 0} ครั้ง</strong>
+          <ol>
+            {(booking.sessions ?? []).map((session) => (
+              <li key={`${session.id}-${session.startsAt}`}>{formatDateTime(session.startsAt)}</li>
+            ))}
+          </ol>
+        </div>
+      )}
       <div className="ledger-row"><span><CalendarDays aria-hidden="true" size={17} /> เริ่มฝึก</span><strong>{formatDateTime(booking.startsAt)}</strong></div>
       <div className="ledger-row"><span><CalendarDays aria-hidden="true" size={17} /> สิ้นสุด</span><strong>{formatDateTime(booking.endsAt)}</strong></div>
       <div className="ledger-row"><span><UsersRound aria-hidden="true" size={17} /> เทรนเนอร์</span><strong>{booking.trainer.displayName}</strong></div>
-      <div className="ledger-row"><span>ค่าฝึกต่อครั้ง</span><strong>{formatAmount(booking.quotedPrice)}</strong></div>
+      <div className="ledger-row"><span>{booking.bookingType === "monthly" ? "ราคาแพ็กเกจ" : "ค่าฝึกต่อครั้ง"}</span><strong>{formatAmount(booking.quotedPrice)}</strong></div>
       <div className="ledger-row"><span><ShieldCheck aria-hidden="true" size={17} /> การชำระ</span><strong>{paymentCopy[booking.paymentStatus]}</strong></div>
       <div className="ledger-row"><span>ยอดที่โอน</span><strong>{formatAmount(booking.payment?.amount ?? null)}</strong></div>
       {booking.payment?.status === "rejected" && booking.payment.reviewNote && (
@@ -253,10 +270,9 @@ export function RoleDashboard({
 
   return (
     <main className={`page-shell dashboard-shell dashboard-shell--${role}`}>
-      <section className="dashboard-heading">
-        <div><h1>{copy.title}</h1></div>
-        <p>{copy.lead}</p>
-      </section>
+      {role === "member"
+        ? <h1 className="sr-only">{copy.title}</h1>
+        : <section className="dashboard-heading"><div><h1>{copy.title}</h1></div><p>{copy.lead}</p></section>}
       {role === "member" && (
         <div className="member-dashboard-content">
           {loadingBookings && bookings.length === 0 && (

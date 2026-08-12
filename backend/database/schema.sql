@@ -72,6 +72,8 @@ CREATE TABLE IF NOT EXISTS trainer_profiles (
   gym_id BIGINT UNSIGNED NULL,
   gym_name VARCHAR(190) NULL,
   price_from DECIMAL(10, 2) NULL,
+  monthly_price DECIMAL(10, 2) NULL,
+  monthly_session_count SMALLINT UNSIGNED NULL,
   image_path VARCHAR(500) NULL,
   approval_status ENUM('pending', 'approved', 'rejected') NOT NULL DEFAULT 'pending',
   approval_note VARCHAR(1000) NULL,
@@ -150,7 +152,10 @@ CREATE TABLE IF NOT EXISTS bookings (
   starts_at DATETIME NOT NULL,
   ends_at DATETIME NOT NULL,
   member_note TEXT NULL,
+  booking_type ENUM('single', 'monthly') NOT NULL DEFAULT 'single',
   session_count SMALLINT UNSIGNED NOT NULL DEFAULT 1,
+  period_start DATETIME NULL,
+  period_end DATETIME NULL,
   quoted_price DECIMAL(10, 2) NULL,
   status ENUM('awaiting_payment', 'payment_review', 'confirmed', 'completed', 'cancelled', 'expired') NOT NULL,
   payment_status ENUM('not_submitted', 'reviewing', 'approved', 'rejected') NOT NULL DEFAULT 'not_submitted',
@@ -169,6 +174,21 @@ CREATE TABLE IF NOT EXISTS bookings (
   CONSTRAINT fk_booking_member FOREIGN KEY (member_user_id) REFERENCES users(id),
   CONSTRAINT fk_booking_trainer FOREIGN KEY (trainer_profile_id) REFERENCES trainer_profiles(id),
   CONSTRAINT fk_booking_slot FOREIGN KEY (availability_slot_id) REFERENCES availability_slots(id) ON DELETE SET NULL
+) ENGINE=InnoDB;
+
+CREATE TABLE IF NOT EXISTS booking_sessions (
+  id BIGINT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
+  booking_id BIGINT UNSIGNED NOT NULL,
+  availability_slot_id BIGINT UNSIGNED NULL,
+  starts_at DATETIME NOT NULL,
+  ends_at DATETIME NOT NULL,
+  created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  UNIQUE KEY uq_booking_session_slot (booking_id, availability_slot_id),
+  KEY idx_booking_sessions_period (booking_id, starts_at),
+  KEY idx_booking_sessions_slot (availability_slot_id),
+  CONSTRAINT chk_booking_session_period CHECK (ends_at > starts_at),
+  CONSTRAINT fk_booking_session_booking FOREIGN KEY (booking_id) REFERENCES bookings(id) ON DELETE CASCADE,
+  CONSTRAINT fk_booking_session_slot FOREIGN KEY (availability_slot_id) REFERENCES availability_slots(id) ON DELETE SET NULL
 ) ENGINE=InnoDB;
 
 CREATE TABLE IF NOT EXISTS booking_status_history (

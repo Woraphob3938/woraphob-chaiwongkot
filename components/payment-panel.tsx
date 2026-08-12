@@ -235,7 +235,7 @@ export function PaymentPanel({ booking, onUpdated }: PaymentPanelProps) {
       <DisclosureSection title="รายละเอียดหลักฐานเดิม" summary={booking.payment ? "มีหลักฐานที่เคยส่ง" : "ยังไม่มีหลักฐานเดิม"}>
         <div className="ledger-row"><span>รหัสคำขอ</span><strong>{booking.id}</strong></div>
         <div className="ledger-row"><span>เทรนเนอร์</span><strong>{booking.trainer.displayName}</strong></div>
-        <div className="ledger-row"><span>ค่าฝึกต่อครั้ง</span><strong>{formatAmount(booking.quotedPrice)}</strong></div>
+        <div className="ledger-row"><span>{booking.bookingType === "monthly" ? "ราคาแพ็กเกจ" : "ค่าฝึกต่อครั้ง"}</span><strong>{formatAmount(booking.quotedPrice)}</strong></div>
         <div className="ledger-row"><span>ยอดที่เคยส่ง</span><strong>{formatAmount(booking.payment?.amount ?? null)}</strong></div>
       </DisclosureSection>
     </section>

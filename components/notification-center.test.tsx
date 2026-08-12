@@ -61,6 +61,16 @@ function deferred<T>() {
 describe("NotificationCenter", () => {
   beforeEach(() => mockedRequest.mockReset());
 
+  it("starts with notification controls instead of a repeated page intro", async () => {
+    mockedRequest.mockResolvedValue(list([]));
+    render(<NotificationCenter />);
+
+    expect(screen.queryByRole("heading", { name: "การแจ้งเตือน" })).not.toBeInTheDocument();
+    expect(screen.queryByText("ติดตามการจอง การชำระเงิน และนัดหมายล่าสุด")).not.toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "ทำเครื่องหมายว่าอ่านแล้วทั้งหมด" })).toBeInTheDocument();
+    await screen.findByText("ยังไม่มีการแจ้งเตือนในหมวดนี้");
+  });
+
   it("shows a polite skeleton while loading", async () => {
     mockedRequest.mockImplementation(async () => {
       await new Promise((resolve) => setTimeout(resolve, 20));

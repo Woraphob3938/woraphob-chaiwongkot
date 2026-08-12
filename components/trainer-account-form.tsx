@@ -21,6 +21,8 @@ export function TrainerAccountForm({ profile, onSaved }: TrainerAccountFormProps
     headline: profile.trainer.headline, bio: profile.trainer.bio,
     yearsExperience: profile.trainer.yearsExperience.toString(), serviceMode: profile.trainer.serviceMode,
     gymName: profile.trainer.gymName ?? "", priceFrom: profile.trainer.priceFrom?.toString() ?? "",
+    monthlyPrice: profile.trainer.monthlyPrice?.toString() ?? "",
+    monthlySessionCount: profile.trainer.monthlySessionCount?.toString() ?? "",
   });
   const [selectedTypes, setSelectedTypes] = useState<number[]>(profile.trainer.trainingTypeIds);
   const [trainingTypes, setTrainingTypes] = useState<TrainingType[]>([]);
@@ -61,6 +63,12 @@ export function TrainerAccountForm({ profile, onSaved }: TrainerAccountFormProps
     if (selectedTypes.length === 0) nextFields.trainingTypeIds = "เลือกประเภทการฝึกอย่างน้อยหนึ่งรายการ";
     if (!Number.isInteger(Number(values.yearsExperience)) || Number(values.yearsExperience) < 0) nextFields.yearsExperience = "กรอกจำนวนปีตั้งแต่ศูนย์ขึ้นไป";
     if (values.priceFrom !== "" && Number(values.priceFrom) <= 0) nextFields.priceFrom = "ค่าฝึกต้องมากกว่าศูนย์";
+    if ((values.monthlyPrice === "") !== (values.monthlySessionCount === "")) {
+      if (values.monthlyPrice === "") nextFields.monthlyPrice = "กรอกราคาแพ็กเกจ 30 วัน";
+      if (values.monthlySessionCount === "") nextFields.monthlySessionCount = "กรอกจำนวนครั้งในแพ็กเกจ";
+    }
+    if (values.monthlyPrice !== "" && Number(values.monthlyPrice) <= 0) nextFields.monthlyPrice = "ราคาแพ็กเกจต้องมากกว่าศูนย์";
+    if (values.monthlySessionCount !== "" && (!Number.isInteger(Number(values.monthlySessionCount)) || Number(values.monthlySessionCount) < 2 || Number(values.monthlySessionCount) > 30)) nextFields.monthlySessionCount = "กรอกจำนวนครั้งตั้งแต่ 2 ถึง 30";
     if (Object.keys(nextFields).length > 0) {
       setFields(nextFields);
       return;
@@ -78,6 +86,8 @@ export function TrainerAccountForm({ profile, onSaved }: TrainerAccountFormProps
           headline: values.headline.trim(), bio: values.bio.trim(), yearsExperience: Number(values.yearsExperience),
           serviceMode: values.serviceMode, gymName: values.serviceMode === "freelance" ? "" : values.gymName.trim(),
           priceFrom: values.priceFrom === "" ? null : Number(values.priceFrom), trainingTypeIds: selectedTypes,
+          monthlyPrice: values.monthlyPrice === "" ? null : Number(values.monthlyPrice),
+          monthlySessionCount: values.monthlySessionCount === "" ? null : Number(values.monthlySessionCount),
         }),
       });
       onSaved(saved);
@@ -107,6 +117,8 @@ export function TrainerAccountForm({ profile, onSaved }: TrainerAccountFormProps
           <div className="field"><label htmlFor="trainer-service">รูปแบบการให้บริการ</label><NativeSelect className="profile-select" id="trainer-service" value={values.serviceMode} onChange={(event) => change("serviceMode", event.target.value)}><NativeSelectOption value="freelance">อิสระ</NativeSelectOption><NativeSelectOption value="gym">ประจำยิม</NativeSelectOption><NativeSelectOption value="both">อิสระและประจำยิม</NativeSelectOption></NativeSelect></div>
           {showGym && <div className="field"><label htmlFor="trainer-gym">ชื่อยิม</label><Input id="trainer-gym" required value={values.gymName} aria-invalid={Boolean(fields.gymName)} onChange={(event) => change("gymName", event.target.value)} />{fields.gymName && <small className="profile-field-error">{fields.gymName}</small>}</div>}
           <div className="field"><label htmlFor="trainer-price">ค่าฝึกเริ่มต้น (บาท)</label><Input id="trainer-price" type="number" min="0" step="0.01" value={values.priceFrom} onChange={(event) => change("priceFrom", event.target.value)} />{fields.priceFrom && <small className="profile-field-error">{fields.priceFrom}</small>}</div>
+          <div className="field"><label htmlFor="trainer-monthly-price">ราคาแพ็กเกจ 30 วัน (บาท)</label><Input id="trainer-monthly-price" type="number" min="0" step="0.01" value={values.monthlyPrice} onChange={(event) => change("monthlyPrice", event.target.value)} />{fields.monthlyPrice && <small className="profile-field-error">{fields.monthlyPrice}</small>}</div>
+          <div className="field"><label htmlFor="trainer-monthly-sessions">จำนวนครั้งในแพ็กเกจ</label><Input id="trainer-monthly-sessions" type="number" min="2" max="30" step="1" value={values.monthlySessionCount} onChange={(event) => change("monthlySessionCount", event.target.value)} />{fields.monthlySessionCount && <small className="profile-field-error">{fields.monthlySessionCount}</small>}</div>
           <fieldset className="field field--full profile-training-types"><legend>ประเภทการฝึก</legend>{trainingTypes.map((type) => <label key={type.id}><input type="checkbox" checked={selectedTypes.includes(type.id)} onChange={() => toggleType(type.id)} /> {type.nameTh}</label>)}{typeError && <small className="profile-field-error" role="alert">{typeError}</small>}{fields.trainingTypeIds && <small className="profile-field-error">{fields.trainingTypeIds}</small>}</fieldset>
         </div>
         <div className="profile-readonly-block"><div><span>สถานะการตรวจ</span><StatusBadge status={profile.trainer.approvalStatus} /></div>{profile.trainer.approvalNote && <p><strong>หมายเหตุจากผู้ดูแลระบบ</strong><span>{profile.trainer.approvalNote}</span></p>}<div className="profile-certificates"><strong>ใบรับรอง</strong>{profile.trainer.certificates.length === 0 ? <p>ยังไม่มีใบรับรอง</p> : <ul>{profile.trainer.certificates.map((certificate) => <li key={certificate.id}><span><strong>{certificate.name}</strong><small>{certificate.issuer}{certificate.issuedYear ? ` · ${certificate.issuedYear}` : ""}</small></span><StatusBadge status={certificate.status} /></li>)}</ul>}</div></div>

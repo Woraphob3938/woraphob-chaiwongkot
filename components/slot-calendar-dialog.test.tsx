@@ -106,4 +106,53 @@ describe("SlotCalendarDialog", () => {
     ).toHaveAttribute("aria-pressed", "true");
     expect(screen.getByRole("button", { name: "ยืนยันเวลานี้" })).toBeDisabled();
   });
+
+  it("confirms the exact number of sessions for a monthly package", () => {
+    const onConfirm = vi.fn();
+    render(
+      <SlotCalendarDialog
+        trainerName="เทรนเนอร์ทดสอบ"
+        slots={slots}
+        selectedSlots={[]}
+        selectionLimit={2}
+        onConfirm={onConfirm}
+      >
+        <Button type="button">เลือกเวลาในแพ็กเกจ</Button>
+      </SlotCalendarDialog>,
+    );
+
+    fireEvent.click(screen.getByRole("button", { name: "เลือกเวลาในแพ็กเกจ" }));
+    const dialog = screen.getByRole("dialog", { name: "เลือกวันและเวลาฝึกในแพ็กเกจ" });
+    const confirm = within(dialog).getByRole("button", { name: "ยืนยัน 2 ช่วงเวลา" });
+    expect(confirm).toBeDisabled();
+
+    fireEvent.click(within(dialog).getByRole("button", { name: "09:00 ถึง 10:00" }));
+    fireEvent.click(within(dialog).getByRole("button", { name: "17:00 ถึง 18:00" }));
+    expect(confirm).toBeEnabled();
+    fireEvent.click(confirm);
+
+    expect(onConfirm).toHaveBeenCalledWith([slots[0], slots[1]]);
+  });
+
+  it("keeps monthly sessions inside thirty days from the first session", () => {
+    const farSlot: AvailabilitySlot = {
+      id: 9,
+      startsAt: "2026-09-05T02:00:00.000Z",
+      endsAt: "2026-09-05T03:00:00.000Z",
+      available: true,
+    };
+    render(
+      <SlotCalendarDialog trainerName="เทรนเนอร์ทดสอบ" slots={[...slots, farSlot]} selectedSlots={[]} selectionLimit={2} onConfirm={vi.fn()}>
+        <Button type="button">เลือกเวลาในแพ็กเกจ</Button>
+      </SlotCalendarDialog>,
+    );
+
+    fireEvent.click(screen.getByRole("button", { name: "เลือกเวลาในแพ็กเกจ" }));
+    fireEvent.click(screen.getByRole("button", { name: "09:00 ถึง 10:00" }));
+    fireEvent.click(screen.getByRole("button", { name: "เดือนถัดไป" }));
+    fireEvent.click(screen.getByRole("button", { name: "09:00 ถึง 10:00" }));
+
+    expect(screen.getByRole("alert")).toHaveTextContent("เลือกช่วงเวลาภายใน 30 วันนับจากครั้งแรก");
+    expect(screen.getByText("เลือกแล้ว 1 จาก 2 ครั้ง")).toBeInTheDocument();
+  });
 });

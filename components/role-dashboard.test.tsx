@@ -80,6 +80,15 @@ describe("member role dashboard", () => {
     localStorage.setItem("fitconnect_token", "member-token");
   });
 
+  it("does not repeat the member page title above the actionable content", async () => {
+    vi.mocked(authenticatedRequest).mockResolvedValue([]);
+    render(<RoleDashboard role="member" />);
+
+    expect(screen.getByRole("heading", { name: "การฝึกของฉัน" })).toHaveClass("sr-only");
+    expect(screen.queryByText("ติดตามคำขอ นัดหมาย การชำระ และการสนทนาได้จากสถานะเดียวกัน")).not.toBeInTheDocument();
+    await screen.findByTestId("next-action");
+  });
+
   it("does not show demo explanations for bookings", async () => {
     vi.mocked(authenticatedRequest).mockResolvedValue([bookingFixture("BK-DEMO", { demo: true })]);
 
@@ -128,6 +137,31 @@ describe("member role dashboard", () => {
     expect(within(reviewSummary).getAllByRole("button", { name: "ส่งรีวิว" })).toHaveLength(1);
   });
 
+  it("refreshes a completed appointment when the member returns and reveals the review action", async () => {
+    const confirmed = bookingFixture("BK-JUST-DONE", {
+      status: "confirmed",
+      paymentStatus: "approved",
+    });
+    const completed = bookingFixture("BK-JUST-DONE", {
+      status: "completed",
+      paymentStatus: "approved",
+      actions: { ...bookingFixture("unused").actions, canReview: true },
+    });
+    vi.mocked(authenticatedRequest)
+      .mockResolvedValueOnce([confirmed])
+      .mockResolvedValueOnce([completed]);
+
+    render(<RoleDashboard role="member" />);
+    const summary = await screen.findByTestId("booking-summary");
+    expect(within(summary).getByText("ยืนยันการชำระแล้ว")).toBeInTheDocument();
+
+    fireEvent.focus(window);
+
+    await waitFor(() => expect(authenticatedRequest).toHaveBeenCalledTimes(2));
+    expect(within(summary).getByText("ฝึกเสร็จแล้ว")).toBeInTheDocument();
+    expect(within(summary).getByRole("button", { name: "ส่งรีวิว" })).toBeInTheDocument();
+  });
+
   it("explains an expired booking and never mounts the upload action", async () => {
     vi.mocked(authenticatedRequest).mockResolvedValue([bookingFixture("BK-EXPIRED", {
       status: "expired",
@@ -141,6 +175,29 @@ describe("member role dashboard", () => {
 
     expect(within(summary).getByText("การจองหมดเวลา ช่วงเวลานี้ถูกคืนแล้ว")).toBeInTheDocument();
     expect(within(summary).queryByLabelText("หลักฐานการโอน")).not.toBeInTheDocument();
+  });
+
+  it("shows every appointment inside a monthly package", async () => {
+    vi.mocked(authenticatedRequest).mockResolvedValue([bookingFixture("BK-MONTHLY", {
+      bookingType: "monthly",
+      sessionCount: 2,
+      periodStart: "2026-08-10T02:00:00.000Z",
+      periodEnd: "2026-09-09T02:00:00.000Z",
+      quotedPrice: 1800,
+      sessions: [
+        { id: 44, startsAt: "2026-08-10T02:00:00.000Z", endsAt: "2026-08-10T03:00:00.000Z" },
+        { id: 45, startsAt: "2026-08-17T02:00:00.000Z", endsAt: "2026-08-17T03:00:00.000Z" },
+      ],
+    })]);
+
+    render(<RoleDashboard role="member" />);
+    const summary = await screen.findByTestId("booking-summary");
+    fireEvent.click(within(summary).getByText("ดูรายละเอียด"));
+
+    expect(within(summary).getByText("แพ็กเกจ 30 วัน · 2 ครั้ง")).toBeInTheDocument();
+    expect(within(summary).getAllByText("จันทร์ 10 ส.ค. · 09:00 น.").length).toBeGreaterThan(0);
+    expect(within(summary).getByText("จันทร์ 17 ส.ค. · 09:00 น.")).toBeInTheDocument();
+    expect(within(summary).getByText("ราคาแพ็กเกจ")).toBeInTheDocument();
   });
 
   it("confirms an unpaid cancellation and reloads the member ledger", async () => {

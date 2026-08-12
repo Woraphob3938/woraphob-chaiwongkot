@@ -85,6 +85,8 @@ export type TrainerAccountProfile = {
     serviceMode: "freelance" | "gym" | "both";
     gymName: string | null;
     priceFrom: number | null;
+    monthlyPrice?: number | null;
+    monthlySessionCount?: number | null;
     trainingTypeIds: number[];
     approvalStatus: TrainerApprovalStatus;
     approvalNote: string | null;
@@ -194,6 +196,8 @@ export type Trainer = {
   serviceMode: "freelance" | "gym" | "both";
   gymName?: string;
   priceFrom?: number | null;
+  monthlyPrice?: number | null;
+  monthlySessionCount?: number | null;
   rating?: number;
   reviewCount: number;
   reviews?: PublicTrainerReview[];
@@ -297,6 +301,11 @@ export type Booking = {
   trainer: Pick<Trainer, "id" | "displayName" | "slug">;
   startsAt: string;
   endsAt: string;
+  bookingType?: "single" | "monthly";
+  sessionCount?: number;
+  periodStart?: string | null;
+  periodEnd?: string | null;
+  sessions?: Array<{ id: number; startsAt: string; endsAt: string }>;
   status: BookingStatus;
   paymentStatus: "not_submitted" | "reviewing" | "approved" | "rejected";
   paymentDeadlineAt: string | null;

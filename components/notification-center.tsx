@@ -212,11 +212,7 @@ export function NotificationCenter() {
 
   return (
     <section className="notification-center" data-detail-open={selectedId !== null}>
-      <header className="notification-center__header">
-        <div>
-          <h2>การแจ้งเตือน</h2>
-          <p>ติดตามการจอง การชำระเงิน และนัดหมายล่าสุด</p>
-        </div>
+      <div className="notification-center__actions">
         <Button
           type="button"
           variant="outline"
@@ -226,7 +222,7 @@ export function NotificationCenter() {
           <CheckCheck aria-hidden="true" />
           {markingAll ? "กำลังอัปเดต…" : "ทำเครื่องหมายว่าอ่านแล้วทั้งหมด"}
         </Button>
-      </header>
+      </div>
 
       <p className="sr-only" aria-live="polite">{announcement}</p>
 

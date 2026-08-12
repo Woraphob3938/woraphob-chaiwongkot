@@ -40,7 +40,7 @@ final class Handlers
         $this->expireAwaitingPayments();
         $rows = $this->database->fetchAll(
             'SELECT tp.id, tp.user_id, tp.slug, tp.headline, tp.bio, tp.years_experience, tp.service_mode,
-                    tp.gym_name, tp.price_from, tp.approval_status, tp.image_path, tp.is_demo,
+                    tp.gym_name, tp.price_from, tp.monthly_price, tp.monthly_session_count, tp.approval_status, tp.image_path, tp.is_demo,
                     u.display_name,
                     AVG(CASE WHEN review_booking.id IS NOT NULL THEN r.rating END) AS rating,
                     COUNT(review_booking.id) AS review_count
@@ -144,9 +144,9 @@ final class Handlers
     {
         $user = $this->auth->requireUser(['trainer']);
         $input = Http::body();
-        Http::requireFields($input, ['startsAt', 'endsAt']);
+        Http::requireFields($input, ['startsAt']);
         $startsAt = WorkflowRules::parseUtc((string) $input['startsAt'], 'startsAt');
-        $endsAt = WorkflowRules::parseUtc((string) $input['endsAt'], 'endsAt');
+        $endsAt = WorkflowRules::availabilityEnd($startsAt);
         WorkflowRules::assertAvailabilityWindow(
             new DateTimeImmutable('now', new DateTimeZone('UTC')),
             $startsAt,
@@ -308,12 +308,13 @@ final class Handlers
                 $pdo->prepare(
                     'UPDATE trainer_profiles
                      SET legal_name = ?, phone = ?, headline = ?, bio = ?, years_experience = ?,
-                         service_mode = ?, gym_name = ?, price_from = ?, updated_at = UTC_TIMESTAMP()
+                         service_mode = ?, gym_name = ?, price_from = ?, monthly_price = ?, monthly_session_count = ?, updated_at = UTC_TIMESTAMP()
                      WHERE id = ?'
                 )->execute([
                     $profile['legalName'], self::blankToNull($profile['phone']), self::blankToNull($profile['headline']),
                     self::blankToNull($profile['bio']), $profile['yearsExperience'], $profile['serviceMode'],
                     $profile['serviceMode'] === 'freelance' ? null : $profile['gymName'], $profile['priceFrom'],
+                    $profile['monthlyPrice'], $profile['monthlySessionCount'],
                     (int) $trainerProfile['id'],
                 ]);
                 $pdo->prepare('DELETE FROM trainer_training_types WHERE trainer_profile_id = ?')
@@ -549,7 +550,8 @@ final class Handlers
             $params[] = $user['id'];
         }
         $rows = $this->database->fetchAll(
-            'SELECT b.public_id, b.starts_at, b.ends_at, b.member_note,
+            'SELECT b.id AS booking_db_id, b.public_id, b.starts_at, b.ends_at, b.member_note,
+                    b.booking_type, b.session_count, b.period_start, b.period_end,
                     b.status, b.payment_status, b.payment_deadline_at, b.quoted_price, b.created_at, b.is_demo,
                     tp.id AS trainer_id, tp.slug,
                     trainer_user.display_name AS trainer_name,
@@ -574,8 +576,31 @@ final class Handlers
              $where . ' ORDER BY b.created_at DESC LIMIT 100',
             $params
         );
+        $sessionsByBooking = [];
+        if ($rows !== []) {
+            $bookingIds = array_map(fn(array $row): int => (int) $row['booking_db_id'], $rows);
+            $placeholders = implode(',', array_fill(0, count($bookingIds), '?'));
+            $sessions = $this->database->fetchAll(
+                'SELECT booking_id, availability_slot_id, starts_at, ends_at
+                 FROM booking_sessions
+                 WHERE booking_id IN (' . $placeholders . ')
+                 ORDER BY booking_id, starts_at, id',
+                $bookingIds
+            );
+            foreach ($sessions as $session) {
+                $sessionsByBooking[(int) $session['booking_id']][] = [
+                    'id' => $session['availability_slot_id'] === null ? 0 : (int) $session['availability_slot_id'],
+                    'startsAt' => $this->iso($session['starts_at']),
+                    'endsAt' => $this->iso($session['ends_at']),
+                ];
+            }
+        }
         Http::json(array_map(
-            fn(array $row): array => $this->bookingPayload($row, (string) $user['role']),
+            fn(array $row): array => $this->bookingPayload(
+                $row,
+                (string) $user['role'],
+                $sessionsByBooking[(int) $row['booking_db_id']] ?? []
+            ),
             $rows
         ));
     }
@@ -584,50 +609,102 @@ final class Handlers
     {
         $user = $this->auth->requireUser(['member']);
         $input = Http::body();
-        Http::requireFields($input, ['trainerId', 'slotId']);
+        Http::requireFields($input, ['trainerId']);
+        $bookingType = (string) ($input['bookingType'] ?? 'single');
+        if (!in_array($bookingType, ['single', 'monthly'], true)) {
+            throw new HttpException(422, 'รูปแบบการจองไม่ถูกต้อง', 'VALIDATION_FAILED', ['bookingType' => 'เลือกการจองรายครั้งหรือแพ็กเกจ 30 วัน']);
+        }
+        if ($bookingType === 'monthly') {
+            if (!is_array($input['slotIds'] ?? null)) {
+                throw new HttpException(422, 'กรุณาเลือกเวลาในแพ็กเกจ', 'VALIDATION_FAILED', ['slotIds' => 'เลือกเวลาตามจำนวนครั้งในแพ็กเกจ']);
+            }
+            $slotIds = array_values(array_unique(array_map('intval', $input['slotIds'])));
+            if ($slotIds === [] || in_array(0, $slotIds, true)) {
+                throw new HttpException(422, 'ช่วงเวลาที่เลือกไม่ถูกต้อง', 'VALIDATION_FAILED', ['slotIds' => 'เลือกช่วงเวลาที่เปิดให้จอง']);
+            }
+        } else {
+            Http::requireFields($input, ['slotId']);
+            $slotIds = [(int) $input['slotId']];
+        }
         $publicId = 'BK-' . strtoupper(bin2hex(random_bytes(4)));
         $notificationIds = [];
 
-        $booking = $this->database->transaction(function (PDO $pdo) use ($user, $input, $publicId, &$notificationIds): array {
-            $this->expireAwaitingPaymentsInTransaction($pdo, (int) $input['slotId'], $notificationIds);
+        $booking = $this->database->transaction(function (PDO $pdo) use ($user, $input, $publicId, $bookingType, $slotIds, &$notificationIds): array {
+            $this->expireAwaitingPaymentsInTransaction($pdo, null, $notificationIds);
+            $placeholders = implode(',', array_fill(0, count($slotIds), '?'));
             $statement = $pdo->prepare(
                 'SELECT s.id, s.trainer_profile_id, s.starts_at, s.ends_at, s.state,
-                        tp.approval_status, tp.price_from, trainer_user.status AS trainer_user_status
+                        tp.approval_status, tp.price_from, tp.monthly_price, tp.monthly_session_count,
+                        trainer_user.status AS trainer_user_status
                  FROM availability_slots s
                  JOIN trainer_profiles tp ON tp.id = s.trainer_profile_id
                  JOIN users trainer_user ON trainer_user.id = tp.user_id
-                 WHERE s.id = ? AND s.trainer_profile_id = ? FOR UPDATE'
+                 WHERE s.id IN (' . $placeholders . ') AND s.trainer_profile_id = ?
+                 ORDER BY s.starts_at, s.id FOR UPDATE'
             );
-            $statement->execute([(int) $input['slotId'], (int) $input['trainerId']]);
-            $slot = $statement->fetch();
-            if (
-                !$slot
-                || $slot['state'] !== 'available'
-                || $slot['approval_status'] !== 'approved'
-                || $slot['trainer_user_status'] !== 'active'
-                || strtotime($slot['starts_at'] . ' UTC') <= time()
-            ) {
-                throw new HttpException(409, 'ช่วงเวลานี้ไม่พร้อมจองแล้ว', 'SLOT_UNAVAILABLE');
+            $statement->execute([...$slotIds, (int) $input['trainerId']]);
+            $slots = $statement->fetchAll();
+            if (count($slots) !== count($slotIds)) {
+                throw new HttpException(409, 'มีช่วงเวลาที่ไม่พร้อมจองแล้ว', 'SLOT_UNAVAILABLE');
             }
-            if ($slot['price_from'] === null || (float) $slot['price_from'] <= 0) {
-                throw new HttpException(409, 'เทรนเนอร์ยังไม่ได้กำหนดค่าฝึก', 'TRAINER_PRICE_UNAVAILABLE');
+            foreach ($slots as $slot) {
+                if (
+                    $slot['state'] !== 'available'
+                    || $slot['approval_status'] !== 'approved'
+                    || $slot['trainer_user_status'] !== 'active'
+                    || strtotime($slot['starts_at'] . ' UTC') <= time()
+                ) {
+                    throw new HttpException(409, 'มีช่วงเวลาที่ไม่พร้อมจองแล้ว', 'SLOT_UNAVAILABLE');
+                }
+            }
+            $firstSlot = $slots[0];
+            $lastSlot = $slots[count($slots) - 1];
+            if ($bookingType === 'monthly') {
+                $sessionCount = (int) ($firstSlot['monthly_session_count'] ?? 0);
+                WorkflowRules::assertMonthlyBookingSlots($slots, $sessionCount);
+                if ($firstSlot['monthly_price'] === null || (float) $firstSlot['monthly_price'] <= 0) {
+                    throw new HttpException(409, 'เทรนเนอร์ยังไม่ได้กำหนดราคาแพ็กเกจ', 'TRAINER_PRICE_UNAVAILABLE');
+                }
+                $quotedPrice = $firstSlot['monthly_price'];
+                $periodStart = $firstSlot['starts_at'];
+                $periodEnd = (new DateTimeImmutable((string) $periodStart, new DateTimeZone('UTC')))
+                    ->modify('+30 days')->format('Y-m-d H:i:s');
+            } else {
+                $sessionCount = 1;
+                if ($firstSlot['price_from'] === null || (float) $firstSlot['price_from'] <= 0) {
+                    throw new HttpException(409, 'เทรนเนอร์ยังไม่ได้กำหนดค่าฝึก', 'TRAINER_PRICE_UNAVAILABLE');
+                }
+                $quotedPrice = $firstSlot['price_from'];
+                $periodStart = null;
+                $periodEnd = null;
             }
             $insert = $pdo->prepare(
                 'INSERT INTO bookings
                  (public_id, member_user_id, trainer_profile_id, availability_slot_id,
-                  starts_at, ends_at, member_note, quoted_price, status, payment_status,
-                  payment_deadline_at)
-                 VALUES (?, ?, ?, ?, ?, ?, ?, ?, "awaiting_payment", "not_submitted",
+                  starts_at, ends_at, member_note, booking_type, session_count, period_start,
+                  period_end, quoted_price, status, payment_status, payment_deadline_at)
+                 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, "awaiting_payment", "not_submitted",
                          DATE_ADD(UTC_TIMESTAMP(), INTERVAL 10 MINUTE))'
             );
             $insert->execute([
-                $publicId, $user['id'], (int) $input['trainerId'], (int) $input['slotId'], $slot['starts_at'], $slot['ends_at'],
-                trim((string) ($input['note'] ?? '')), $slot['price_from'],
+                $publicId, $user['id'], (int) $input['trainerId'], (int) $firstSlot['id'],
+                $firstSlot['starts_at'], $lastSlot['ends_at'], trim((string) ($input['note'] ?? '')),
+                $bookingType, $sessionCount, $periodStart, $periodEnd, $quotedPrice,
             ]);
             $bookingId = (int) $pdo->lastInsertId();
-            $pdo->prepare('UPDATE availability_slots SET state = "held" WHERE id = ?')->execute([(int) $input['slotId']]);
-            $pdo->prepare('INSERT INTO booking_status_history (booking_id, from_status, to_status, changed_by_user_id, note) VALUES (?, NULL, "awaiting_payment", ?, "สมาชิกจองและเริ่มช่วงชำระเงิน 10 นาที")')
-                ->execute([$bookingId, $user['id']]);
+            $insertSession = $pdo->prepare(
+                'INSERT INTO booking_sessions (booking_id, availability_slot_id, starts_at, ends_at) VALUES (?, ?, ?, ?)'
+            );
+            $holdSlot = $pdo->prepare('UPDATE availability_slots SET state = "held" WHERE id = ?');
+            foreach ($slots as $slot) {
+                $insertSession->execute([$bookingId, $slot['id'], $slot['starts_at'], $slot['ends_at']]);
+                $holdSlot->execute([$slot['id']]);
+            }
+            $historyNote = $bookingType === 'monthly'
+                ? "สมาชิกจองแพ็กเกจ {$sessionCount} ครั้งและเริ่มช่วงชำระเงิน 10 นาที"
+                : 'สมาชิกจองและเริ่มช่วงชำระเงิน 10 นาที';
+            $pdo->prepare('INSERT INTO booking_status_history (booking_id, from_status, to_status, changed_by_user_id, note) VALUES (?, NULL, "awaiting_payment", ?, ?)')
+                ->execute([$bookingId, $user['id'], $historyNote]);
             $pdo->prepare('INSERT INTO chat_rooms (booking_id) VALUES (?)')->execute([$bookingId]);
             $created = $pdo->prepare('SELECT payment_deadline_at FROM bookings WHERE id = ?');
             $created->execute([$bookingId]);
@@ -640,7 +717,9 @@ final class Handlers
             return [
                 'id' => $publicId,
                 'status' => 'awaiting_payment',
-                'quotedPrice' => (float) $slot['price_from'],
+                'bookingType' => $bookingType,
+                'sessionCount' => $sessionCount,
+                'quotedPrice' => (float) $quotedPrice,
                 'paymentDeadlineAt' => $this->iso($createdBooking['payment_deadline_at']),
             ];
         });
@@ -679,10 +758,7 @@ final class Handlers
                      cancellation_reason = ?, updated_at = UTC_TIMESTAMP()
                  WHERE id = ?'
             )->execute([$reason, $booking['id']]);
-            if ($booking['availability_slot_id'] !== null) {
-                $pdo->prepare('UPDATE availability_slots SET state = "available" WHERE id = ? AND state = "held"')
-                    ->execute([$booking['availability_slot_id']]);
-            }
+            $this->setBookingSlotsState($pdo, (int) $booking['id'], $booking['availability_slot_id'], 'available');
             $pdo->prepare(
                 'INSERT INTO booking_status_history
                  (booking_id, from_status, to_status, changed_by_user_id, note)
@@ -760,9 +836,8 @@ final class Handlers
                 ->execute([$newStatus, $booking['id']]);
             $pdo->prepare('INSERT INTO booking_status_history (booking_id, from_status, to_status, changed_by_user_id, note) VALUES (?, ?, ?, ?, ?)')
                 ->execute([$booking['id'], $booking['status'], $newStatus, $user['id'], trim((string) ($input['note'] ?? ''))]);
-            if ($slotState !== null && $booking['availability_slot_id'] !== null) {
-                $pdo->prepare('UPDATE availability_slots SET state = ? WHERE id = ?')
-                    ->execute([$slotState, $booking['availability_slot_id']]);
+            if ($slotState !== null) {
+                $this->setBookingSlotsState($pdo, (int) $booking['id'], $booking['availability_slot_id'], $slotState);
             }
             if ($newStatus === 'cancelled') {
                 $notificationIds = array_merge($notificationIds, $this->notifications->recordEvent(
@@ -1281,7 +1356,7 @@ final class Handlers
             );
             $incomeTotal = (int) ($incomeCount['total'] ?? 0);
             $incomeRows = $this->database->fetchAll(
-                'SELECT tp.id AS trainer_id, u.display_name AS trainer_name, COUNT(pay.id) AS paid_sessions,
+                'SELECT tp.id AS trainer_id, u.display_name AS trainer_name, SUM(b.session_count) AS paid_sessions,
                         COALESCE(SUM(COALESCE(pay.amount, b.quoted_price, 0)), 0) AS revenue
                  FROM payments pay
                  JOIN bookings b ON b.id = pay.booking_id
@@ -1625,10 +1700,7 @@ final class Handlers
                 ]);
             $pdo->prepare('INSERT INTO booking_status_history (booking_id, from_status, to_status, changed_by_user_id, note) VALUES (?, ?, ?, ?, ?)')
                 ->execute([$payment['booking_id'], $payment['booking_status'], $bookingStatus, $admin['id'], $note]);
-            if ($payment['availability_slot_id'] !== null) {
-                $pdo->prepare('UPDATE availability_slots SET state = ? WHERE id = ?')
-                    ->execute([$slotState, $payment['availability_slot_id']]);
-            }
+            $this->setBookingSlotsState($pdo, (int) $payment['booking_id'], $payment['availability_slot_id'], $slotState);
             $event = $decision === 'approve'
                 ? NotificationRules::PAYMENT_APPROVED
                 : ($bookingStatus === 'awaiting_payment'
@@ -1787,10 +1859,7 @@ final class Handlers
         foreach ($expired as $booking) {
             $pdo->prepare('UPDATE bookings SET status = "expired", updated_at = UTC_TIMESTAMP() WHERE id = ?')
                 ->execute([$booking['id']]);
-            if ($booking['availability_slot_id'] !== null) {
-                $pdo->prepare('UPDATE availability_slots SET state = "available" WHERE id = ? AND state = "held"')
-                    ->execute([$booking['availability_slot_id']]);
-            }
+            $this->setBookingSlotsState($pdo, (int) $booking['id'], $booking['availability_slot_id'], 'available');
             $pdo->prepare('INSERT INTO booking_status_history (booking_id, from_status, to_status, changed_by_user_id, note) VALUES (?, "awaiting_payment", "expired", NULL, "หมดเวลาส่งหลักฐานการชำระ")')
                 ->execute([$booking['id']]);
             $createdIds = $this->notifications->recordEvent(
@@ -1804,6 +1873,20 @@ final class Handlers
         }
 
         return $expired;
+    }
+
+    private function setBookingSlotsState(PDO $pdo, int $bookingId, mixed $fallbackSlotId, string $state): void
+    {
+        $pdo->prepare(
+            'UPDATE availability_slots s
+             JOIN booking_sessions bs ON bs.availability_slot_id = s.id
+             SET s.state = ?
+             WHERE bs.booking_id = ?'
+        )->execute([$state, $bookingId]);
+        if ($fallbackSlotId !== null) {
+            $pdo->prepare('UPDATE availability_slots SET state = ? WHERE id = ?')
+                ->execute([$state, $fallbackSlotId]);
+        }
     }
 
     private function bookingNotificationContext(
@@ -1875,7 +1958,8 @@ final class Handlers
 
         $row = $this->database->fetchOne(
             'SELECT u.display_name, u.email, tp.id, tp.legal_name, tp.phone, tp.headline, tp.bio,
-                    tp.years_experience, tp.service_mode, tp.gym_name, tp.price_from, tp.image_path,
+                    tp.years_experience, tp.service_mode, tp.gym_name, tp.price_from, tp.monthly_price,
+                    tp.monthly_session_count, tp.image_path,
                     tp.approval_status, tp.approval_note
              FROM users u JOIN trainer_profiles tp ON tp.user_id = u.id WHERE u.id = ?',
             [$user['id']]
@@ -1907,6 +1991,8 @@ final class Handlers
                 'serviceMode' => $row['service_mode'],
                 'gymName' => $row['gym_name'],
                 'priceFrom' => $row['price_from'] === null ? null : (float) $row['price_from'],
+                'monthlyPrice' => $row['monthly_price'] === null ? null : (float) $row['monthly_price'],
+                'monthlySessionCount' => $row['monthly_session_count'] === null ? null : (int) $row['monthly_session_count'],
                 'trainingTypeIds' => array_map(fn(array $type): int => (int) $type['training_type_id'], $types),
                 'approvalStatus' => $row['approval_status'],
                 'approvalNote' => $row['approval_note'],
@@ -1940,7 +2026,7 @@ final class Handlers
     {
         return $this->database->fetchOne(
             'SELECT tp.id, tp.user_id, tp.slug, tp.headline, tp.bio, tp.years_experience, tp.service_mode,
-                    tp.gym_name, tp.price_from, tp.approval_status, tp.image_path, tp.is_demo,
+                    tp.gym_name, tp.price_from, tp.monthly_price, tp.monthly_session_count, tp.approval_status, tp.image_path, tp.is_demo,
                     u.display_name,
                     AVG(CASE WHEN review_booking.id IS NOT NULL THEN r.rating END) AS rating,
                     COUNT(review_booking.id) AS review_count
@@ -1985,6 +2071,8 @@ final class Handlers
             'serviceMode' => $row['service_mode'],
             'gymName' => $row['gym_name'],
             'priceFrom' => $row['price_from'] === null ? null : (float) $row['price_from'],
+            'monthlyPrice' => $row['monthly_price'] === null ? null : (float) $row['monthly_price'],
+            'monthlySessionCount' => $row['monthly_session_count'] === null ? null : (int) $row['monthly_session_count'],
             'rating' => $row['rating'] === null ? null : round((float) $row['rating'], 1),
             'reviewCount' => (int) $row['review_count'],
             'verification' => $row['approval_status'] === 'approved' ? 'verified' : $row['approval_status'],
@@ -2001,7 +2089,7 @@ final class Handlers
         ];
     }
 
-    private function bookingPayload(array $row, string $role): array
+    private function bookingPayload(array $row, string $role, array $sessions = []): array
     {
         $acceptedStatuses = ['awaiting_payment', 'payment_review', 'confirmed', 'completed'];
         $isMember = $role === 'member';
@@ -2014,6 +2102,15 @@ final class Handlers
             'trainer' => ['id' => (int) $row['trainer_id'], 'displayName' => $row['trainer_name'], 'slug' => $row['slug']],
             'member' => ['displayName' => $row['member_name']],
             'startsAt' => $this->iso($row['starts_at']), 'endsAt' => $this->iso($row['ends_at']),
+            'bookingType' => $row['booking_type'] ?? 'single',
+            'sessionCount' => (int) ($row['session_count'] ?? 1),
+            'periodStart' => ($row['period_start'] ?? null) === null ? null : $this->iso($row['period_start']),
+            'periodEnd' => ($row['period_end'] ?? null) === null ? null : $this->iso($row['period_end']),
+            'sessions' => $sessions !== [] ? $sessions : [[
+                'id' => 0,
+                'startsAt' => $this->iso($row['starts_at']),
+                'endsAt' => $this->iso($row['ends_at']),
+            ]],
             'note' => $row['member_note'] ?? '',
             'status' => $row['status'], 'paymentStatus' => $row['payment_status'], 'createdAt' => $this->iso($row['created_at']),
             'paymentDeadlineAt' => $row['payment_deadline_at'] === null ? null : $this->iso($row['payment_deadline_at']),

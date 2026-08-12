@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { useEffect, useRef } from "react";
+import { useEffect, useRef, useState } from "react";
 import { ArrowRight, CalendarDays, Clock3, ShieldCheck } from "lucide-react";
 import { SlotCalendarDialog } from "@/components/slot-calendar-dialog";
 import { Button } from "@/components/ui/button";
@@ -15,9 +15,21 @@ type Props = {
 };
 
 export function ProfileBookingPanel({ trainer, selectedSlot, onSelectSlot }: Props) {
+  const [bookingType, setBookingType] = useState<"single" | "monthly">("single");
+  const [monthlySlots, setMonthlySlots] = useState<AvailabilitySlot[]>([]);
   const availableSlots = trainer.slots.filter((slot) => slot.available);
   const hasPrice = typeof trainer.priceFrom === "number" && trainer.priceFrom > 0;
-  const canBook = trainer.verification === "verified" && hasPrice && selectedSlot;
+  const monthlyAvailable = typeof trainer.monthlyPrice === "number"
+    && trainer.monthlyPrice > 0
+    && typeof trainer.monthlySessionCount === "number"
+    && trainer.monthlySessionCount >= 2;
+  const isMonthly = bookingType === "monthly";
+  const hasSelectedTimes = isMonthly
+    ? monthlySlots.length === trainer.monthlySessionCount
+    : Boolean(selectedSlot);
+  const canBook = trainer.verification === "verified"
+    && (isMonthly ? monthlyAvailable : hasPrice)
+    && hasSelectedTimes;
   const changeTimeButtonRef = useRef<HTMLButtonElement>(null);
   const previousSlotId = useRef(selectedSlot?.id ?? null);
 
@@ -36,20 +48,52 @@ export function ProfileBookingPanel({ trainer, selectedSlot, onSelectSlot }: Pro
         <p>เลือกช่วงที่ว่าง แล้วตรวจรายละเอียดอีกครั้งก่อนเริ่มจับเวลา</p>
       </div>
 
+      <div className="profile-booking-types" role="group" aria-label="รูปแบบการจอง">
+        <Button type="button" variant={isMonthly ? "outline" : "default"} onClick={() => setBookingType("single")}>รายครั้ง</Button>
+        <Button type="button" variant={isMonthly ? "default" : "outline"} disabled={!monthlyAvailable} onClick={() => setBookingType("monthly")}>แพ็กเกจ 30 วัน</Button>
+      </div>
+
       <dl className="profile-booking-price">
         <div>
-          <dt>ค่าฝึกต่อครั้ง</dt>
-          <dd>{hasPrice ? formatMoney(trainer.priceFrom as number) : "—"}</dd>
+          <dt>{isMonthly ? "ราคาแพ็กเกจ" : "ค่าฝึกต่อครั้ง"}</dt>
+          <dd>{isMonthly
+            ? (monthlyAvailable ? formatMoney(trainer.monthlyPrice as number) : "—")
+            : (hasPrice ? formatMoney(trainer.priceFrom as number) : "—")}</dd>
         </div>
       </dl>
 
-      {!hasPrice && (
+      {isMonthly && monthlyAvailable && (
+        <p className="profile-booking-package-facts">
+          {trainer.monthlySessionCount} ครั้ง ภายใน 30 วัน
+        </p>
+      )}
+
+      {!isMonthly && !hasPrice && (
         <p className="profile-booking-warning" role="status">
           เทรนเนอร์ยังไม่ได้กำหนดค่าฝึก
         </p>
       )}
 
-      {selectedSlot ? (
+      {isMonthly ? (
+        <div className="profile-booking-selection" aria-live="polite">
+          <CalendarDays aria-hidden="true" size={18} />
+          <span>
+            <strong>{monthlySlots.length === trainer.monthlySessionCount ? "เลือกเวลาครบแล้ว" : "เลือกเวลาในแพ็กเกจ"}</strong>
+            {monthlySlots.length} จาก {trainer.monthlySessionCount ?? 0} ครั้ง
+          </span>
+          {monthlyAvailable && (
+            <SlotCalendarDialog
+              trainerName={trainer.displayName}
+              slots={availableSlots}
+              selectedSlots={monthlySlots}
+              selectionLimit={trainer.monthlySessionCount as number}
+              onConfirm={setMonthlySlots}
+            >
+              <Button type="button" variant="outline">{monthlySlots.length > 0 ? "เปลี่ยนเวลา" : "เลือกเวลาในแพ็กเกจ"}</Button>
+            </SlotCalendarDialog>
+          )}
+        </div>
+      ) : selectedSlot ? (
         <div className="profile-booking-selection" aria-live="polite">
           <Clock3 aria-hidden="true" size={18} />
           <span>
@@ -101,17 +145,23 @@ export function ProfileBookingPanel({ trainer, selectedSlot, onSelectSlot }: Pro
 
       {canBook ? (
         <Button className="button button--accent button--wide" asChild>
-          <Link href={`/booking?trainer=${trainer.slug}&slot=${selectedSlot.id}`}>
-            จองเวลานี้ <ArrowRight aria-hidden="true" size={18} />
+          <Link href={isMonthly
+            ? `/booking?trainer=${trainer.slug}&type=monthly&slots=${encodeURIComponent(monthlySlots.map((slot) => slot.id).join(","))}`
+            : `/booking?trainer=${trainer.slug}&slot=${selectedSlot?.id}`}>
+            {isMonthly ? "จองแพ็กเกจนี้" : "จองเวลานี้"} <ArrowRight aria-hidden="true" size={18} />
           </Link>
         </Button>
       ) : (
         <Button className="button button--wide" type="button" disabled>
-          {!hasPrice
+          {isMonthly && !monthlyAvailable
+            ? "ยังไม่มีแพ็กเกจรายเดือน"
+            : !isMonthly && !hasPrice
             ? "ยังจองไม่ได้"
             : trainer.verification !== "verified"
               ? "รอตรวจคุณสมบัติ"
-              : "เลือกเวลาก่อน"}
+              : isMonthly
+                ? "เลือกเวลาให้ครบ"
+                : "เลือกเวลาก่อน"}
         </Button>
       )}
     </aside>

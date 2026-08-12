@@ -27,7 +27,7 @@ npm run dev
 1. เปิด Apache และ MySQL ใน XAMPP Control Panel
 2. คัดลอก `backend/.env.example` เป็น `backend/.env` หากต้องเปลี่ยนค่าฐานข้อมูล
 3. รัน `npm run xampp:connect`
-4. หากเป็นฐานข้อมูลเดิม รัน `npm run migrate:admin-permissions` คำสั่งนี้ให้สิทธิ์ผู้ดูแลระบบเดิมที่ยังไม่มีรายการสิทธิ์ครบทั้ง 4 ด้าน เพื่อไม่ให้บัญชีเดิมใช้งานสะดุด จากนั้นต้องเข้าเมนู **ผู้ดูแลระบบ** เพื่อตรวจและลดสิทธิ์แต่ละบัญชีให้เหลือเท่าที่จำเป็น
+4. หากเป็นฐานข้อมูลเดิม รัน `npm run migrate:admin-permissions` และ `npm run migrate:monthly-bookings` คำสั่งแรกให้สิทธิ์ผู้ดูแลระบบเดิมที่ยังไม่มีรายการสิทธิ์ครบทั้ง 4 ด้าน จึงต้องเข้าเมนู **ผู้ดูแลระบบ** เพื่อตรวจและลดสิทธิ์ให้เหลือเท่าที่จำเป็น
 5. เปิด `http://localhost/fitconnect-api/v1/health`
 
 สคริปต์ตรวจสอบตำแหน่งทั้งหมดก่อนทำงานและจะไม่เขียนทับ `C:\xampp\htdocs\fitconnect-api` หากมีของเดิมอยู่แล้ว
@@ -113,6 +113,12 @@ npm run smoke:admin-operations
 
 ```powershell
 npm run smoke:notifications
+```
+
+ตรวจแพ็กเกจ 30 วันแบบหนึ่งการจองและหนึ่งเส้นตายชำระเงิน รวมถึงการคืนทุกช่วงเวลาเมื่อสมาชิกยกเลิกหรือหมดเวลา:
+
+```powershell
+npm run smoke:monthly-booking
 ```
 
 ผลรอบล่าสุดอยู่ใน `output/smoke/instant-booking-result.json` และตรวจข้อมูลใน phpMyAdmin/MySQL ต่อได้ด้วย:

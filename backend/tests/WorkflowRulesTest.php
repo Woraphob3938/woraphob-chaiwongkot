@@ -146,6 +146,34 @@ test('rejects money with more than two decimal places', function (): void {
     expectHttp(422, 'VALIDATION_FAILED', fn() => WorkflowRules::normalizeMoney('1200.555', 'amount'));
 });
 
+test('sets every availability slot to one hour', function (): void {
+    $startsAt = new DateTimeImmutable('2026-08-10T02:00:00.000Z');
+    assertSameValue('2026-08-10 03:00:00', WorkflowRules::availabilityEnd($startsAt)->format('Y-m-d H:i:s'));
+});
+
+test('accepts the agreed monthly sessions inside thirty days', function (): void {
+    WorkflowRules::assertMonthlyBookingSlots([
+        ['id' => 11, 'starts_at' => '2026-08-03 02:00:00', 'ends_at' => '2026-08-03 03:00:00'],
+        ['id' => 12, 'starts_at' => '2026-08-10 02:00:00', 'ends_at' => '2026-08-10 03:00:00'],
+        ['id' => 13, 'starts_at' => '2026-08-17 02:00:00', 'ends_at' => '2026-08-17 03:00:00'],
+        ['id' => 14, 'starts_at' => '2026-08-24 02:00:00', 'ends_at' => '2026-08-24 03:00:00'],
+    ], 4);
+});
+
+test('rejects a monthly booking with the wrong session count', function (): void {
+    expectHttp(422, 'VALIDATION_FAILED', fn() => WorkflowRules::assertMonthlyBookingSlots([
+        ['id' => 11, 'starts_at' => '2026-08-03 02:00:00', 'ends_at' => '2026-08-03 03:00:00'],
+        ['id' => 12, 'starts_at' => '2026-08-10 02:00:00', 'ends_at' => '2026-08-10 03:00:00'],
+    ], 4));
+});
+
+test('rejects monthly sessions outside the thirty day period', function (): void {
+    expectHttp(422, 'VALIDATION_FAILED', fn() => WorkflowRules::assertMonthlyBookingSlots([
+        ['id' => 11, 'starts_at' => '2026-08-03 02:00:00', 'ends_at' => '2026-08-03 03:00:00'],
+        ['id' => 12, 'starts_at' => '2026-09-02 03:00:00', 'ends_at' => '2026-09-02 04:00:01'],
+    ], 2));
+});
+
 test('requires a payment rejection note', function (): void {
     expectHttp(422, 'VALIDATION_FAILED', fn() => WorkflowRules::assertPaymentDecision('reviewing', 'payment_review', 'reject', ''));
 });

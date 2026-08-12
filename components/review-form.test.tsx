@@ -73,6 +73,21 @@ describe("ReviewForm", () => {
     expect(screen.queryByLabelText("ความคิดเห็น")).not.toBeInTheDocument();
   });
 
+  it("never offers a second review when this booking already has one", () => {
+    render(<ReviewForm booking={bookingFixture({
+      review: {
+        rating: 5,
+        comment: "ฝึกเสร็จและรีวิวแล้ว",
+        status: "published",
+        createdAt: "2026-08-10T04:00:00.000Z",
+      },
+      actions: { ...bookingFixture().actions, canReview: true },
+    })} onUpdated={vi.fn()} />);
+
+    expect(screen.getByText("เผยแพร่แล้ว")).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "ส่งรีวิว" })).not.toBeInTheDocument();
+  });
+
   it("submits the exact rating and trimmed comment before awaiting refresh", async () => {
     vi.mocked(authenticatedRequest).mockResolvedValue({ reviewId: 5, status: "published" });
     const onUpdated = vi.fn().mockResolvedValue(undefined);

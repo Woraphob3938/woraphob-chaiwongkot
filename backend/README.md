@@ -7,7 +7,7 @@ PHP REST API แบบไม่พึ่ง Composer สำหรับ Apache +
 1. คัดลอก `.env.example` เป็น `.env` และแก้รหัสผ่านฐานข้อมูลถ้ามี
 2. เปิด Apache และ MySQL ใน XAMPP Control Panel
 3. จากโฟลเดอร์โปรเจกต์ รัน `npm run xampp:connect`
-4. หากใช้ฐานข้อมูลเดิม รัน `npm run migrate:admin-permissions` หนึ่งครั้ง คำสั่งนี้ให้สิทธิ์ครบทั้ง 4 ด้านแก่ผู้ดูแลระบบเดิมที่ยังไม่มีรายการสิทธิ์ จากนั้นตรวจและลดสิทธิ์ของแต่ละบัญชีผ่านหน้า **ผู้ดูแลระบบ** ให้เหลือเท่าที่จำเป็น
+4. หากใช้ฐานข้อมูลเดิม รัน `npm run migrate:admin-permissions` และ `npm run migrate:monthly-bookings` หนึ่งครั้ง คำสั่งแรกให้สิทธิ์ครบทั้ง 4 ด้านแก่ผู้ดูแลระบบเดิมที่ยังไม่มีรายการสิทธิ์ จากนั้นตรวจและลดสิทธิ์ของแต่ละบัญชีผ่านหน้า **ผู้ดูแลระบบ** ให้เหลือเท่าที่จำเป็น
 5. รัน `npm run booking-expiry:install` หนึ่งครั้ง เพื่อตรวจการจองที่หมดเวลาทุกหนึ่งนาที
 6. ตรวจ `http://localhost/fitconnect-api/v1/health`
 
@@ -65,6 +65,7 @@ npm run notifications:send-test -- -RecipientEmail you@example.com -ConfirmSend 
 - `POST /v1/availability-slots`
 - `DELETE /v1/availability-slots/{id}`
 - `GET|POST /v1/bookings`
+- `POST /v1/bookings` รองรับ `bookingType=monthly` พร้อม `slotIds` ตามจำนวนครั้งที่เทรนเนอร์กำหนด โดยทุกครั้งต้องอยู่ภายใน 30 วันและใช้เส้นตายชำระเงินร่วมกัน 10 นาที
 - `POST /v1/bookings/{publicId}/cancel` — สมาชิกยกเลิกคำขอที่ยังไม่ส่งสลิป ระบบคืนช่วงเวลาให้จองต่อทันที
 - `PATCH /v1/bookings/{publicId}/status` — เทรนเนอร์บันทึกว่าฝึกเสร็จแล้ว หรือผู้ดูแลระบบยืนยันและยกเลิกตามสิทธิ์
 - `POST /v1/payments` — สมาชิกส่งหลักฐานการชำระเงินแบบ multipart
@@ -115,6 +116,12 @@ npm run smoke:admin-operations
 
 ```powershell
 npm run smoke:notifications
+```
+
+ตรวจแพ็กเกจ 30 วัน การล็อกพร้อมกันทุกช่วง และการคืนทุกช่วงเมื่อยกเลิกหรือหมดเวลา:
+
+```powershell
+npm run smoke:monthly-booking
 ```
 
 ## ย้ายฐานข้อมูลเดิมเพื่อลบจังหวัดและสถานที่นัดฝึก

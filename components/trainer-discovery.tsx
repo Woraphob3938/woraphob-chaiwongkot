@@ -96,13 +96,7 @@ export function TrainerDiscovery({
 
   return (
     <>
-      <section className="marketplace-intro" aria-labelledby="marketplace-title">
-        <div>
-          <p className="label">ค้นหา · เปรียบเทียบ · เลือกเวลา</p>
-          <h1 id="marketplace-title">ค้นหาเทรนเนอร์ที่เหมาะกับคุณ</h1>
-        </div>
-        <p>ดูความเชี่ยวชาญ ค่าฝึกต่อครั้ง และเวลาว่าง ก่อนเปิดโปรไฟล์เพื่อนัดหมาย</p>
-      </section>
+      <h1 className="sr-only">ค้นหาเทรนเนอร์</h1>
 
       <section className="trainer-marketplace" aria-label="ตลาดค้นหาเทรนเนอร์">
         <div className="trainer-marketplace__toolbar">

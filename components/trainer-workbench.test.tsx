@@ -123,6 +123,73 @@ describe("TrainerWorkbench", () => {
 
   });
 
+  it("adds a one-hour availability slot from the calendar dialog", async () => {
+    vi.mocked(authenticatedRequest).mockImplementation((path, init) => {
+      if (path === "/v1/trainer/me") return Promise.resolve(approvedWorkspace);
+      if (path === "/v1/bookings") return Promise.resolve([]);
+      if (path === "/v1/availability-slots" && init?.method === "POST") {
+        return Promise.resolve({ id: 90, startsAt: "", endsAt: "", state: "available" });
+      }
+      return Promise.reject(new Error(`unexpected request: ${path}`));
+    });
+
+    render(<TrainerWorkbench />);
+    const availabilitySummary = (await screen.findByText("จัดการช่วงเวลาว่าง")).closest("summary");
+    if (!availabilitySummary) throw new Error("availability disclosure is missing");
+    fireEvent.click(availabilitySummary);
+    fireEvent.click(screen.getByRole("button", { name: "เพิ่มช่วงเวลาว่าง" }));
+
+    const dialog = screen.getByRole("dialog", { name: "เพิ่มช่วงเวลาว่าง" });
+    const availableDay = within(dialog).getAllByRole("button", { name: /^เลือกวันที่/ })
+      .find((button) => !button.hasAttribute("disabled"));
+    if (!availableDay) throw new Error("calendar has no selectable date");
+    fireEvent.click(availableDay);
+    fireEvent.change(within(dialog).getByLabelText("เวลาเริ่มต้น"), { target: { value: "10:00" } });
+
+    expect(within(dialog).queryByLabelText("เวลาสิ้นสุด")).not.toBeInTheDocument();
+    expect(within(dialog).getByText("สิ้นสุดอัตโนมัติ 11:00 น.")).toBeInTheDocument();
+    fireEvent.click(within(dialog).getByRole("button", { name: "ยืนยันเพิ่มช่วงเวลา" }));
+
+    await waitFor(() => expect(authenticatedRequest).toHaveBeenCalledWith(
+      "/v1/availability-slots",
+      expect.objectContaining({ method: "POST" }),
+    ));
+    const createCall = vi.mocked(authenticatedRequest).mock.calls.find(([path, init]) => (
+      path === "/v1/availability-slots" && init?.method === "POST"
+    ));
+    const payload = JSON.parse(String(createCall?.[1]?.body));
+    expect(Object.keys(payload)).toEqual(["startsAt"]);
+    await waitFor(() => expect(screen.queryByRole("dialog", { name: "เพิ่มช่วงเวลาว่าง" })).not.toBeInTheDocument());
+  });
+
+  it("places every confirmed monthly session on the weekly schedule", async () => {
+    const first = new Date();
+    first.setDate(first.getDate() + 1);
+    first.setHours(9, 0, 0, 0);
+    const second = new Date(first);
+    second.setDate(second.getDate() + 2);
+    vi.mocked(authenticatedRequest)
+      .mockResolvedValueOnce({ ...approvedWorkspace, slots: [] })
+      .mockResolvedValueOnce([bookingFixture({
+        id: "BK-PACK",
+        bookingType: "monthly",
+        sessionCount: 2,
+        status: "confirmed",
+        paymentStatus: "approved",
+        startsAt: first.toISOString(),
+        endsAt: new Date(second.getTime() + 60 * 60 * 1000).toISOString(),
+        sessions: [
+          { id: 91, startsAt: first.toISOString(), endsAt: new Date(first.getTime() + 60 * 60 * 1000).toISOString() },
+          { id: 92, startsAt: second.toISOString(), endsAt: new Date(second.getTime() + 60 * 60 * 1000).toISOString() },
+        ],
+      })]);
+
+    render(<TrainerWorkbench />);
+
+    const weeklySchedule = await screen.findByRole("region", { name: "ตารางรายสัปดาห์" });
+    expect(within(weeklySchedule).getAllByText("BK-PACK")).toHaveLength(2);
+  });
+
   it("shows the application next action when the trainer has no profile", async () => {
     vi.mocked(authenticatedRequest)
       .mockResolvedValueOnce({ profile: null, certificates: [], slots: [] })
@@ -314,7 +381,8 @@ describe("TrainerWorkbench", () => {
 
     render(<TrainerWorkbench />);
 
-    expect(await screen.findByRole("button", { name: "ฝึกเสร็จแล้ว BK-WAIT" })).toBeDisabled();
+    expect(await screen.findByRole("button", { name: "รอสิ้นสุดการฝึก BK-WAIT" })).toBeDisabled();
+    expect(screen.queryByRole("button", { name: "ฝึกเสร็จแล้ว BK-WAIT" })).not.toBeInTheDocument();
     expect(screen.getByText("ฝึกเสร็จได้หลัง จันทร์ 10 ส.ค. · 10:00 น.")).toBeInTheDocument();
   });
 

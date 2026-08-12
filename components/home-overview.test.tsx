@@ -52,5 +52,7 @@ describe("HomeOverview", () => {
       screen.getByText("ดูเส้นทางตั้งแต่เลือกเทรนเนอร์ ส่งคำขอ อัปโหลดสลิป จนถึงเขียนรีวิวหลังการฝึก"),
     ).toBeInTheDocument();
     expect(screen.queryByText(/ข้อมูลการจองชุดเดียวกัน/)).not.toBeInTheDocument();
+    expect(screen.getByText("เลือกช่วงเวลาว่าง ยืนยันการจอง แล้วระบบจะล็อกเวลาไว้ 10 นาที")).toBeInTheDocument();
+    expect(screen.queryByText(/ให้เทรนเนอร์พิจารณา|ได้รับการตอบรับ/)).not.toBeInTheDocument();
   });
 });

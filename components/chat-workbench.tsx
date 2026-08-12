@@ -493,7 +493,8 @@ export function ChatWorkbench({ initialBookingId }: ChatWorkbenchProps) {
             <div className="ledger-row"><span>สิ้นสุด</span><strong>{formatDateTime(selectedBooking.endsAt)}</strong></div>
             <div className="ledger-row"><span>สถานะการจอง</span><strong>{bookingStatusCopy[selectedBooking.status]}</strong></div>
             <div className="ledger-row"><span>สถานะหลักฐาน</span><strong>{paymentStatusCopy[selectedBooking.paymentStatus]}</strong></div>
-            <div className="ledger-row"><span>ค่าฝึกต่อครั้ง</span><strong>{formatAmount(selectedBooking.quotedPrice)}</strong></div>
+            <div className="ledger-row"><span>{selectedBooking.bookingType === "monthly" ? "ราคาแพ็กเกจ" : "ค่าฝึกต่อครั้ง"}</span><strong>{formatAmount(selectedBooking.quotedPrice)}</strong></div>
+            {selectedBooking.bookingType === "monthly" && <div className="ledger-row"><span>จำนวนครั้ง</span><strong>{selectedBooking.sessionCount ?? selectedBooking.sessions?.length ?? 0} ครั้ง ภายใน 30 วัน</strong></div>}
             <div className="ledger-row"><span>หมายเหตุ</span><strong className="chat-breakable">{selectedBooking.note || "ไม่มีหมายเหตุ"}</strong></div>
           </details>
 

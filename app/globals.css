@@ -2970,46 +2970,54 @@ body {
   font-size: var(--text-sm);
 }
 
-.availability-form {
-  display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr)) auto;
-  align-items: end;
-  gap: var(--space-sm);
+.availability-launch {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-md);
   padding: var(--space-lg);
   background: var(--color-paper-2);
   border-bottom: 1px solid var(--color-rule);
 }
 
-.availability-form label {
-  display: grid;
-  min-width: 0;
-  gap: var(--space-xs);
-  color: var(--color-ink-2);
+.availability-launch p {
+  color: var(--color-muted);
   font-size: var(--text-sm);
-  font-weight: 700;
 }
 
-.availability-form input {
+.availability-calendar-form {
+  min-width: 0;
+}
+
+.availability-calendar-time label {
+  display: grid;
+}
+
+.availability-calendar-time input {
   width: 100%;
-  min-height: var(--size-control);
-  padding-inline: var(--space-sm);
+  min-height: var(--size-control-lg);
+  padding-inline: var(--space-md);
   color: var(--color-ink);
   background: var(--color-paper);
   border: 1px solid var(--color-rule);
-  border-radius: var(--radius-xs);
+  border-radius: var(--radius-sm);
   font-family: var(--font-mono);
+  font-size: var(--text-lg);
 }
 
-.availability-form input:focus-visible {
+.availability-calendar-time input:focus-visible {
   border-color: var(--color-focus);
   outline: 3px solid var(--color-focus);
   outline-offset: 2px;
 }
 
-.availability-form input:disabled {
-  color: var(--color-muted);
-  background: var(--color-paper-3);
-  cursor: not-allowed;
+.availability-calendar-time__end {
+  padding: var(--space-sm);
+  color: var(--color-ink);
+  background: var(--color-accent-soft);
+  border: 1px solid var(--color-accent);
+  border-radius: var(--radius-sm);
+  font-weight: 700;
 }
 
 .field-error {
@@ -3916,14 +3924,21 @@ body {
     width: 100%;
   }
 
-  .availability-form,
   .trainer-booking-card {
     grid-template-columns: minmax(0, 1fr);
   }
 
-  .availability-form .button,
   .trainer-booking-card .queue-actions,
   .trainer-booking-card .queue-actions button {
+    width: 100%;
+  }
+
+  .availability-launch {
+    align-items: stretch;
+    flex-direction: column;
+  }
+
+  .availability-launch .button {
     width: 100%;
   }
 
@@ -5358,6 +5373,22 @@ body {
   font-size: var(--text-sm);
 }
 
+.profile-booking-types {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: var(--space-xs);
+}
+
+.profile-booking-types .button {
+  width: 100%;
+}
+
+.profile-booking-package-facts,
+.slot-calendar-times__count {
+  color: var(--color-muted);
+  font-size: var(--text-sm);
+}
+
 .trainer-reviews {
   margin-top: var(--space-lg);
   background: var(--color-paper);
@@ -5665,6 +5696,26 @@ body {
 .slot-calendar-times__list {
   display: grid;
   gap: var(--space-xs);
+}
+
+.booking-session-list,
+.monthly-booking-sessions ol {
+  display: grid;
+  gap: var(--space-2xs);
+  margin: 0;
+  padding-left: 1.25rem;
+}
+
+.monthly-booking-sessions {
+  display: grid;
+  gap: var(--space-xs);
+  padding: var(--space-sm);
+  background: var(--color-accent-soft);
+  border: 1px solid var(--color-accent);
+}
+
+.monthly-booking-sessions li {
+  overflow-wrap: anywhere;
 }
 
 .slot-calendar-time {
@@ -6413,28 +6464,9 @@ body {
 }
 
 /* Trainer marketplace: compact filters, comparable facts, one clear route forward */
-.marketplace-intro {
-  display: grid;
-  grid-template-columns: minmax(0, 1.15fr) minmax(18rem, 0.85fr);
-  align-items: end;
-  gap: var(--space-2xl);
-  padding-block: var(--space-lg);
-  border-bottom: 1px solid var(--color-ink);
-}
-
-.marketplace-intro h1 {
-  max-width: 16ch;
-  margin-top: var(--space-sm);
-}
-
-.marketplace-intro > p {
-  max-width: 54ch;
-  color: var(--color-ink-2);
-  font-size: var(--text-md);
-}
-
 .trainer-marketplace {
-  margin-top: var(--space-lg);
+  margin-top: 0;
+  padding-top: var(--space-lg);
 }
 
 .trainer-marketplace__toolbar {
@@ -7069,11 +7101,6 @@ body:has(.app-sidebar) .page-footer {
 }
 
 @media (max-width: 64rem) {
-  .marketplace-intro {
-    grid-template-columns: minmax(0, 1fr);
-    gap: var(--space-md);
-  }
-
   .trainer-marketplace__toolbar {
     grid-template-columns: minmax(0, 1fr) auto auto;
   }
@@ -7092,6 +7119,10 @@ body:has(.app-sidebar) .page-footer {
 }
 
 @media (max-width: 40rem) {
+  .trainer-marketplace {
+    padding-top: var(--space-md);
+  }
+
   .trainer-marketplace__toolbar {
     grid-template-columns: minmax(0, 1fr) auto;
   }
@@ -7286,31 +7317,9 @@ body:has(.app-sidebar) .page-footer {
   margin-inline: auto;
 }
 
-.notification-center__header {
-  display: grid;
-  min-width: 0;
-  gap: var(--space-md);
-  padding-block-end: var(--space-lg);
-  border-bottom: 1px solid var(--color-rule);
-}
-
-.notification-center__header > div {
-  display: grid;
-  min-width: 0;
-  gap: var(--space-xs);
-}
-
-.notification-center__header h2 {
-  font-size: clamp(1.75rem, 4vw, 2.75rem);
-}
-
-.notification-center__header p {
-  color: var(--color-muted);
-  max-width: var(--measure);
-}
-
-.notification-center__header > [data-slot="button"] {
-  width: 100%;
+.notification-center__actions {
+  display: flex;
+  justify-content: flex-end;
 }
 
 .notification-center__loading {
@@ -7662,12 +7671,6 @@ body:has(.app-sidebar) .page-footer {
 }
 
 @media (min-width: 24rem) {
-  .notification-center__header {
-    grid-template-columns: minmax(0, 1fr) auto;
-    align-items: end;
-  }
-
-  .notification-center__header > [data-slot="button"],
   .notification-list-panel__toolbar > [data-slot="button"] {
     width: auto;
   }
