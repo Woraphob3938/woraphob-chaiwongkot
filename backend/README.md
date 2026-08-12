@@ -15,6 +15,38 @@ PHP REST API แบบไม่พึ่ง Composer สำหรับ Apache +
 
 Windows Task Scheduler จะเก็บงานชื่อ `FitConnect-ExpireBookings` ไว้ งานนี้เรียกคำสั่ง PHP ทุกหนึ่งนาทีเพื่อเปลี่ยนการจองที่เกินกำหนด 10 นาทีเป็น `expired` และคืนช่วงเวลาให้สมาชิกคนอื่นจองได้ งานยังทำต่อเมื่อเครื่องใช้แบตเตอรี่ หากย้ายโฟลเดอร์โปรเจกต์ ให้รันคำสั่งติดตั้งอีกครั้ง คุณสามารถตรวจคำสั่งด้วยตัวเองโดยรัน `npm run booking-expiry:run`
 
+## ตั้งค่า Gmail สำหรับการแจ้งเตือน
+
+คัดลอกค่าต่อไปนี้ไปยัง `.env` แล้วแทนที่ข้อมูลบัญชี Gmail ของคุณ บัญชีต้องเปิดการยืนยันแบบ 2 ขั้นตอนและใช้ **App Password** ไม่ใช่รหัสผ่านเข้าสู่ระบบปกติ:
+
+```env
+MAIL_ENABLED=false
+MAIL_HOST=smtp.gmail.com
+MAIL_PORT=587
+MAIL_USERNAME=your-account@gmail.com
+MAIL_APP_PASSWORD=your-16-character-app-password
+MAIL_FROM_EMAIL=your-account@gmail.com
+MAIL_FROM_NAME=FitConnect
+APP_URL=http://localhost:3000
+```
+
+จากโฟลเดอร์หลักของโครงการ รัน:
+
+```powershell
+npm run migrate:notifications
+npm run notifications:install
+```
+
+งาน `FitConnect-ProcessNotifications` จะสร้างการเตือนก่อนนัดและลองส่งคิว Gmail ทุกหนึ่งนาทีแบบซ่อนหน้าต่าง งานนี้แยกจาก `FitConnect-ExpireBookings` และต้องเก็บไว้ทั้งคู่ หากย้ายโฟลเดอร์โครงการให้ติดตั้งงานแจ้งเตือนใหม่
+
+ให้คง `MAIL_ENABLED=false` ระหว่างทดสอบในเครื่อง เมื่อพร้อมจึงเปลี่ยนเป็น `true` และส่งอีเมลทดสอบที่ต้องยืนยันคำว่า `SEND`:
+
+```powershell
+npm run notifications:send-test -- -RecipientEmail you@example.com -ConfirmSend SEND
+```
+
+การส่งล้มเหลวไม่เปลี่ยนผลการจองหรือการชำระเงิน ระบบจะลองใหม่สูงสุด 5 ครั้ง ตรวจได้จาก `notifications.email_status`, `email_attempt_count`, `email_next_attempt_at` และ `email_last_error` ห้ามคัดลอก `MAIL_APP_PASSWORD` ลง log, screenshot หรือ Git
+
 ## เส้นทางหลัก
 
 - `GET /v1/health`
@@ -47,6 +79,10 @@ Windows Task Scheduler จะเก็บงานชื่อ `FitConnect-Expir
 - `GET /v1/admin/operations` — บัญชี การจอง ประวัติสถานะ รายได้ และธุรกรรมตามสิทธิ์ของบัญชี แบ่งหน้าฝั่ง API ครั้งละ 10 รายการด้วย `userPage`, `administratorPage`, `bookingPage`, `incomePage`, `paymentPage` และกรองด้วย `userQuery`, `bookingStatus`
 - `POST /v1/admin/users` — เพิ่มบัญชีผู้ดูแลระบบพร้อมกำหนดสิทธิ์
 - `PATCH /v1/admin/users/{id}` — แก้ข้อมูล ระงับหรือเปิดบัญชี และปรับสิทธิ์ผู้ดูแลระบบ
+- `GET /v1/notifications` — รายการส่วนตัวของสมาชิกหรือเทรนเนอร์ แบ่งหน้าครั้งละ 10 รายการ
+- `GET /v1/notifications/{id}` — รายละเอียดของเจ้าของการแจ้งเตือนเท่านั้น
+- `PATCH /v1/notifications/{id}/read` — ทำเครื่องหมายรายการว่าอ่านแล้วแบบเรียกซ้ำได้
+- `POST /v1/notifications/read-all` — ทำเครื่องหมายรายการของบัญชีปัจจุบันว่าอ่านแล้วทั้งหมด
 
 เส้นทางที่เกี่ยวกับบัญชีต้องใส่ `Authorization: Bearer <token>` และเส้นทางผู้ดูแลระบบยังตรวจสิทธิ์ย่อยดังนี้:
 
@@ -73,6 +109,12 @@ rtk powershell -NoProfile -ExecutionPolicy Bypass -File scripts/api-workflow-smo
 
 ```powershell
 npm run smoke:admin-operations
+```
+
+ตรวจการแจ้งเตือนครบ flow โดยใช้ PHP และ MySQL ของ XAMPP แต่เปิด API แยกชั่วคราวพร้อมบังคับ `MAIL_ENABLED=false` จึงไม่มีอีเมลจริงออกจากเครื่อง สคริปต์ลบบัญชี การจอง การแจ้งเตือน และไฟล์ทดสอบเมื่อจบ:
+
+```powershell
+npm run smoke:notifications
 ```
 
 ## ย้ายฐานข้อมูลเดิมเพื่อลบจังหวัดและสถานที่นัดฝึก

@@ -32,6 +32,36 @@ npm run dev
 
 สคริปต์ตรวจสอบตำแหน่งทั้งหมดก่อนทำงานและจะไม่เขียนทับ `C:\xampp\htdocs\fitconnect-api` หากมีของเดิมอยู่แล้ว
 
+### เปิดการแจ้งเตือนผ่าน Gmail
+
+ศูนย์แจ้งเตือนในเว็บใช้ได้โดยไม่ต้องเปิด Gmail ก่อน หากต้องการส่งอีเมล ให้เปิดการยืนยันแบบ 2 ขั้นตอนในบัญชี Google แล้วสร้าง **App Password** สำหรับ FitConnect จากนั้นใส่ค่าใน `backend/.env`:
+
+```env
+MAIL_ENABLED=false
+MAIL_HOST=smtp.gmail.com
+MAIL_PORT=587
+MAIL_USERNAME=your-account@gmail.com
+MAIL_APP_PASSWORD=your-16-character-app-password
+MAIL_FROM_EMAIL=your-account@gmail.com
+MAIL_FROM_NAME=FitConnect
+APP_URL=http://localhost:3000
+```
+
+เตรียมตารางและติดตั้งงานแจ้งเตือนที่ทำงานทุกหนึ่งนาที:
+
+```powershell
+npm run migrate:notifications
+npm run notifications:install
+```
+
+งานนี้แยกจาก `FitConnect-ExpireBookings` ซึ่งยังมีหน้าที่คืนช่วงเวลาของการจองที่หมดอายุ เมื่อพร้อมส่งจริงค่อยเปลี่ยน `MAIL_ENABLED=true` แล้วทดสอบไปยังอีเมลที่คุณควบคุมเองด้วยคำสั่งที่ต้องยืนยันชัดเจน:
+
+```powershell
+npm run notifications:send-test -- -RecipientEmail you@example.com -ConfirmSend SEND
+```
+
+ระบบส่งซ้ำได้ไม่เกิน 5 ครั้ง ความล้มเหลวของ Gmail จะไม่ย้อนสถานะการจองหรือการชำระเงิน ตรวจรายการที่ส่งไม่สำเร็จได้ในตาราง `notifications` โดยดู `email_status`, `email_attempt_count`, `email_next_attempt_at` และ `email_last_error` โดยไม่ต้องเปิดเผย App Password
+
 ### เตรียมข้อมูลโปรไฟล์
 
 เปิด Apache และ MySQL ก่อน จากนั้นรัน migration หนึ่งครั้ง สคริปต์จะสำรองฐานข้อมูลไว้สำหรับกู้คืนก่อนแก้โครงสร้างตาราง:
@@ -77,6 +107,12 @@ npm run smoke:postbooking
 
 ```powershell
 npm run smoke:admin-operations
+```
+
+ตรวจเหตุการณ์แจ้งเตือน การแบ่งหน้า สิทธิ์เจ้าของ การอ่านแล้ว การเตือนก่อนนัด และการยกเลิกกับ MySQL ของ XAMPP โดยบังคับปิดการส่งอีเมลจริงและล้างข้อมูลทดสอบเมื่อจบ:
+
+```powershell
+npm run smoke:notifications
 ```
 
 ผลรอบล่าสุดอยู่ใน `output/smoke/instant-booking-result.json` และตรวจข้อมูลใน phpMyAdmin/MySQL ต่อได้ด้วย:

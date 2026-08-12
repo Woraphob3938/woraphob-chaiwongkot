@@ -1,5 +1,20 @@
 [
   {
+    "date": "2026-08-12",
+    "macrostructure": "Master Detail",
+    "theme": "custom",
+    "theme_axes": "light / geometric-sans / chromatic-green ~125deg",
+    "vibe": "athletic notification operations",
+    "enrichment": "none",
+    "nav": "N3 authenticated side rail",
+    "footer": "none inside authenticated shell",
+    "brief": "FitConnect member and trainer notification center",
+    "pre_emit": "P5 H5 E4 S5 R5 V5",
+    "slop_test": "pass 58/58",
+    "contrast": "pass; inherited locked FitConnect tokens",
+    "mobile": "pass at 320/375/414/768; no horizontal overflow"
+  },
+  {
     "date": "2026-07-31",
     "macrostructure": "Workbench",
     "theme": "custom",

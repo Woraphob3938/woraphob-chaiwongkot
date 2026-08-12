@@ -21,6 +21,7 @@
     "smoke:auth-session": "powershell -NoProfile -ExecutionPolicy Bypass -File scripts/api-auth-session-smoke.ps1",
     "smoke:profile": "powershell -NoProfile -ExecutionPolicy Bypass -File scripts/api-profile-smoke.ps1 -Scenario all",
     "smoke:admin-operations": "powershell -NoProfile -ExecutionPolicy Bypass -File scripts/api-admin-operations-smoke.ps1",
+    "smoke:notifications": "powershell -NoProfile -ExecutionPolicy Bypass -File scripts/api-notifications-smoke.ps1",
     "smoke:postbooking": "powershell -NoProfile -ExecutionPolicy Bypass -File scripts/api-payment-chat-review-smoke.ps1 -Scenario all",
     "audit:booking": "powershell -NoProfile -ExecutionPolicy Bypass -File scripts/audit-booking.ps1",
     "booking-expiry:run": "C:\\xampp\\php\\php.exe backend/scripts/expire-bookings.php",
@@ -28,6 +29,7 @@
     "test:booking-expiry-installer": "powershell -NoProfile -ExecutionPolicy Bypass -File scripts/install-booking-expiry-task.test.ps1",
     "notifications:run": "C:\\xampp\\php\\php.exe backend/scripts/process-notifications.php",
     "notifications:install": "powershell -NoProfile -ExecutionPolicy Bypass -File scripts/install-notification-task.ps1",
+    "notifications:send-test": "powershell -NoProfile -ExecutionPolicy Bypass -File scripts/send-test-notification-email.ps1",
     "test:notification-installer": "powershell -NoProfile -ExecutionPolicy Bypass -File scripts/install-notification-task.test.ps1",
     "check": "npm run lint && npm run typecheck && npm run build",
     "xampp:connect": "powershell -NoProfile -ExecutionPolicy Bypass -File scripts/connect-xampp.ps1"
