@@ -25,7 +25,9 @@ describe("MemberProfileForm", () => {
     const onSaved = vi.fn();
     render(<MemberProfileForm profile={profile} onSaved={onSaved} />);
 
-    expect(screen.getByLabelText("อีเมล")).toHaveAttribute("readonly");
+    expect(screen.getByText("member@example.com")).toBeInTheDocument();
+    expect(screen.getByText("ใช้อีเมลนี้เข้าสู่ระบบ เปลี่ยนไม่ได้จากหน้านี้")).toBeInTheDocument();
+    expect(screen.queryByRole("textbox", { name: "อีเมล" })).not.toBeInTheDocument();
     for (const label of ["ชื่อ", "นามสกุล", "เบอร์โทรศัพท์", "เป้าหมายการออกกำลังกาย", "ระดับประสบการณ์", "น้ำหนัก (กก.)", "ส่วนสูง (ซม.)"]) {
       expect(screen.getByLabelText(label)).toBeInTheDocument();
     }

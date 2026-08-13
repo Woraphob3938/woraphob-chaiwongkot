@@ -46,8 +46,8 @@ beforeEach(() => {
 
 describe("ProfileWorkbench", () => {
   it.each([
-    [memberProfile, "โปรไฟล์สมาชิก"],
-    [trainerProfile, "โปรไฟล์เทรนเนอร์"],
+    [memberProfile, "สมชาย ใจดี"],
+    [trainerProfile, "ครูเมย์"],
   ] as const)("loads the %s account profile", async (profile, heading) => {
     localStorage.setItem("fitconnect_token", "token");
     localStorage.setItem("fitconnect_user", JSON.stringify({ role: profile.role }));
@@ -57,12 +57,12 @@ describe("ProfileWorkbench", () => {
 
     expect(screen.getByText("กำลังโหลดโปรไฟล์")).toBeInTheDocument();
     expect(await screen.findByRole("heading", { name: heading })).toBeInTheDocument();
-    expect(screen.getByText(profile.user.email)).toBeInTheDocument();
-    expect(screen.queryByRole("heading", { name: "ความปลอดภัย" })).not.toBeInTheDocument();
+    expect(screen.getAllByText(profile.user.email).length).toBeGreaterThan(0);
+    expect(screen.queryByRole("heading", { name: "รหัสผ่าน" })).not.toBeInTheDocument();
     expect(authenticatedRequest).toHaveBeenCalledWith("/v1/profile");
   });
 
-  it("switches between compact personal and security tabs", async () => {
+  it("keeps both panels mounted and preserves typed values across tabs", async () => {
     localStorage.setItem("fitconnect_token", "token");
     localStorage.setItem("fitconnect_user", JSON.stringify({ role: "member" }));
     vi.mocked(authenticatedRequest).mockResolvedValue(memberProfile);
@@ -70,19 +70,24 @@ describe("ProfileWorkbench", () => {
     render(<ProfileWorkbench />);
 
     const personalTab = await screen.findByRole("tab", { name: "ข้อมูลส่วนตัว" });
-    const securityTab = screen.getByRole("tab", { name: "บัญชีและความปลอดภัย" });
+    const securityTab = screen.getByRole("tab", { name: "รหัสผ่าน" });
     expect(personalTab).toHaveAttribute("aria-selected", "true");
-    expect(screen.getByRole("tabpanel", { name: "ข้อมูลส่วนตัว" })).toContainElement(
-      screen.getByRole("heading", { name: "รายละเอียดสมาชิก" }),
-    );
-
+    expect(personalTab).toHaveAttribute("tabindex", "0");
+    expect(securityTab).toHaveAttribute("tabindex", "-1");
+    fireEvent.change(screen.getByLabelText("ชื่อ"), { target: { value: "ทดลอง" } });
     fireEvent.click(securityTab);
 
+    expect(await screen.findByRole("dialog", { name: "มีข้อมูลที่ยังไม่บันทึก" })).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "สลับแท็บ" }));
+
     expect(securityTab).toHaveAttribute("aria-selected", "true");
-    expect(screen.getByRole("tabpanel", { name: "บัญชีและความปลอดภัย" })).toContainElement(
-      screen.getByRole("heading", { name: "ความปลอดภัย" }),
+    expect(screen.getByRole("tabpanel", { name: "รหัสผ่าน" })).toContainElement(
+      screen.getByRole("heading", { name: "รหัสผ่าน" }),
     );
     expect(screen.queryByRole("heading", { name: "รายละเอียดสมาชิก" })).not.toBeInTheDocument();
+
+    fireEvent.click(personalTab);
+    expect(screen.getByLabelText("ชื่อ")).toHaveValue("ทดลอง");
   });
 
   it("shows an alert and retries a failed profile request", async () => {
@@ -96,7 +101,7 @@ describe("ProfileWorkbench", () => {
 
     expect(await screen.findByRole("alert")).toHaveTextContent("เชื่อมต่อไม่สำเร็จ");
     fireEvent.click(screen.getByRole("button", { name: "ลองใหม่" }));
-    expect(await screen.findByRole("heading", { name: "โปรไฟล์สมาชิก" })).toBeInTheDocument();
+    expect(await screen.findByRole("heading", { name: "สมชาย ใจดี" })).toBeInTheDocument();
     expect(authenticatedRequest).toHaveBeenCalledTimes(2);
   });
 

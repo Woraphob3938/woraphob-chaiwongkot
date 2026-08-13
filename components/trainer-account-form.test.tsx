@@ -35,7 +35,8 @@ describe("TrainerAccountForm", () => {
     render(<TrainerAccountForm profile={profile} onSaved={onSaved} />);
 
     expect(await screen.findByLabelText("สร้างกล้ามเนื้อ")).toBeChecked();
-    expect(screen.getByLabelText("อีเมล")).toHaveAttribute("readonly");
+    expect(screen.getByText("trainer@example.com")).toBeInTheDocument();
+    expect(screen.queryByRole("textbox", { name: "อีเมล" })).not.toBeInTheDocument();
     expect(screen.getByText("แก้ชื่อใบรับรอง")).toBeInTheDocument();
     expect(screen.getByText("CPT")).toBeInTheDocument();
     expect(screen.queryByLabelText("ชื่อยิม")).not.toBeInTheDocument();
@@ -73,5 +74,17 @@ describe("TrainerAccountForm", () => {
     expect(screen.getByText("กรุณากรอกชื่อยิม")).toBeInTheDocument();
     expect(screen.getByText("เลือกประเภทการฝึกอย่างน้อยหนึ่งรายการ")).toBeInTheDocument();
     expect(authenticatedRequest).toHaveBeenCalledTimes(1);
+  });
+
+  it("keeps save enabled when training types fail to load", async () => {
+    vi.mocked(authenticatedRequest).mockImplementation(async (path) => {
+      if (path === "/v1/training-types") throw new Error("โหลดประเภทการฝึกไม่สำเร็จ");
+      return profile;
+    });
+    render(<TrainerAccountForm profile={profile} onSaved={vi.fn()} />);
+
+    expect(await screen.findByRole("alert")).toHaveTextContent("โหลดประเภทการฝึกไม่สำเร็จ");
+    expect(screen.getByRole("button", { name: "บันทึกข้อมูลเทรนเนอร์" })).toBeEnabled();
+    expect(screen.getByRole("button", { name: "ลองโหลดประเภทการฝึกใหม่" })).toBeInTheDocument();
   });
 });

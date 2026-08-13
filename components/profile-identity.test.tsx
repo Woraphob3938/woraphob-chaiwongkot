@@ -36,6 +36,8 @@ describe("ProfileIdentity", () => {
     render(<ProfileIdentity profile={profile} onProfileChange={vi.fn()} />);
 
     expect(screen.getByRole("navigation", { name: "เส้นทางโปรไฟล์" })).toHaveTextContent("บัญชีของฉัน/โปรไฟล์");
+    expect(screen.getByRole("link", { name: "บัญชีของฉัน" })).toHaveAttribute("href", "/member");
+    expect(screen.getByRole("heading", { name: "สมชาย ใจดี" })).toBeInTheDocument();
     expect(screen.getByRole("img", { name: "รูปโปรไฟล์ของ สมชาย ใจดี" })).toHaveAttribute(
       "src", expect.stringContaining("/v1/profile-images/member/7"),
     );
@@ -98,12 +100,12 @@ describe("ProfileIdentity", () => {
   });
 
   it("deletes the saved profile image after confirmation", async () => {
-    vi.spyOn(window, "confirm").mockReturnValue(true);
     vi.mocked(authenticatedRequest).mockResolvedValue({ imageUrl: null });
     const onProfileChange = vi.fn();
     render(<ProfileIdentity profile={profile} onProfileChange={onProfileChange} />);
 
     fireEvent.click(screen.getByRole("button", { name: "ลบรูปโปรไฟล์" }));
+    fireEvent.click(screen.getByRole("button", { name: "ยืนยันลบรูป" }));
 
     await waitFor(() => expect(authenticatedRequest).toHaveBeenCalledWith("/v1/profile/image", {
       method: "DELETE",

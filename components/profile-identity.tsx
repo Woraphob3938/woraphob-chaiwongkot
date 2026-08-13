@@ -2,9 +2,18 @@
 
 import { ChangeEvent, FormEvent, useEffect, useRef, useState } from "react";
 import Image from "next/image";
+import Link from "next/link";
 import { Camera, LoaderCircle, Trash2, X } from "lucide-react";
 import { Avatar, AvatarFallback } from "@/components/ui/avatar";
-import { Button } from "@/components/ui/button";
+import {
+  Dialog,
+  DialogClose,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
 import { apiAssetUrl, authenticatedRequest } from "@/lib/api";
 import type { AccountProfile } from "@/lib/types";
 
@@ -28,6 +37,7 @@ export function ProfileIdentity({ profile, onProfileChange }: ProfileIdentityPro
   const [file, setFile] = useState<File | null>(null);
   const [previewUrl, setPreviewUrl] = useState<string | null>(null);
   const [pending, setPending] = useState(false);
+  const [confirmDelete, setConfirmDelete] = useState(false);
   const [message, setMessage] = useState("");
   const [error, setError] = useState("");
 
@@ -88,7 +98,7 @@ export function ProfileIdentity({ profile, onProfileChange }: ProfileIdentityPro
   }
 
   async function deleteImage() {
-    if (pending || !profile.imageUrl || !window.confirm("ลบรูปโปรไฟล์นี้หรือไม่?")) return;
+    if (pending || !profile.imageUrl) return;
     setPending(true);
     setError("");
     setMessage("");
@@ -96,6 +106,7 @@ export function ProfileIdentity({ profile, onProfileChange }: ProfileIdentityPro
       await authenticatedRequest<{ imageUrl: null }>("/v1/profile/image", { method: "DELETE" });
       onProfileChange({ ...profile, imageUrl: null });
       cancelImageSelection();
+      setConfirmDelete(false);
       setMessage("ลบรูปโปรไฟล์แล้ว");
     } catch (deleteError) {
       setError(deleteError instanceof Error ? deleteError.message : "ลบรูปโปรไฟล์ไม่สำเร็จ");
@@ -106,11 +117,14 @@ export function ProfileIdentity({ profile, onProfileChange }: ProfileIdentityPro
 
   const displayName = profile.user.displayName || "บัญชีของฉัน";
   const imageSource = previewUrl ?? apiAssetUrl(profile.imageUrl);
+  const homeHref = profile.role === "member" ? "/member" : "/trainer";
 
   return (
     <section className="profile-identity" aria-labelledby="profile-title">
       <nav className="account-profile__breadcrumb" aria-label="เส้นทางโปรไฟล์">
-        <span>บัญชีของฉัน</span><span aria-hidden="true">/</span><span>โปรไฟล์</span>
+        <Link href={homeHref}>บัญชีของฉัน</Link>
+        <span aria-hidden="true">/</span>
+        <span aria-current="page">โปรไฟล์</span>
       </nav>
       <div className="profile-identity__main">
         <Avatar className="profile-identity__avatar">
@@ -127,15 +141,14 @@ export function ProfileIdentity({ profile, onProfileChange }: ProfileIdentityPro
         </Avatar>
         <div className="profile-identity__copy">
           <div className="profile-identity__heading">
-            <h1 id="profile-title">{profile.role === "member" ? "โปรไฟล์สมาชิก" : "โปรไฟล์เทรนเนอร์"}</h1>
+            <h1 id="profile-title">{displayName}</h1>
             <span className="profile-role-badge">{profile.role === "member" ? "สมาชิก" : "เทรนเนอร์"}</span>
           </div>
-          <strong>{displayName}</strong>
           <span>{profile.user.email}</span>
         </div>
       </div>
       <form className="profile-identity__upload" onSubmit={uploadImage}>
-        <label className="button button--secondary" htmlFor="profile-image">
+        <label className="button" htmlFor="profile-image">
           <Camera aria-hidden="true" size={17} /> เลือกรูป
         </label>
         <input
@@ -147,23 +160,39 @@ export function ProfileIdentity({ profile, onProfileChange }: ProfileIdentityPro
           aria-label="เลือกรูปโปรไฟล์"
           onChange={chooseImage}
         />
-        <Button type="submit" disabled={!file || pending}>
-          {pending ? <><LoaderCircle className="spin" aria-hidden="true" /> กำลังอัปโหลด</> : "บันทึกรูปใหม่"}
-        </Button>
+        <button className="button button--accent" type="submit" disabled={!file || pending}>
+          {pending && file ? <><LoaderCircle className="spin" aria-hidden="true" /> กำลังอัปโหลด</> : "บันทึกรูปใหม่"}
+        </button>
         {file && (
-          <Button type="button" variant="outline" disabled={pending} onClick={cancelImageSelection}>
+          <button className="button" type="button" disabled={pending} onClick={cancelImageSelection}>
             <X aria-hidden="true" /> ยกเลิกรูปที่เลือก
-          </Button>
+          </button>
         )}
         {profile.imageUrl && !file && (
-          <Button type="button" variant="destructive" disabled={pending} onClick={() => void deleteImage()}>
+          <button className="button button--danger" type="button" disabled={pending} onClick={() => setConfirmDelete(true)}>
             <Trash2 aria-hidden="true" /> ลบรูปโปรไฟล์
-          </Button>
+          </button>
         )}
-        <small>{file ? file.name : "JPG, PNG หรือ WebP · ไม่เกิน 5 MB"}</small>
+        <small>{file ? file.name : "JPG, PNG หรือ WebP · ไม่เกิน 5 MB · บันทึกรูปแยกจากข้อมูลด้านล่าง"}</small>
       </form>
       {error && <p className="profile-field-error" role="alert">{error}</p>}
       {message && <p className="profile-success" role="status">{message}</p>}
+      <Dialog open={confirmDelete} onOpenChange={(open) => { if (!pending) setConfirmDelete(open); }}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>ลบรูปโปรไฟล์นี้?</DialogTitle>
+            <DialogDescription>บัญชีจะกลับไปใช้ตัวอักษรย่อแทนรูป จนกว่าจะอัปโหลดรูปใหม่</DialogDescription>
+          </DialogHeader>
+          <DialogFooter>
+            <DialogClose asChild>
+              <button className="button" type="button" disabled={pending}>กลับไป</button>
+            </DialogClose>
+            <button className="button button--danger" type="button" disabled={pending} onClick={() => void deleteImage()}>
+              {pending ? "กำลังลบ…" : "ยืนยันลบรูป"}
+            </button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </section>
   );
 }

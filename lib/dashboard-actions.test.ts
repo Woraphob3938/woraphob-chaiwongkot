@@ -118,6 +118,36 @@ describe("getTrainerNextAction", () => {
   it("otherwise leads to the current schedule", () => {
     expect(getTrainerNextAction(workspace, [])).toMatchObject({ href: "/trainer#schedule" });
   });
+
+  it("points to the next confirmed session when nothing is due to complete", () => {
+    expect(getTrainerNextAction(workspace, [{
+      ...booking,
+      id: "BK-NEXT",
+      status: "confirmed",
+      startsAt: "2026-08-14T02:00:00.000Z",
+      member: { displayName: "สมาชิกทดสอบ" },
+      actions: { ...booking.actions, canReadChat: false },
+    }])).toMatchObject({
+      title: "นัดถัดไป · สมาชิกทดสอบ",
+      href: "/trainer#booking-BK-NEXT",
+      cta: "ดูนัดหมาย",
+      state: "waiting",
+    });
+  });
+
+  it("prioritizes completing a due session over adding more availability", () => {
+    expect(getTrainerNextAction(workspace, [{
+      ...booking,
+      id: "BK-DONE",
+      status: "confirmed",
+      member: { displayName: "สมาชิกทดสอบ" },
+      actions: { ...booking.actions, canComplete: true },
+    }])).toMatchObject({
+      href: "/trainer#booking-BK-DONE",
+      cta: "ฝึกเสร็จแล้ว",
+      state: "action",
+    });
+  });
 });
 
 describe("getAdminNextAction", () => {

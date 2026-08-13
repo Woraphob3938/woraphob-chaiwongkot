@@ -65,7 +65,7 @@ describe("TrainerWorkbench", () => {
     push.mockReset();
   });
 
-  it("puts the schedule action before the workspace summaries", async () => {
+  it("puts the schedule action before the weekly workspace", async () => {
     vi.mocked(authenticatedRequest)
       .mockResolvedValueOnce({
         ...approvedWorkspace,
@@ -76,10 +76,10 @@ describe("TrainerWorkbench", () => {
     render(<TrainerWorkbench />);
 
     const actionTitle = await screen.findByRole("heading", { name: "ตารางงานพร้อมแล้ว" });
-    const overviewHeading = screen.getByRole("heading", { name: "ภาพรวมตารางว่าง" });
+    const weekHeading = screen.getByRole("heading", { name: "ตารางรายสัปดาห์" });
     expect(screen.getByRole("link", { name: "ดูตารางงาน" })).toHaveAttribute("href", "/trainer#schedule");
     expect(screen.queryByText("สถานที่")).not.toBeInTheDocument();
-    expect(actionTitle.compareDocumentPosition(overviewHeading) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    expect(actionTitle.compareDocumentPosition(weekHeading) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
   });
 
   it("shows availability and confirmed appointments in a seven-day weekly workspace", async () => {
@@ -117,7 +117,8 @@ describe("TrainerWorkbench", () => {
     expect(within(weeklySchedule).getAllByText("พร้อมจอง")).not.toHaveLength(0);
     expect(within(weeklySchedule).getAllByText("ล็อกชั่วคราว")).not.toHaveLength(0);
     expect(within(weeklySchedule).getByText("สมาชิกทดสอบ")).toBeInTheDocument();
-    expect(within(weeklySchedule).getByText("BK-WEEK")).toBeInTheDocument();
+    expect(within(weeklySchedule).getByText("นัดยืนยันแล้ว")).toBeInTheDocument();
+    expect(within(weeklySchedule).getByRole("button", { name: /ลบช่วงว่าง/ })).toBeInTheDocument();
     expect(within(weeklySchedule).getByRole("button", { name: "สัปดาห์ก่อนหน้า" })).toBeInTheDocument();
     expect(within(weeklySchedule).getByRole("button", { name: "สัปดาห์ถัดไป" })).toBeInTheDocument();
 
@@ -140,14 +141,15 @@ describe("TrainerWorkbench", () => {
     fireEvent.click(screen.getByRole("button", { name: "เพิ่มช่วงเวลาว่าง" }));
 
     const dialog = screen.getByRole("dialog", { name: "เพิ่มช่วงเวลาว่าง" });
-    const availableDay = within(dialog).getAllByRole("button", { name: /^เลือกวันที่/ })
-      .find((button) => !button.hasAttribute("disabled"));
+    const availableDays = within(dialog).getAllByRole("button", { name: /^เลือกวันที่/ })
+      .filter((button) => !button.hasAttribute("disabled"));
+    const availableDay = availableDays.length > 2 ? availableDays[1] : availableDays[0];
     if (!availableDay) throw new Error("calendar has no selectable date");
     fireEvent.click(availableDay);
-    fireEvent.change(within(dialog).getByLabelText("เวลาเริ่มต้น"), { target: { value: "10:00" } });
+    fireEvent.click(within(dialog).getByRole("button", { name: "เริ่ม 10:00 น." }));
 
     expect(within(dialog).queryByLabelText("เวลาสิ้นสุด")).not.toBeInTheDocument();
-    expect(within(dialog).getByText("สิ้นสุดอัตโนมัติ 11:00 น.")).toBeInTheDocument();
+    expect(within(dialog).getByText("จะเพิ่ม 1 ช่วง · แต่ละช่วงสิ้นสุดใน 1 ชั่วโมง")).toBeInTheDocument();
     fireEvent.click(within(dialog).getByRole("button", { name: "ยืนยันเพิ่มช่วงเวลา" }));
 
     await waitFor(() => expect(authenticatedRequest).toHaveBeenCalledWith(
@@ -187,7 +189,7 @@ describe("TrainerWorkbench", () => {
     render(<TrainerWorkbench />);
 
     const weeklySchedule = await screen.findByRole("region", { name: "ตารางรายสัปดาห์" });
-    expect(within(weeklySchedule).getAllByText("BK-PACK")).toHaveLength(2);
+    expect(within(weeklySchedule).getAllByText("สมาชิกทดสอบ")).toHaveLength(2);
   });
 
   it("shows the application next action when the trainer has no profile", async () => {
@@ -198,7 +200,7 @@ describe("TrainerWorkbench", () => {
     render(<TrainerWorkbench />);
 
     expect(await screen.findByRole("heading", { name: "กรอกข้อมูลวิชาชีพให้ครบ" })).toBeInTheDocument();
-    expect(screen.getByRole("link", { name: "กรอกข้อมูลวิชาชีพ" })).toHaveAttribute("href", "/trainer/apply");
+    expect(screen.getAllByRole("link", { name: "กรอกข้อมูลวิชาชีพ" })[0]).toHaveAttribute("href", "/trainer/apply");
   });
 
   it("shows held availability as read-only without booking decisions or quote fields", async () => {
@@ -364,6 +366,7 @@ describe("TrainerWorkbench", () => {
 
     render(<TrainerWorkbench />);
     fireEvent.click(await screen.findByRole("button", { name: "ฝึกเสร็จแล้ว BK-DONE" }));
+    fireEvent.click(screen.getByRole("button", { name: "ยืนยันว่าฝึกเสร็จแล้ว" }));
 
     await waitFor(() => expect(authenticatedRequest).toHaveBeenCalledWith(
       "/v1/bookings/BK-DONE/status",
@@ -402,6 +405,8 @@ describe("TrainerWorkbench", () => {
 
     render(<TrainerWorkbench />);
     fireEvent.click(await screen.findByRole("button", { name: "ฝึกเสร็จแล้ว BK-REFRESH" }));
+    fireEvent.click(screen.getByRole("button", { name: "ยืนยันว่าฝึกเสร็จแล้ว" }));
+    await waitFor(() => expect(screen.queryByRole("dialog", { name: "บันทึกว่าฝึกเสร็จแล้ว?" })).not.toBeInTheDocument());
 
     const confirmedSection = screen.getByRole("region", { name: "นัดหมายที่ยืนยันแล้ว" });
     const refreshError = await within(confirmedSection).findByRole("alert");
@@ -431,6 +436,8 @@ describe("TrainerWorkbench", () => {
 
     render(<TrainerWorkbench />);
     fireEvent.click(await screen.findByRole("button", { name: "ฝึกเสร็จแล้ว BK-RETRY-OK" }));
+    fireEvent.click(screen.getByRole("button", { name: "ยืนยันว่าฝึกเสร็จแล้ว" }));
+    await waitFor(() => expect(screen.queryByRole("dialog", { name: "บันทึกว่าฝึกเสร็จแล้ว?" })).not.toBeInTheDocument());
 
     const confirmedSection = screen.getByRole("region", { name: "นัดหมายที่ยืนยันแล้ว" });
     const refreshError = await within(confirmedSection).findByRole("alert");
@@ -467,6 +474,8 @@ describe("TrainerWorkbench", () => {
 
     render(<TrainerWorkbench />);
     fireEvent.click(await screen.findByRole("button", { name: "ฝึกเสร็จแล้ว BK-RETRY-FAIL" }));
+    fireEvent.click(screen.getByRole("button", { name: "ยืนยันว่าฝึกเสร็จแล้ว" }));
+    await waitFor(() => expect(screen.queryByRole("dialog", { name: "บันทึกว่าฝึกเสร็จแล้ว?" })).not.toBeInTheDocument());
 
     const confirmedSection = screen.getByRole("region", { name: "นัดหมายที่ยืนยันแล้ว" });
     const refreshError = await within(confirmedSection).findByRole("alert");

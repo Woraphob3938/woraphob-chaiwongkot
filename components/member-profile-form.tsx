@@ -1,17 +1,18 @@
 "use client";
 
-import { FormEvent, useState } from "react";
+import { FormEvent, useEffect, useRef, useState } from "react";
 import { LoaderCircle, Save } from "lucide-react";
-import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { NativeSelect, NativeSelectOption } from "@/components/ui/native-select";
 import { Textarea } from "@/components/ui/textarea";
 import { authenticatedRequest } from "@/lib/api";
+import { fieldDescribedBy, focusFirstInvalid } from "@/lib/profile-form";
 import type { AccountProfile, MemberAccountProfile } from "@/lib/types";
 
 type MemberProfileFormProps = {
   profile: MemberAccountProfile;
   onSaved: (profile: AccountProfile) => void;
+  onDirtyChange?: (dirty: boolean) => void;
 };
 
 export function profileFieldErrors(error: unknown) {
@@ -20,8 +21,8 @@ export function profileFieldErrors(error: unknown) {
     : {};
 }
 
-export function MemberProfileForm({ profile, onSaved }: MemberProfileFormProps) {
-  const [values, setValues] = useState({
+function snapshot(profile: MemberAccountProfile) {
+  return {
     firstName: profile.member.firstName,
     lastName: profile.member.lastName,
     phone: profile.member.phone,
@@ -29,15 +30,41 @@ export function MemberProfileForm({ profile, onSaved }: MemberProfileFormProps) 
     experienceLevel: profile.member.experienceLevel,
     weight: profile.member.weight?.toString() ?? "",
     height: profile.member.height?.toString() ?? "",
-  });
+  };
+}
+
+const fieldIds: Record<string, string> = {
+  firstName: "member-first-name",
+  lastName: "member-last-name",
+  phone: "member-phone",
+  fitnessGoal: "member-goal",
+  experienceLevel: "member-experience",
+  weight: "member-weight",
+  height: "member-height",
+};
+
+export function MemberProfileForm({ profile, onSaved, onDirtyChange }: MemberProfileFormProps) {
+  const saved = useRef(snapshot(profile));
+  const [values, setValues] = useState(saved.current);
   const [fields, setFields] = useState<Record<string, string>>({});
   const [pending, setPending] = useState(false);
   const [message, setMessage] = useState("");
   const [error, setError] = useState("");
 
+  useEffect(() => {
+    onDirtyChange?.(JSON.stringify(values) !== JSON.stringify(saved.current));
+  }, [values, onDirtyChange]);
+
   function change(name: keyof typeof values, value: string) {
     setValues((current) => ({ ...current, [name]: value }));
     setFields((current) => ({ ...current, [name]: "" }));
+  }
+
+  function resetSaved() {
+    setValues(saved.current);
+    setFields({});
+    setError("");
+    setMessage("");
   }
 
   function submit(event: FormEvent<HTMLFormElement>) {
@@ -50,6 +77,7 @@ export function MemberProfileForm({ profile, onSaved }: MemberProfileFormProps) 
     if (values.height !== "" && Number(values.height) <= 0) nextFields.height = "ส่วนสูงต้องมากกว่าศูนย์";
     if (Object.keys(nextFields).length > 0) {
       setFields(nextFields);
+      focusFirstInvalid(Object.keys(nextFields).map((key) => fieldIds[key]).filter(Boolean));
       return;
     }
 
@@ -69,40 +97,88 @@ export function MemberProfileForm({ profile, onSaved }: MemberProfileFormProps) 
           height: values.height === "" ? null : Number(values.height),
         }),
       })
-      .then((saved) => {
-        onSaved(saved);
+      .then((result) => {
+        saved.current = snapshot(result);
+        setValues(saved.current);
+        onSaved(result);
         setMessage("บันทึกข้อมูลสมาชิกแล้ว");
       })
       .catch((saveError: unknown) => {
-        setFields(profileFieldErrors(saveError));
+        const next = profileFieldErrors(saveError);
+        setFields(next);
         const errorMessage = saveError && typeof saveError === "object" && "message" in saveError
           ? String(saveError.message)
           : "บันทึกข้อมูลไม่สำเร็จ";
         setError(errorMessage);
+        focusFirstInvalid(Object.keys(next).map((key) => fieldIds[key]).filter(Boolean));
       })
       .finally(() => setPending(false));
   }
 
+  const dirty = JSON.stringify(values) !== JSON.stringify(saved.current);
+
   return (
     <section className="profile-section" aria-labelledby="member-details-title">
       <div className="profile-section__heading">
-        <div><p className="label">ข้อมูลส่วนตัว</p><h2 id="member-details-title">รายละเอียดสมาชิก</h2></div>
-        <p>แก้ไขข้อมูลที่ใช้ในบัญชีและการจองของคุณ</p>
+        <h2 id="member-details-title">รายละเอียดสมาชิก</h2>
+        <p>ชื่อและเบอร์ใช้กับการจอง เป้าหมาย น้ำหนัก และส่วนสูงอยู่เฉพาะในบัญชีนี้ ไม่ขึ้นหน้าร้านสาธารณะ</p>
       </div>
       <form onSubmit={submit} noValidate>
         <div className="profile-form-grid">
-          <div className="field"><label htmlFor="member-first-name">ชื่อ</label><Input id="member-first-name" value={values.firstName} aria-invalid={Boolean(fields.firstName)} aria-describedby={fields.firstName ? "member-first-name-error" : undefined} onChange={(event) => change("firstName", event.target.value)} />{fields.firstName && <small className="profile-field-error" id="member-first-name-error">{fields.firstName}</small>}</div>
-          <div className="field"><label htmlFor="member-last-name">นามสกุล</label><Input id="member-last-name" value={values.lastName} aria-invalid={Boolean(fields.lastName)} aria-describedby={fields.lastName ? "member-last-name-error" : undefined} onChange={(event) => change("lastName", event.target.value)} />{fields.lastName && <small className="profile-field-error" id="member-last-name-error">{fields.lastName}</small>}</div>
-          <div className="field"><label htmlFor="member-email">อีเมล</label><Input className="profile-readonly" id="member-email" value={profile.user.email} readOnly /></div>
-          <div className="field"><label htmlFor="member-phone">เบอร์โทรศัพท์</label><Input id="member-phone" inputMode="tel" value={values.phone} aria-invalid={Boolean(fields.phone)} aria-describedby={fields.phone ? "member-phone-error" : undefined} onChange={(event) => change("phone", event.target.value)} />{fields.phone && <small className="profile-field-error" id="member-phone-error">{fields.phone}</small>}</div>
-          <div className="field field--full"><label htmlFor="member-goal">เป้าหมายการออกกำลังกาย</label><Textarea id="member-goal" rows={3} value={values.fitnessGoal} onChange={(event) => change("fitnessGoal", event.target.value)} /></div>
-          <div className="field"><label htmlFor="member-experience">ระดับประสบการณ์</label><NativeSelect className="profile-select" id="member-experience" value={values.experienceLevel} onChange={(event) => change("experienceLevel", event.target.value)}><NativeSelectOption value="">ยังไม่ระบุ</NativeSelectOption><NativeSelectOption value="beginner">เริ่มต้น</NativeSelectOption><NativeSelectOption value="intermediate">มีประสบการณ์</NativeSelectOption><NativeSelectOption value="advanced">ฝึกสม่ำเสมอ</NativeSelectOption></NativeSelect></div>
-          <div className="field"><label htmlFor="member-weight">น้ำหนัก (กก.)</label><Input id="member-weight" type="number" min="0" step="0.01" value={values.weight} aria-invalid={Boolean(fields.weight)} aria-describedby={fields.weight ? "member-weight-error" : undefined} onChange={(event) => change("weight", event.target.value)} />{fields.weight && <small className="profile-field-error" id="member-weight-error">{fields.weight}</small>}</div>
-          <div className="field"><label htmlFor="member-height">ส่วนสูง (ซม.)</label><Input id="member-height" type="number" min="0" step="0.01" value={values.height} aria-invalid={Boolean(fields.height)} aria-describedby={fields.height ? "member-height-error" : undefined} onChange={(event) => change("height", event.target.value)} />{fields.height && <small className="profile-field-error" id="member-height-error">{fields.height}</small>}</div>
+          <div className="field">
+            <label htmlFor="member-first-name">ชื่อ</label>
+            <Input id="member-first-name" value={values.firstName} aria-required="true" aria-invalid={Boolean(fields.firstName)} aria-describedby={fieldDescribedBy("member-first-name", fields.firstName)} onChange={(event) => change("firstName", event.target.value)} />
+            {fields.firstName && <small className="profile-field-error" id="member-first-name-error">{fields.firstName}</small>}
+          </div>
+          <div className="field">
+            <label htmlFor="member-last-name">นามสกุล</label>
+            <Input id="member-last-name" value={values.lastName} aria-required="true" aria-invalid={Boolean(fields.lastName)} aria-describedby={fieldDescribedBy("member-last-name", fields.lastName)} onChange={(event) => change("lastName", event.target.value)} />
+            {fields.lastName && <small className="profile-field-error" id="member-last-name-error">{fields.lastName}</small>}
+          </div>
+          <div className="field">
+            <span id="member-email-label">อีเมล</span>
+            <p className="profile-static-value" aria-labelledby="member-email-label">{profile.user.email}</p>
+            <small>ใช้อีเมลนี้เข้าสู่ระบบ เปลี่ยนไม่ได้จากหน้านี้</small>
+          </div>
+          <div className="field">
+            <label htmlFor="member-phone">เบอร์โทรศัพท์</label>
+            <Input id="member-phone" inputMode="tel" value={values.phone} aria-invalid={Boolean(fields.phone)} aria-describedby={fieldDescribedBy("member-phone", fields.phone)} onChange={(event) => change("phone", event.target.value)} />
+            {fields.phone && <small className="profile-field-error" id="member-phone-error">{fields.phone}</small>}
+          </div>
+          <div className="field field--full">
+            <label htmlFor="member-goal">เป้าหมายการออกกำลังกาย</label>
+            <Textarea id="member-goal" rows={3} value={values.fitnessGoal} onChange={(event) => change("fitnessGoal", event.target.value)} />
+          </div>
+          <div className="field">
+            <label htmlFor="member-experience">ระดับประสบการณ์</label>
+            <NativeSelect className="profile-select" id="member-experience" value={values.experienceLevel} onChange={(event) => change("experienceLevel", event.target.value)}>
+              <NativeSelectOption value="">ยังไม่ระบุ</NativeSelectOption>
+              <NativeSelectOption value="beginner">เริ่มต้น</NativeSelectOption>
+              <NativeSelectOption value="intermediate">มีประสบการณ์</NativeSelectOption>
+              <NativeSelectOption value="advanced">ฝึกสม่ำเสมอ</NativeSelectOption>
+            </NativeSelect>
+          </div>
+          <div className="field">
+            <label htmlFor="member-weight">น้ำหนัก (กก.)</label>
+            <Input id="member-weight" type="number" min="0" step="0.01" inputMode="decimal" value={values.weight} aria-invalid={Boolean(fields.weight)} aria-describedby={fieldDescribedBy("member-weight", fields.weight) ?? "member-weight-hint"} onChange={(event) => change("weight", event.target.value)} />
+            <small id="member-weight-hint">ไม่บังคับ</small>
+            {fields.weight && <small className="profile-field-error" id="member-weight-error">{fields.weight}</small>}
+          </div>
+          <div className="field">
+            <label htmlFor="member-height">ส่วนสูง (ซม.)</label>
+            <Input id="member-height" type="number" min="0" step="0.01" inputMode="decimal" value={values.height} aria-invalid={Boolean(fields.height)} aria-describedby={fieldDescribedBy("member-height", fields.height) ?? "member-height-hint"} onChange={(event) => change("height", event.target.value)} />
+            <small id="member-height-hint">ไม่บังคับ</small>
+            {fields.height && <small className="profile-field-error" id="member-height-error">{fields.height}</small>}
+          </div>
         </div>
         {error && <p className="profile-form-error" role="alert">{error}</p>}
         {message && <p className="profile-success" role="status">{message}</p>}
-        <div className="profile-form-actions"><Button type="submit" disabled={pending}>{pending ? <><LoaderCircle className="spin" aria-hidden="true" /> กำลังบันทึก</> : <><Save aria-hidden="true" /> บันทึกข้อมูลสมาชิก</>}</Button></div>
+        <div className="profile-form-actions">
+          {dirty && <button className="button" type="button" disabled={pending} onClick={resetSaved}>คืนค่าที่บันทึกไว้</button>}
+          <button className="button button--accent" type="submit" disabled={pending}>
+            {pending ? <><LoaderCircle className="spin" aria-hidden="true" /> กำลังบันทึก</> : <><Save aria-hidden="true" /> บันทึกข้อมูลสมาชิก</>}
+          </button>
+        </div>
       </form>
     </section>
   );

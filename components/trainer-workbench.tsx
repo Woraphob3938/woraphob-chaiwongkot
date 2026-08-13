@@ -3,7 +3,7 @@
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { FormEvent, useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { CalendarDays, CalendarPlus, ChevronLeft, ChevronRight, RefreshCw, Trash2 } from "lucide-react";
+import { CalendarDays, CalendarPlus, ChevronLeft, ChevronRight, MessageSquareText, RefreshCw, Trash2 } from "lucide-react";
 import { NextActionCard } from "@/components/dashboard-primitives";
 import { StatusBadge } from "@/components/status-badge";
 import { Button } from "@/components/ui/button";
@@ -20,11 +20,6 @@ import { ApiError, authenticatedRequest } from "@/lib/api";
 import { getTrainerNextAction } from "@/lib/dashboard-actions";
 import { formatDateTime } from "@/lib/format";
 import type { Booking, SlotState, TrainerAvailabilitySlot, TrainerWorkspace } from "@/lib/types";
-
-function localInputValue(date: Date) {
-  const pad = (value: number) => String(value).padStart(2, "0");
-  return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())}T${pad(date.getHours())}:${pad(date.getMinutes())}`;
-}
 
 function leaveExpiredSession(error: unknown, navigate: (href: string) => void) {
   if (!(error instanceof ApiError) || error.status !== 401) return false;
@@ -69,7 +64,8 @@ function formatTimeRange(startsAt: string, endsAt: string) {
 
 const calendarMonthFormatter = new Intl.DateTimeFormat("th-TH", { month: "long", year: "numeric" });
 const calendarDateFormatter = new Intl.DateTimeFormat("th-TH", { day: "numeric", month: "long", year: "numeric" });
-const calendarWeekdays = ["อา.", "จ.", "อ.", "พ.", "พฤ.", "ศ.", "ส."];
+const calendarWeekdays = ["จ.", "อ.", "พ.", "พฤ.", "ศ.", "ส.", "อา."];
+const slotHours = Array.from({ length: 16 }, (_, index) => index + 6);
 
 function monthKey(value: Date) {
   return `${value.getFullYear()}-${String(value.getMonth() + 1).padStart(2, "0")}`;
@@ -77,16 +73,24 @@ function monthKey(value: Date) {
 
 function monthDays(key: string) {
   const [year, month] = key.split("-").map(Number);
-  const firstWeekday = new Date(year, month - 1, 1).getDay();
+  const sundayIndex = new Date(year, month - 1, 1).getDay();
+  const mondayOffset = sundayIndex === 0 ? 6 : sundayIndex - 1;
   const count = new Date(year, month, 0).getDate();
   return Array.from({ length: 42 }, (_, index) => {
-    const day = index - firstWeekday + 1;
+    const day = index - mondayOffset + 1;
     return day >= 1 && day <= count ? new Date(year, month - 1, day) : null;
   });
 }
 
-function formatClock(value: Date) {
-  return `${String(value.getHours()).padStart(2, "0")}:${String(value.getMinutes()).padStart(2, "0")}`;
+function hourLabel(hour: number) {
+  return `${String(hour).padStart(2, "0")}:00`;
+}
+
+function overlapsHour(slot: TrainerAvailabilitySlot, start: Date) {
+  const slotStart = new Date(slot.startsAt);
+  const slotEnd = new Date(slot.endsAt);
+  const end = new Date(start.getTime() + 60 * 60 * 1000);
+  return slotStart < end && slotEnd > start;
 }
 
 type WeeklyScheduleItem = {
@@ -97,6 +101,8 @@ type WeeklyScheduleItem = {
   state: SlotState | "confirmed";
   title: string;
   detail: string;
+  slot?: TrainerAvailabilitySlot;
+  booking?: Booking;
 };
 
 export function TrainerWorkbench({ onIncompleteProfile }: { onIncompleteProfile?: () => void } = {}) {
@@ -111,11 +117,13 @@ export function TrainerWorkbench({ onIncompleteProfile }: { onIncompleteProfile?
   const [availabilityError, setAvailabilityError] = useState("");
   const [fieldErrors, setFieldErrors] = useState<Record<string, string>>({});
   const [slotDate, setSlotDate] = useState("");
-  const [slotTime, setSlotTime] = useState("");
+  const [slotTimes, setSlotTimes] = useState<string[]>([]);
+  const [copyNextDay, setCopyNextDay] = useState(false);
   const [slotDialogOpen, setSlotDialogOpen] = useState(false);
   const [visibleSlotMonth, setVisibleSlotMonth] = useState(() => monthKey(new Date()));
   const [busy, setBusy] = useState<string | null>(null);
   const [slotToDelete, setSlotToDelete] = useState<TrainerAvailabilitySlot | null>(null);
+  const [bookingToComplete, setBookingToComplete] = useState<Booking | null>(null);
   const [weekOffset, setWeekOffset] = useState(0);
   const [loading, setLoading] = useState(true);
   const [workspaceReady, setWorkspaceReady] = useState(false);
@@ -220,26 +228,19 @@ export function TrainerWorkbench({ onIncompleteProfile }: { onIncompleteProfile?
     }
     return months;
   }, [maxDate, now]);
-  const selectedSlotStart = slotDate && slotTime ? new Date(`${slotDate}T${slotTime}`) : null;
-  const selectedSlotEnd = selectedSlotStart
-    ? new Date(selectedSlotStart.getTime() + 60 * 60 * 1000)
-    : null;
-  const selectedSlotIsValid = Boolean(
-    selectedSlotStart && selectedSlotStart > now && selectedSlotStart <= maxDate,
-  );
+  const selectedStarts = slotDate
+    ? slotTimes
+      .map((time) => new Date(`${slotDate}T${time}`))
+      .filter((start) => start > now && start <= maxDate)
+    : [];
+  const selectedSlotIsValid = selectedStarts.length > 0;
   const approved = workspace?.profile?.approvalStatus === "approved";
   const confirmedBookings = bookingsReady ? bookings.filter((booking) => booking.status === "confirmed") : [];
   const nextAction = workspaceReady && bookingsReady ? getTrainerNextAction(workspace, bookings) : null;
   const slots = workspace?.slots ?? [];
-  const todaySlotCount = slots.filter((slot) => {
-    const startsAt = new Date(slot.startsAt);
-    return startsAt.getFullYear() === now.getFullYear()
-      && startsAt.getMonth() === now.getMonth()
-      && startsAt.getDate() === now.getDate();
-  }).length;
-  const upcomingSlots = slots
-    .filter((slot) => new Date(slot.startsAt).getTime() >= now.getTime())
-    .sort((left, right) => new Date(left.startsAt).getTime() - new Date(right.startsAt).getTime());
+  const slotsOnSelectedDay = slotDate
+    ? slots.filter((slot) => localDateKey(new Date(slot.startsAt)) === slotDate)
+    : [];
   const weekStart = addDays(startOfWeek(now), weekOffset * 7);
   const weekDays = Array.from({ length: 7 }, (_, index) => addDays(weekStart, index));
   const weekEnd = addDays(weekStart, 7);
@@ -263,7 +264,8 @@ export function TrainerWorkbench({ onIncompleteProfile }: { onIncompleteProfile?
         kind: "slot" as const,
         state: slot.state,
         title: slotStateCopy[slot.state],
-        detail: "ช่วงเวลาว่าง",
+        detail: slot.state === "held" ? "สมาชิกกำลังส่งสลิป ล็อก 10 นาที" : "ช่วงเวลาว่าง",
+        slot,
       })),
     ...confirmedSessions
       .filter(({ session }) => {
@@ -277,7 +279,8 @@ export function TrainerWorkbench({ onIncompleteProfile }: { onIncompleteProfile?
         kind: "booking" as const,
         state: "confirmed" as const,
         title: booking.member?.displayName ?? "สมาชิก FitConnect",
-        detail: booking.id,
+        detail: "นัดยืนยันแล้ว",
+        booking,
       })),
   ].sort((left, right) => new Date(left.startsAt).getTime() - new Date(right.startsAt).getTime());
 
@@ -288,20 +291,29 @@ export function TrainerWorkbench({ onIncompleteProfile }: { onIncompleteProfile?
     setFieldErrors({});
     setBusy("slot-create");
     try {
-      if (!selectedSlotStart || !selectedSlotIsValid) {
+      if (!slotDate || selectedStarts.length === 0) {
         setFieldErrors({ startsAt: "เลือกวันและเวลาในอนาคตภายในสองเดือน" });
         return;
       }
-      const startsAt = selectedSlotStart.toISOString();
-      await authenticatedRequest<TrainerAvailabilitySlot>("/v1/availability-slots", {
-        method: "POST",
-        body: JSON.stringify({ startsAt }),
-      });
+      const starts = [...selectedStarts];
+      if (copyNextDay) {
+        for (const start of selectedStarts) {
+          const copied = addDays(start, 1);
+          if (copied > now && copied <= maxDate) starts.push(copied);
+        }
+      }
+      for (const start of starts) {
+        await authenticatedRequest<TrainerAvailabilitySlot>("/v1/availability-slots", {
+          method: "POST",
+          body: JSON.stringify({ startsAt: start.toISOString() }),
+        });
+      }
       await loadWorkspace();
       setSlotDate("");
-      setSlotTime("");
+      setSlotTimes([]);
+      setCopyNextDay(false);
       setSlotDialogOpen(false);
-      setActionNotice("เพิ่มช่วงเวลาว่างแล้ว");
+      setActionNotice(starts.length === 1 ? "เพิ่มช่วงเวลาว่างแล้ว" : `เพิ่ม ${starts.length} ช่วงเวลาว่างแล้ว`);
     } catch (error) {
       if (leaveExpiredSession(error, navigate)) return;
       if (error instanceof ApiError) setFieldErrors(error.fields ?? {});
@@ -318,6 +330,7 @@ export function TrainerWorkbench({ onIncompleteProfile }: { onIncompleteProfile?
     try {
       await authenticatedRequest(`/v1/availability-slots/${slotId}`, { method: "DELETE" });
       await loadWorkspace();
+      setSlotToDelete(null);
       setActionNotice("ลบช่วงเวลาว่างแล้ว");
     } catch (error) {
       if (leaveExpiredSession(error, navigate)) return;
@@ -340,6 +353,7 @@ export function TrainerWorkbench({ onIncompleteProfile }: { onIncompleteProfile?
       setBookings((current) => current.map((booking) => booking.id === bookingId
         ? { ...booking, status: "completed", actions: { ...booking.actions, canComplete: false } }
         : booking));
+      setBookingToComplete(null);
       try {
         await refreshBookings();
         setBookingError("");
@@ -377,7 +391,7 @@ export function TrainerWorkbench({ onIncompleteProfile }: { onIncompleteProfile?
   function renderConfirmedBooking(booking: Booking) {
     const isBusy = busy === `booking-${booking.id}`;
     return (
-      <article className="trainer-booking-card" key={booking.id} aria-busy={isBusy}>
+      <article className="trainer-booking-card" id={`booking-${booking.id}`} key={booking.id} aria-busy={isBusy}>
         <div className="trainer-booking-card__identity"><span>{booking.id}</span><h3>{booking.member?.displayName ?? "สมาชิก FitConnect"}</h3></div>
         <dl>
           <div><dt>เริ่มฝึก</dt><dd>{formatDateTime(booking.startsAt)}</dd></div>
@@ -391,7 +405,12 @@ export function TrainerWorkbench({ onIncompleteProfile }: { onIncompleteProfile?
         )}
         <div className="queue-actions">
           {!booking.actions.canComplete && <span>ฝึกเสร็จได้หลัง {formatDateTime(booking.endsAt)}</span>}
-          <button type="button" disabled={!booking.actions.canComplete || isBusy} aria-label={`${booking.actions.canComplete ? "ฝึกเสร็จแล้ว" : "รอสิ้นสุดการฝึก"} ${booking.id}`} onClick={() => void completeBooking(booking.id)}>
+          {booking.actions.canReadChat && (
+            <Link href={`/chat?booking=${encodeURIComponent(booking.id)}`}>
+              <MessageSquareText aria-hidden="true" size={17} /> เปิดการสนทนา
+            </Link>
+          )}
+          <button type="button" disabled={!booking.actions.canComplete || isBusy} aria-label={`${booking.actions.canComplete ? "ฝึกเสร็จแล้ว" : "รอสิ้นสุดการฝึก"} ${booking.id}`} onClick={() => setBookingToComplete(booking)}>
             {isBusy ? "กำลังบันทึก…" : booking.actions.canComplete ? "ฝึกเสร็จแล้ว" : "รอสิ้นสุดการฝึก"}
           </button>
         </div>
@@ -420,6 +439,9 @@ export function TrainerWorkbench({ onIncompleteProfile }: { onIncompleteProfile?
       <div className="trainer-workbench">
         <section className="approval-panel approval-panel--empty">
           <div><h2>ข้อมูลวิชาชีพยังไม่ครบ</h2><p>บัญชีเทรนเนอร์สร้างแล้ว กรอกข้อมูลการให้บริการและใบรับรองเพื่อส่งให้ผู้ดูแลระบบตรวจ</p></div>
+          <div className="approval-panel__actions">
+            <Link className="button button--accent" href="/trainer/apply">กรอกข้อมูลวิชาชีพ</Link>
+          </div>
           {workspaceError && <div className="workbench-error" role="alert"><span>{workspaceError}</span><button type="button" onClick={() => void loadWorkspace()}>ลองใหม่</button></div>}
         </section>
         {bookingError && <div className="workbench-error" role="alert"><span>{bookingError}</span><button type="button" onClick={() => void loadBookings()}><RefreshCw aria-hidden="true" size={15} /> ลองใหม่</button></div>}
@@ -448,16 +470,6 @@ export function TrainerWorkbench({ onIncompleteProfile }: { onIncompleteProfile?
 
       {nextAction && <NextActionCard action={nextAction} />}
       {actionNotice && <p ref={actionNoticeRef} className="queue-notice workbench-success" role="status" tabIndex={-1}>{actionNotice}</p>}
-
-      <section className="trainer-overview" aria-labelledby="trainer-overview-title">
-        <div><h2 id="trainer-overview-title">ภาพรวมตารางว่าง</h2><p>ข้อมูลจากตารางและนัดหมายปัจจุบัน</p></div>
-        <dl>
-          <div><dt>ช่วงเวลาวันนี้</dt><dd>{todaySlotCount}</dd></div>
-          <div><dt>ช่วงเวลาข้างหน้า</dt><dd>{upcomingSlots.length}</dd></div>
-          <div><dt>นัดยืนยันแล้ว</dt><dd>{bookingsReady ? confirmedBookings.length : "—"}</dd></div>
-        </dl>
-        <p>{upcomingSlots[0] ? `ช่วงเวลาถัดไป ${formatDateTime(upcomingSlots[0].startsAt)}` : "ยังไม่มีช่วงเวลาข้างหน้า"}</p>
-      </section>
 
       <section className="trainer-week" id="schedule" aria-labelledby="trainer-week-title">
         <header className="trainer-week__heading">
@@ -489,13 +501,47 @@ export function TrainerWorkbench({ onIncompleteProfile }: { onIncompleteProfile?
                   <strong>{dayDateFormatter.format(day)}</strong>
                 </header>
                 <div className="trainer-week__events">
-                  {dayItems.map((item) => (
-                    <article className={`trainer-week-event trainer-week-event--${item.kind} trainer-week-event--${item.state}`} key={item.key}>
-                      <time dateTime={item.startsAt}>{formatTimeRange(item.startsAt, item.endsAt)}</time>
-                      <strong>{item.title}</strong>
-                      <span>{item.detail}</span>
-                    </article>
-                  ))}
+                  {dayItems.map((item) => {
+                    const timeRange = formatTimeRange(item.startsAt, item.endsAt);
+                    const canDeleteSlot = item.slot?.state === "available" && new Date(item.startsAt).getTime() > now.getTime();
+                    const booking = item.booking;
+                    const canCompleteBooking = Boolean(booking?.actions.canComplete);
+                    const canOpenChat = Boolean(booking?.actions.canReadChat);
+                    const eventClass = `trainer-week-event trainer-week-event--${item.kind} trainer-week-event--${item.state}`;
+                    if (canDeleteSlot && item.slot) {
+                      const slot = item.slot;
+                      return (
+                        <button type="button" className={eventClass} key={item.key} aria-label={`ลบช่วงว่าง ${timeRange}`} onClick={() => setSlotToDelete(slot)}>
+                          <time dateTime={item.startsAt}>{timeRange}</time>
+                          <strong>{item.title}</strong>
+                          <span>ลบ</span>
+                        </button>
+                      );
+                    }
+                    if (booking && (canCompleteBooking || canOpenChat)) {
+                      return (
+                        <article className={eventClass} key={item.key}>
+                          <time dateTime={item.startsAt}>{timeRange}</time>
+                          <strong>{item.title}</strong>
+                          <span className="trainer-week-event__actions">
+                            {canCompleteBooking && (
+                              <button type="button" onClick={() => setBookingToComplete(booking)}>ฝึกเสร็จ</button>
+                            )}
+                            {canOpenChat && (
+                              <Link href={`/chat?booking=${encodeURIComponent(booking.id)}`}>แชต</Link>
+                            )}
+                          </span>
+                        </article>
+                      );
+                    }
+                    return (
+                      <article className={eventClass} key={item.key}>
+                        <time dateTime={item.startsAt}>{timeRange}</time>
+                        <strong>{item.title}</strong>
+                        <span>{item.detail}</span>
+                      </article>
+                    );
+                  })}
                   {dayItems.length === 0 && <p className="trainer-week__empty">ไม่มีรายการ</p>}
                 </div>
               </section>
@@ -503,9 +549,10 @@ export function TrainerWorkbench({ onIncompleteProfile }: { onIncompleteProfile?
           })}
         </div>
         <footer className="trainer-week__legend" aria-label="คำอธิบายสถานะตาราง">
-          <span><i className="is-available" aria-hidden="true" /> พร้อมจอง</span>
-          <span><i className="is-held" aria-hidden="true" /> ล็อกชั่วคราว</span>
-          <span><i className="is-confirmed" aria-hidden="true" /> นัดยืนยันแล้ว</span>
+          <span><i className="is-available" aria-hidden="true" /> พร้อมจอง · กดเพื่อลบ</span>
+          <span><i className="is-held" aria-hidden="true" /> ล็อกชั่วคราว · สมาชิกกำลังส่งสลิป 10 นาที</span>
+          <span><i className="is-confirmed" aria-hidden="true" /> นัดยืนยันแล้ว · ฝึกเสร็จหรือแชต</span>
+          <span><i className="is-blocked" aria-hidden="true" /> ปิดช่วงเวลา</span>
         </footer>
       </section>
 
@@ -519,11 +566,13 @@ export function TrainerWorkbench({ onIncompleteProfile }: { onIncompleteProfile?
       >
         <summary><span><CalendarPlus aria-hidden="true" size={20} /><strong>จัดการช่วงเวลาว่าง</strong></span><small>{slots.length} ช่วงเวลา</small></summary>
         <div className="availability-launch">
-          <p>เลือกวันและเวลาเริ่มต้น ระบบกำหนดเวลาฝึกครั้งละ 1 ชั่วโมง</p>
-          <Button className="button button--accent" type="button" disabled={!approved} onClick={() => {
+          <p id="availability-add-hint">{approved ? "เลือกวันแล้วเลือกชั่วโมงเริ่มต้น ระบบกำหนดเวลาฝึกครั้งละ 1 ชั่วโมง" : "รอผู้ดูแลระบบอนุมัติโปรไฟล์ก่อนจึงจะเพิ่มช่วงเวลาได้"}</p>
+          <Button className="button button--accent" type="button" disabled={!approved} aria-describedby="availability-add-hint" onClick={() => {
             setAvailabilityError("");
             setFieldErrors({});
             setVisibleSlotMonth(monthKey(now));
+            setSlotTimes([]);
+            setCopyNextDay(false);
             setSlotDialogOpen(true);
           }}>
             <CalendarPlus aria-hidden="true" /> เพิ่มช่วงเวลาว่าง
@@ -594,20 +643,52 @@ export function TrainerWorkbench({ onIncompleteProfile }: { onIncompleteProfile?
               </section>
               <section className="slot-calendar-times availability-calendar-time" aria-label="เวลาเริ่มต้นที่เลือก">
                 <div><CalendarDays aria-hidden="true" /><h3>เวลาเริ่มต้น</h3></div>
-                <label>
-                  <span className="sr-only">เวลาเริ่มต้น</span>
-                  <input type="time" aria-label="เวลาเริ่มต้น" required value={slotTime} min={slotDate === localDateKey(now) ? localInputValue(now).slice(11) : undefined} disabled={busy === "slot-create"} onChange={(event) => {
-                    setSlotTime(event.target.value);
-                    setFieldErrors((current) => {
-                      const rest = { ...current };
-                      delete rest.startsAt;
-                      return rest;
-                    });
-                  }} />
+                {slotDate ? (
+                  <ul className="slot-calendar-times__list">
+                    {slotHours.map((hour) => {
+                      const value = hourLabel(hour);
+                      const start = new Date(`${slotDate}T${value}`);
+                      const taken = slotsOnSelectedDay.some((slot) => overlapsHour(slot, start));
+                      const enabled = start > now && start <= maxDate && !taken;
+                      const selected = slotTimes.includes(value);
+                      return (
+                        <li key={value}>
+                          <button
+                            type="button"
+                            className={`slot-calendar-time${selected ? " is-selected" : ""}`}
+                            disabled={!enabled || busy === "slot-create"}
+                            aria-pressed={selected}
+                            aria-label={taken ? `${value} มีช่วงนี้อยู่แล้ว` : `เริ่ม ${value} น.`}
+                            onClick={() => {
+                              setSlotTimes((current) => (
+                                current.includes(value)
+                                  ? current.filter((time) => time !== value)
+                                  : [...current, value].sort()
+                              ));
+                              setFieldErrors((current) => {
+                                const rest = { ...current };
+                                delete rest.startsAt;
+                                return rest;
+                              });
+                            }}
+                          >
+                            {value}
+                          </button>
+                        </li>
+                      );
+                    })}
+                  </ul>
+                ) : <p>เลือกวันเพื่อดูชั่วโมงที่เปิดได้</p>}
+                {slotsOnSelectedDay.length > 0 && (
+                  <p className="availability-day-slots">วันนี้มีอยู่แล้ว {slotsOnSelectedDay.map((slot) => `${timeFormatter.format(new Date(slot.startsAt))} น. · ${slotStateCopy[slot.state]}`).join(" · ")}</p>
+                )}
+                {selectedStarts.length > 0
+                  ? <p className="availability-calendar-time__end">จะเพิ่ม {selectedStarts.length} ช่วง · แต่ละช่วงสิ้นสุดใน 1 ชั่วโมง</p>
+                  : <p>เลือกวันและชั่วโมงได้มากกว่าหนึ่งช่อง</p>}
+                <label className="availability-copy-next">
+                  <input type="checkbox" checked={copyNextDay} disabled={selectedStarts.length === 0 || busy === "slot-create"} onChange={(event) => setCopyNextDay(event.target.checked)} />
+                  คัดลอกชั่วโมงเหล่านี้ไปวันถัดไป
                 </label>
-                {selectedSlotEnd
-                  ? <p className="availability-calendar-time__end">สิ้นสุดอัตโนมัติ {formatClock(selectedSlotEnd)} น.</p>
-                  : <p>เลือกวันและเวลาเพื่อดูเวลาสิ้นสุด</p>}
                 {fieldErrors.startsAt && <small id="availability-start-error" className="field-error">{fieldErrors.startsAt}</small>}
                 {availabilityError && <p className="row-error" role="alert">{availabilityError}</p>}
               </section>
@@ -615,7 +696,7 @@ export function TrainerWorkbench({ onIncompleteProfile }: { onIncompleteProfile?
             <DialogFooter className="slot-calendar-dialog__footer">
               <DialogClose asChild><Button type="button" variant="outline" disabled={busy === "slot-create"}>ยกเลิก</Button></DialogClose>
               <Button className="button button--accent" type="submit" disabled={!approved || !selectedSlotIsValid || busy === "slot-create"}>
-                {busy === "slot-create" ? "กำลังเพิ่ม…" : "ยืนยันเพิ่มช่วงเวลา"}
+                {busy === "slot-create" ? "กำลังเพิ่ม…" : selectedStarts.length > 1 ? `ยืนยันเพิ่ม ${selectedStarts.length} ช่วงเวลา` : "ยืนยันเพิ่มช่วงเวลา"}
               </Button>
             </DialogFooter>
           </form>
@@ -623,8 +704,8 @@ export function TrainerWorkbench({ onIncompleteProfile }: { onIncompleteProfile?
       </Dialog>
 
       <section className="trainer-booking-list" aria-labelledby="trainer-confirmed-title">
-        <details className="trainer-disclosure">
-          <summary><span><strong id="trainer-confirmed-title">นัดหมายที่ยืนยันแล้ว</strong><small>เปิดเพื่อจัดการและบันทึกผลหลังเวลานัด</small></span><span className="queue-count">{bookingsReady ? String(confirmedBookings.length).padStart(2, "0") : "—"}</span></summary>
+        <details className="trainer-disclosure" open={nextAction?.href.startsWith("/trainer#booking-") || undefined}>
+          <summary><span><strong id="trainer-confirmed-title">นัดหมายที่ยืนยันแล้ว</strong><small>เปิดเพื่อจัดการและบันทึกผลหลังเวลานัด</small></span><span className="queue-count">{bookingsReady ? String(confirmedBookings.length) : "—"}</span></summary>
           {completionError && (
             <div ref={completionErrorRef} className="workbench-error" role="alert" tabIndex={-1}>
               <span>{completionError}</span>
@@ -639,6 +720,7 @@ export function TrainerWorkbench({ onIncompleteProfile }: { onIncompleteProfile?
       </section>
 
       <Dialog open={slotToDelete !== null} onOpenChange={(open) => {
+        if (busy?.startsWith("slot-")) return;
         if (!open) setSlotToDelete(null);
       }}>
         <DialogContent>
@@ -649,19 +731,50 @@ export function TrainerWorkbench({ onIncompleteProfile }: { onIncompleteProfile?
               <span>สมาชิกจะไม่เห็นช่วงเวลานี้อีก</span>
             </DialogDescription>
           </DialogHeader>
+          {availabilityError && <p className="row-error" role="alert">{availabilityError}</p>}
           <DialogFooter>
-            <DialogClose asChild><Button type="button" variant="outline">กลับไป</Button></DialogClose>
+            <DialogClose asChild><Button type="button" variant="outline" disabled={Boolean(busy?.startsWith("slot-"))}>กลับไป</Button></DialogClose>
             <Button
               type="button"
               variant="destructive"
+              disabled={!slotToDelete || busy === `slot-${slotToDelete.id}`}
               onClick={() => {
                 if (!slotToDelete) return;
-                const slotId = slotToDelete.id;
-                setSlotToDelete(null);
-                void deleteSlot(slotId);
+                void deleteSlot(slotToDelete.id);
               }}
             >
-              ยืนยันลบช่วงเวลา
+              {busy === `slot-${slotToDelete?.id}` ? "กำลังลบ…" : "ยืนยันลบช่วงเวลา"}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      <Dialog open={bookingToComplete !== null} onOpenChange={(open) => {
+        if (busy?.startsWith("booking-")) return;
+        if (!open) setBookingToComplete(null);
+      }}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>บันทึกว่าฝึกเสร็จแล้ว?</DialogTitle>
+            <DialogDescription className="grid gap-1">
+              <span>{bookingToComplete?.member?.displayName ?? "สมาชิก FitConnect"}</span>
+              <span>{bookingToComplete ? `${formatDateTime(bookingToComplete.startsAt)} – ${formatDateTime(bookingToComplete.endsAt)}` : ""}</span>
+              <span>คำสั่งนี้ปิดการจอง {bookingToComplete?.id} และให้สมาชิกเขียนรีวิวได้</span>
+            </DialogDescription>
+          </DialogHeader>
+          {completionError && <p className="row-error" role="alert">{completionError}</p>}
+          <DialogFooter>
+            <DialogClose asChild><Button type="button" variant="outline" disabled={Boolean(busy?.startsWith("booking-"))}>กลับไป</Button></DialogClose>
+            <Button
+              className="button button--accent"
+              type="button"
+              disabled={!bookingToComplete || busy === `booking-${bookingToComplete.id}`}
+              onClick={() => {
+                if (!bookingToComplete) return;
+                void completeBooking(bookingToComplete.id);
+              }}
+            >
+              {busy === `booking-${bookingToComplete?.id}` ? "กำลังบันทึก…" : "ยืนยันว่าฝึกเสร็จแล้ว"}
             </Button>
           </DialogFooter>
         </DialogContent>

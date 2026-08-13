@@ -431,9 +431,26 @@ body {
   object-fit: cover;
 }
 
+/* Hallmark · surface: account-profile · mode: Operate · world: Athlete Credential Workbench */
 .account-profile {
   max-width: 72rem;
-  padding-block: clamp(1rem, 3vw, 2rem);
+  padding-block: var(--space-lg);
+}
+
+.account-profile .button {
+  border-color: var(--color-rule);
+  background: var(--color-paper);
+}
+
+.account-profile .button--accent {
+  border-color: var(--color-accent);
+  background: var(--color-accent);
+}
+
+.account-profile .button--danger {
+  color: var(--color-error);
+  border-color: var(--color-error);
+  background: var(--color-error-soft);
 }
 
 .account-profile__breadcrumb {
@@ -441,6 +458,11 @@ body {
   gap: var(--space-xs);
   color: var(--color-muted);
   font-size: var(--text-sm);
+}
+
+.account-profile__breadcrumb a {
+  text-decoration: underline;
+  text-underline-offset: 0.15em;
 }
 
 .profile-identity {
@@ -458,8 +480,8 @@ body {
 }
 
 .profile-identity__avatar {
-  width: clamp(5rem, 10vw, 7rem);
-  height: clamp(5rem, 10vw, 7rem);
+  width: 5.5rem;
+  height: 5.5rem;
   border: 1px solid var(--color-rule);
 }
 
@@ -490,15 +512,15 @@ body {
 
 .profile-identity__heading h1 {
   margin: 0;
-  font-size: clamp(1.75rem, 4vw, 2.75rem);
+  font-size: var(--text-2xl);
 }
 
 .profile-role-badge {
   padding: 0.25rem 0.65rem;
-  color: var(--color-accent-ink);
-  background: var(--color-accent-soft);
-  border: 1px solid var(--color-accent);
-  border-radius: 999px;
+  color: var(--color-ink);
+  background: var(--color-paper-2);
+  border: 1px solid var(--color-rule);
+  border-radius: var(--radius-sm);
   font-size: var(--text-sm);
   font-weight: 700;
 }
@@ -535,10 +557,8 @@ body {
 }
 
 .profile-section__heading {
-  display: flex;
-  align-items: end;
-  justify-content: space-between;
-  gap: var(--space-md);
+  display: grid;
+  gap: var(--space-xs);
 }
 
 .profile-section__heading h2,
@@ -546,8 +566,44 @@ body {
   margin: 0;
 }
 
+.profile-section__heading h2 {
+  font-size: var(--text-xl);
+}
+
 .profile-section__heading > p {
   color: var(--color-muted);
+}
+
+.profile-group {
+  display: grid;
+  gap: var(--space-sm);
+  margin-top: var(--space-lg);
+  padding-top: var(--space-lg);
+  border-top: 1px solid var(--color-rule);
+}
+
+.profile-group:first-of-type {
+  margin-top: 0;
+  padding-top: 0;
+  border-top: 0;
+}
+
+.profile-group h3 {
+  margin: 0;
+  font-size: var(--text-lg);
+}
+
+.profile-group__hint,
+.profile-static-value + small,
+.field > small {
+  color: var(--color-muted);
+}
+
+.profile-static-value {
+  min-height: var(--size-control);
+  margin: 0;
+  padding: var(--space-sm) 0;
+  overflow-wrap: anywhere;
 }
 
 .profile-form-grid {
@@ -556,8 +612,13 @@ body {
   gap: var(--space-sm) var(--space-md);
 }
 
+.profile-form-grid input[type="number"] {
+  font-family: var(--font-mono);
+}
+
 .profile-tabs {
   display: flex;
+  flex-wrap: wrap;
   gap: var(--space-2xs);
   padding-top: var(--space-md);
   border-bottom: 1px solid var(--color-rule);
@@ -571,22 +632,20 @@ body {
   border: 0;
   border-bottom: 2px solid transparent;
   font-weight: 700;
-  white-space: nowrap;
 }
 
-.profile-tabs button:hover,
+.profile-tabs button:hover {
+  color: var(--color-ink);
+}
+
 .profile-tabs button[aria-selected="true"] {
   color: var(--color-ink);
-  background: var(--color-paper-2);
-}
-
-.profile-tabs button[aria-selected="true"] {
   border-bottom-color: var(--color-accent);
 }
 
 .profile-tabs button:focus-visible {
-  outline: 2px solid var(--color-focus);
-  outline-offset: 1px;
+  outline: 3px solid var(--color-focus);
+  outline-offset: 2px;
 }
 
 .profile-form-grid .field {
@@ -601,11 +660,6 @@ body {
   width: 100%;
 }
 
-.profile-readonly {
-  color: var(--color-muted);
-  background: var(--color-surface-muted);
-}
-
 .profile-field-error,
 .profile-form-error {
   color: var(--color-error);
@@ -618,7 +672,9 @@ body {
 
 .profile-form-actions {
   display: flex;
+  flex-wrap: wrap;
   justify-content: flex-end;
+  gap: var(--space-sm);
   margin-top: var(--space-lg);
 }
 
@@ -642,34 +698,41 @@ body {
   gap: var(--space-xs);
 }
 
-.profile-readonly-block {
+.profile-inline-error {
   display: grid;
-  gap: var(--space-md);
-  margin-top: var(--space-lg);
-  padding: var(--space-lg);
-  background: var(--color-surface-muted);
-  border: 1px solid var(--color-rule);
+  gap: var(--space-sm);
+  flex: 1 1 100%;
 }
 
-.profile-readonly-block > div,
-.profile-readonly-block > p {
+.profile-ledger {
+  display: grid;
+  margin: 0;
+}
+
+.profile-ledger > div {
   display: flex;
   align-items: center;
   justify-content: space-between;
   gap: var(--space-md);
-  margin: 0;
+  padding-block: var(--space-sm);
+  border-top: 1px solid var(--color-rule);
 }
 
-.profile-readonly-block > p span {
+.profile-ledger__stack {
+  align-items: flex-start;
+  flex-direction: column;
+}
+
+.profile-ledger dt {
+  font-weight: 700;
+}
+
+.profile-ledger dd {
+  margin: 0;
   overflow-wrap: anywhere;
 }
 
 .profile-certificates {
-  align-items: stretch !important;
-  flex-direction: column;
-}
-
-.profile-certificates ul {
   display: grid;
   gap: var(--space-xs);
   margin: 0;
@@ -696,14 +759,9 @@ body {
   overflow-wrap: anywhere;
 }
 
-.password-section {
-  max-width: 52rem;
-}
-
-@media (max-width: 48rem) {
+@media (max-width: 58rem) {
   .profile-section__heading,
-  .profile-readonly-block > div,
-  .profile-readonly-block > p,
+  .profile-ledger > div,
   .profile-certificates li {
     align-items: flex-start;
     flex-direction: column;
@@ -713,22 +771,17 @@ body {
     grid-template-columns: minmax(0, 1fr);
   }
 
-  .profile-form-actions > [data-slot="button"] {
+  .profile-form-actions > .button {
     width: 100%;
-  }
-
-  .profile-tabs {
-    overflow-x: auto;
   }
 }
 
-@media (max-width: 30rem) {
+@media (max-width: 38rem) {
   .profile-identity__main {
     align-items: flex-start;
   }
 
-  .profile-identity__upload > .button,
-  .profile-identity__upload > [data-slot="button"] {
+  .profile-identity__upload > .button {
     flex: 1 1 100%;
   }
 }
@@ -3020,6 +3073,20 @@ body {
   font-weight: 700;
 }
 
+.availability-day-slots {
+  color: var(--color-muted);
+  font-size: var(--text-xs);
+}
+
+.availability-copy-next {
+  display: flex;
+  align-items: center;
+  gap: var(--space-xs);
+  color: var(--color-ink);
+  font-size: var(--text-sm);
+  font-weight: 600;
+}
+
 .field-error {
   color: var(--color-error);
   font-weight: 600;
@@ -3120,51 +3187,6 @@ body {
 .trainer-slot-row[aria-busy="true"],
 .trainer-booking-card[aria-busy="true"] {
   background: var(--color-paper-2);
-}
-
-.trainer-overview {
-  display: grid;
-  grid-template-columns: minmax(12rem, 0.7fr) minmax(0, 1.3fr);
-  gap: var(--space-lg);
-  padding: var(--space-lg);
-  background: var(--color-paper-2);
-  border-block: 1px solid var(--color-rule);
-}
-
-.trainer-overview > div p,
-.trainer-overview > p {
-  margin-top: var(--space-xs);
-  color: var(--color-muted);
-  font-size: var(--text-sm);
-}
-
-.trainer-overview > dl {
-  display: grid;
-  grid-template-columns: repeat(3, minmax(0, 1fr));
-  gap: var(--space-sm);
-}
-
-.trainer-overview > dl > div {
-  display: grid;
-  gap: var(--space-2xs);
-  padding-inline-start: var(--space-md);
-  border-inline-start: 1px solid var(--color-rule);
-}
-
-.trainer-overview dt {
-  color: var(--color-muted);
-  font-size: var(--text-xs);
-}
-
-.trainer-overview dd {
-  font-family: var(--font-mono);
-  font-size: var(--text-xl);
-  font-weight: 800;
-}
-
-.trainer-overview > p {
-  grid-column: 1 / -1;
-  margin: 0;
 }
 
 .trainer-booking-summary,
@@ -5696,6 +5718,13 @@ body {
 .slot-calendar-times__list {
   display: grid;
   gap: var(--space-xs);
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.slot-calendar-times__list .slot-calendar-time {
+  width: 100%;
 }
 
 .booking-session-list,
@@ -5846,7 +5875,7 @@ body {
   display: grid;
   align-content: start;
   gap: var(--space-xs);
-  min-height: 14rem;
+  min-height: 5.5rem;
   padding: var(--space-xs);
 }
 
@@ -5855,9 +5884,48 @@ body {
   min-width: 0;
   gap: var(--space-3xs);
   padding: var(--space-xs);
+  color: inherit;
   background: var(--color-paper-2);
   border: 1px solid var(--color-rule);
   border-radius: var(--radius-xs);
+  text-align: start;
+  text-decoration: none;
+  font: inherit;
+}
+
+button.trainer-week-event,
+a.trainer-week-event {
+  cursor: pointer;
+}
+
+button.trainer-week-event:hover,
+a.trainer-week-event:hover {
+  border-color: var(--color-focus);
+}
+
+.trainer-week-event__actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-2xs);
+}
+
+.trainer-week-event__actions button,
+.trainer-week-event__actions a {
+  min-height: var(--size-control);
+  padding-inline: var(--space-xs);
+  color: var(--color-paper);
+  background: transparent;
+  border: 1px solid var(--color-paper-3);
+  border-radius: var(--radius-xs);
+  font-size: var(--text-xs);
+  font-weight: 700;
+  text-decoration: none;
+}
+
+.trainer-week-event__actions button:focus-visible,
+.trainer-week-event__actions a:focus-visible {
+  outline: 3px solid var(--color-focus-on-dark);
+  outline-offset: 2px;
 }
 
 .trainer-week-event time {
@@ -5954,6 +6022,11 @@ body {
 .trainer-week__legend .is-confirmed {
   background: var(--color-ink);
   border-color: var(--color-ink);
+}
+
+.trainer-week__legend .is-blocked {
+  background: var(--color-paper-3);
+  border-color: var(--color-rule);
 }
 
 .admin-board {
@@ -7762,14 +7835,6 @@ body:has(.app-sidebar) .page-footer {
 }
 
 @media (max-width: 47.99rem) {
-  .trainer-overview {
-    grid-template-columns: minmax(0, 1fr);
-  }
-
-  .trainer-overview > dl {
-    grid-template-columns: repeat(3, minmax(0, 1fr));
-  }
-
   .trainer-booking-summary > summary,
   .trainer-disclosure > summary {
     grid-template-columns: minmax(0, 1fr) auto;
@@ -7794,15 +7859,6 @@ body:has(.app-sidebar) .page-footer {
 }
 
 @media (max-width: 24rem) {
-  .trainer-overview > dl {
-    grid-template-columns: minmax(0, 1fr);
-  }
-
-  .trainer-overview > dl > div {
-    grid-template-columns: minmax(0, 1fr) auto;
-    align-items: baseline;
-  }
-
   .trainer-booking-summary > summary,
   .trainer-disclosure > summary {
     grid-template-columns: minmax(0, 1fr);

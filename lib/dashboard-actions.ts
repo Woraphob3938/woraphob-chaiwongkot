@@ -1,4 +1,5 @@
 import type { AdminQueue, Booking, TrainerWorkspace } from "@/lib/types";
+import { formatDateTime } from "@/lib/format";
 
 export type DashboardAction = {
   title: string;
@@ -25,7 +26,6 @@ export function getMemberNextAction(bookings: Booking[]): DashboardAction {
 }
 
 export function getTrainerNextAction(workspace: TrainerWorkspace | null, bookings: Booking[]): DashboardAction {
-  void bookings;
   if (!workspace?.profile) {
     return { title: "กรอกข้อมูลวิชาชีพให้ครบ", description: "บัญชีพร้อมแล้ว เหลือข้อมูลการให้บริการและใบรับรอง", href: "/trainer/apply", cta: "กรอกข้อมูลวิชาชีพ", state: "action" };
   }
@@ -50,8 +50,37 @@ export function getTrainerNextAction(workspace: TrainerWorkspace | null, booking
     };
   }
 
+  const completable = bookings.find((booking) => booking.status === "confirmed" && booking.actions.canComplete);
+  if (completable) {
+    const memberName = completable.member?.displayName ?? "สมาชิก FitConnect";
+    return {
+      title: "บันทึกว่าฝึกเสร็จแล้ว",
+      description: `${memberName} · คำขอ ${completable.id}`,
+      href: `/trainer#booking-${completable.id}`,
+      cta: "ฝึกเสร็จแล้ว",
+      state: "action",
+    };
+  }
+
   if (workspace.slots.length === 0) {
     return { title: "เพิ่มช่วงเวลาว่าง", description: "กำหนดตารางเพื่อให้สมาชิกจองได้", href: "/trainer#availability", cta: "เพิ่มช่วงเวลาว่าง", state: "action" };
+  }
+
+  const upcoming = bookings
+    .filter((booking) => booking.status === "confirmed")
+    .slice()
+    .sort((left, right) => new Date(left.startsAt).getTime() - new Date(right.startsAt).getTime())[0];
+  if (upcoming) {
+    const memberName = upcoming.member?.displayName ?? "สมาชิก FitConnect";
+    return {
+      title: `นัดถัดไป · ${memberName}`,
+      description: formatDateTime(upcoming.startsAt),
+      href: upcoming.actions.canReadChat
+        ? `/chat?booking=${encodeURIComponent(upcoming.id)}`
+        : `/trainer#booking-${upcoming.id}`,
+      cta: upcoming.actions.canReadChat ? "เปิดการสนทนา" : "ดูนัดหมาย",
+      state: "waiting",
+    };
   }
 
   return { title: "ตารางงานพร้อมแล้ว", description: "ดูนัดหมายและช่วงเวลาว่างปัจจุบัน", href: "/trainer#schedule", cta: "ดูตารางงาน", state: "complete" };

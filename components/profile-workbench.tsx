@@ -1,12 +1,21 @@
 "use client";
 
-import { useCallback, useEffect, useState } from "react";
+import { KeyboardEvent, useCallback, useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import { CircleAlert, LoaderCircle, RefreshCw } from "lucide-react";
 import { ProfileIdentity } from "@/components/profile-identity";
 import { MemberProfileForm } from "@/components/member-profile-form";
 import { TrainerAccountForm } from "@/components/trainer-account-form";
 import { PasswordForm } from "@/components/password-form";
+import {
+  Dialog,
+  DialogClose,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
 import { authenticatedRequest } from "@/lib/api";
 import type { AccountProfile } from "@/lib/types";
 
@@ -15,10 +24,20 @@ type ProfileState =
   | { status: "error"; message: string }
   | { status: "ready"; profile: AccountProfile };
 
+type ProfileTab = "personal" | "security";
+
+const tabs: { id: ProfileTab; label: string }[] = [
+  { id: "personal", label: "ข้อมูลส่วนตัว" },
+  { id: "security", label: "รหัสผ่าน" },
+];
+
 export function ProfileWorkbench() {
   const router = useRouter();
   const [state, setState] = useState<ProfileState>({ status: "loading" });
-  const [activeTab, setActiveTab] = useState<"personal" | "security">("personal");
+  const [activeTab, setActiveTab] = useState<ProfileTab>("personal");
+  const [personalDirty, setPersonalDirty] = useState(false);
+  const [securityDirty, setSecurityDirty] = useState(false);
+  const [pendingTab, setPendingTab] = useState<ProfileTab | null>(null);
 
   const loadProfile = useCallback(async () => {
     try {
@@ -54,6 +73,37 @@ export function ProfileWorkbench() {
     return () => window.clearTimeout(timeoutId);
   }, [loadProfile, router]);
 
+  function requestTab(next: ProfileTab) {
+    if (next === activeTab) return;
+    const leavingDirty = activeTab === "personal" ? personalDirty : securityDirty;
+    if (leavingDirty) {
+      setPendingTab(next);
+      return;
+    }
+    setActiveTab(next);
+  }
+
+  function onTabKeyDown(event: KeyboardEvent<HTMLButtonElement>, tab: ProfileTab) {
+    const index = tabs.findIndex((item) => item.id === tab);
+    if (event.key === "ArrowRight" || event.key === "ArrowLeft") {
+      event.preventDefault();
+      const offset = event.key === "ArrowRight" ? 1 : -1;
+      const next = tabs[(index + offset + tabs.length) % tabs.length];
+      requestTab(next.id);
+      document.getElementById(`profile-${next.id}-tab`)?.focus();
+    }
+    if (event.key === "Home") {
+      event.preventDefault();
+      requestTab("personal");
+      document.getElementById("profile-personal-tab")?.focus();
+    }
+    if (event.key === "End") {
+      event.preventDefault();
+      requestTab("security");
+      document.getElementById("profile-security-tab")?.focus();
+    }
+  }
+
   if (state.status === "loading") {
     return (
       <main className="page-shell account-profile">
@@ -71,7 +121,7 @@ export function ProfileWorkbench() {
           <CircleAlert aria-hidden="true" size={20} />
           <p>{state.message}</p>
           <button
-            className="button button--secondary"
+            className="button"
             type="button"
             onClick={() => {
               setState({ status: "loading" });
@@ -96,38 +146,63 @@ export function ProfileWorkbench() {
     <main className="page-shell account-profile">
       <ProfileIdentity profile={state.profile} onProfileChange={updateProfile} />
       <div className="profile-tabs" role="tablist" aria-label="ตั้งค่าโปรไฟล์">
-        <button
-          id="profile-personal-tab"
-          type="button"
-          role="tab"
-          aria-selected={activeTab === "personal"}
-          aria-controls="profile-personal-panel"
-          onClick={() => setActiveTab("personal")}
-        >
-          ข้อมูลส่วนตัว
-        </button>
-        <button
-          id="profile-security-tab"
-          type="button"
-          role="tab"
-          aria-selected={activeTab === "security"}
-          aria-controls="profile-security-panel"
-          onClick={() => setActiveTab("security")}
-        >
-          บัญชีและความปลอดภัย
-        </button>
+        {tabs.map((tab) => (
+          <button
+            key={tab.id}
+            id={`profile-${tab.id}-tab`}
+            type="button"
+            role="tab"
+            aria-selected={activeTab === tab.id}
+            aria-controls={`profile-${tab.id}-panel`}
+            tabIndex={activeTab === tab.id ? 0 : -1}
+            onClick={() => requestTab(tab.id)}
+            onKeyDown={(event) => onTabKeyDown(event, tab.id)}
+          >
+            {tab.label}
+          </button>
+        ))}
       </div>
-      {activeTab === "personal" ? (
-        <div id="profile-personal-panel" role="tabpanel" aria-labelledby="profile-personal-tab">
-          {state.profile.role === "member"
-            ? <MemberProfileForm profile={state.profile} onSaved={updateProfile} />
-            : <TrainerAccountForm profile={state.profile} onSaved={updateProfile} />}
-        </div>
-      ) : (
-        <div id="profile-security-panel" role="tabpanel" aria-labelledby="profile-security-tab">
-          <PasswordForm />
-        </div>
-      )}
+      <div
+        id="profile-personal-panel"
+        role="tabpanel"
+        aria-labelledby="profile-personal-tab"
+        hidden={activeTab !== "personal"}
+      >
+        {state.profile.role === "member"
+          ? <MemberProfileForm profile={state.profile} onSaved={updateProfile} onDirtyChange={setPersonalDirty} />
+          : <TrainerAccountForm profile={state.profile} onSaved={updateProfile} onDirtyChange={setPersonalDirty} />}
+      </div>
+      <div
+        id="profile-security-panel"
+        role="tabpanel"
+        aria-labelledby="profile-security-tab"
+        hidden={activeTab !== "security"}
+      >
+        <PasswordForm onDirtyChange={setSecurityDirty} />
+      </div>
+      <Dialog open={pendingTab !== null} onOpenChange={(open) => { if (!open) setPendingTab(null); }}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>มีข้อมูลที่ยังไม่บันทึก</DialogTitle>
+            <DialogDescription>ถ้าสลับแท็บตอนนี้ ข้อความที่พิมพ์ยังอยู่ แต่ยังไม่ได้บันทึกลงระบบ</DialogDescription>
+          </DialogHeader>
+          <DialogFooter>
+            <DialogClose asChild>
+              <button className="button" type="button">อยู่หน้านี้</button>
+            </DialogClose>
+            <button
+              className="button button--accent"
+              type="button"
+              onClick={() => {
+                if (pendingTab) setActiveTab(pendingTab);
+                setPendingTab(null);
+              }}
+            >
+              สลับแท็บ
+            </button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </main>
   );
 }
