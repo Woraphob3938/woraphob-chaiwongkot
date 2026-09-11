@@ -68,3 +68,11 @@ Method: dual-agent (A: /root/booking_ui_design_review · B: /root/booking_ui_det
 1. ประวัติจำนวนมากควรใช้แสดงเพิ่มครั้งละ 10, แบ่งหน้า หรือค้นหาพร้อมแบ่งหน้า?
 2. รายละเอียดควรเปิดทีละรายการ เปิดหลายรายการ หรือใช้ popup?
 3. ฟอร์มรีวิวควรแสดงในรายละเอียด กดแล้วค่อยแสดง หรือใช้ popup?
+
+## Status after b4f1b5b
+
+- **P1 “ดูทั้งหมด” resolved.** `role-dashboard.tsx` paginates the ledger at ten with a range label and pager, so the archive no longer opens every remaining request at once.
+- **P1 next-action facts resolved.** The card leads with the trainer name and appointment from `getMemberNextAction`; the request id is secondary.
+- **P1 long detail resolved.** Each request opens a centred dialog holding the payment facts, countdown, scheduler and review disclosure, so the page no longer stacks forms.
+- **P2 status wording resolved.** `lib/payment-copy.ts` is now the single label table, which settles the “รอตรวจ/รอตรวจการชำระ” and “นัดยืนยัน/ยืนยันนัดแล้ว” splits across surfaces.
+- The tab-filter note stands: the filter row is a plain button group without `role="tab"`, which is the simpler option the review suggested.

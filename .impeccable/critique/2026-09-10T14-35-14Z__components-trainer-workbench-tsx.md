@@ -65,3 +65,10 @@ The weekly schedule and state communication are strong. The biggest opportunity 
 - Raw smoke-test notes and placeholder names weaken trust in the surface.
 - Mobile has no horizontal overflow and the bottom navigation targets are adequately sized.
 - Consecutive empty weekdays add length but are not the first priority.
+
+## Status after b4f1b5b
+
+- **P0 resolved.** `.slot-calendar-dialog` declared only two grid rows while the dialog has three children, so the footer fell into an implicit row past `max-height` and `overflow: hidden` clipped it. The dialog now declares `auto minmax(0, 1fr) auto` with a bounded height, which keeps the submit controls on screen and scrolls the time list inside the body.
+- **P1 appointment list resolved.** The confirmed list paginates at six with a two-item preview, an "งานที่ยังต้องจัดการ" section that shows one actionable item, and a detail dialog instead of inline expansion, so the document no longer grows with the booking count.
+- **Retry target resolved.** `.workbench-error button` sets `min-height: var(--size-control)` (2.75rem), and narrow viewports stretch it to full width, so it already met the 44px contract when this was written.
+- **P2 copy resolved.** `lib/format.ts` now renders the Buddhist year on every surface, and `lib/payment-copy.ts` gives one label per status across the member, trainer and administrator views.
