@@ -1367,8 +1367,18 @@ body {
   transform: translateY(-50%);
 }
 
-.input-with-icon input:not([type="file"]) {
-  padding-left: 2.5rem;
+/* The icon and the password toggle sit on top of the field, so typed text has to
+   stay clear of them. Measured: without `!important` the value resolves to
+   12px and the text starts underneath the icon, and raising specificity alone
+   does not fix it — this cascade loses to the `.field input` shorthand
+   somewhere. Keep `!important`; a field whose text is covered is a visible
+   defect, while these two numbers have no other job. */
+.field .input-with-icon input:not([type="file"]) {
+  padding-left: 2.5rem !important;
+}
+
+.field .input-with-toggle input:not([type="file"]) {
+  padding-right: 2.75rem !important;
 }
 
 .empty-state {
@@ -2304,10 +2314,6 @@ body {
   border-left: 3px solid var(--color-accent);
   font-size: var(--text-sm);
   overflow-wrap: anywhere;
-}
-
-.input-with-toggle input:not([type="file"]) {
-  padding-right: 2.75rem;
 }
 
 .password-toggle-btn {
