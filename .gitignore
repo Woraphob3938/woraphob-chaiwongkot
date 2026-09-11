@@ -3,6 +3,7 @@ node_modules/
 out/
 output/playwright/
 output/smoke/
+output/browser/
 .playwright-cli/
 .codex/
 .worktrees/
