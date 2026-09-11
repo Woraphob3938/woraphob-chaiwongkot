@@ -3045,7 +3045,7 @@ body {
   width: 10rem;
   height: 10rem;
   object-fit: contain;
-  background: white;
+  background: var(--color-paper);
   border: 1px solid var(--color-rule);
 }
 
@@ -3055,19 +3055,60 @@ body {
   gap: var(--space-xs);
 }
 
+.trainer-apply-form {
+  display: grid;
+  gap: var(--space-xl);
+}
+
+.trainer-apply-form .profile-group {
+  align-content: start;
+}
+
+.trainer-apply-certificate {
+  display: grid;
+  gap: var(--space-xs);
+}
+
+.trainer-apply-certificate>p {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-xs);
+}
+
+.trainer-apply-actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: flex-end;
+  gap: var(--space-sm);
+}
+
+@media (max-width: 38rem) {
+  .trainer-apply-actions {
+    flex-direction: column-reverse;
+    align-items: stretch;
+  }
+
+  .trainer-apply-actions .button {
+    justify-content: center;
+    width: 100%;
+  }
+}
+
 .payment-qr-card {
   display: grid;
   grid-template-columns: auto minmax(0, 1fr);
   align-items: center;
   gap: var(--space-lg);
   padding: var(--space-lg);
-  background: #fff;
+  background: var(--color-paper);
   border: 1px solid var(--color-rule);
 }
 
 .payment-qr-card__code {
   padding: var(--space-sm);
-  background: #fff;
+  background: var(--color-paper);
   border: 1px solid var(--color-rule);
 }
 
@@ -4433,7 +4474,7 @@ body {
   justify-content: flex-start;
   overflow-y: auto;
   padding: var(--space-lg);
-  background: #fff;
+  background: var(--color-paper);
   overscroll-behavior: contain;
 }
 
@@ -6814,7 +6855,7 @@ body {
 .profile-payment-qr img {
   width: min(11.25rem, 100%);
   height: auto;
-  background: white;
+  background: var(--color-paper);
 }
 
 .profile-payment-qr p {

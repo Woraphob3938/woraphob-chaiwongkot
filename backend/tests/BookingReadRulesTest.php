@@ -140,8 +140,40 @@ test('the trainer application replaces its certificate instead of appending', fu
         'a resubmission must not stack duplicate certificate rows'
     );
     assertTrue(
-        str_contains($body, "=== 'approved' ? 'approved' : 'pending'"),
-        'an approved trainer editing details must not be pushed back into the queue'
+        str_contains($body, 'ProfileRules::trainer(Http::body())'),
+        'the form owns the whole professional record, not a subset of it'
+    );
+    assertFalse(
+        str_contains($body, '$input['),
+        'the handler must read the validated profile, not raw request keys'
+    );
+});
+
+test('a submitted application always returns to the review queue', function () use ($handlers): void {
+    $body = methodBody($handlers, 'trainerApplication');
+    assertTrue(
+        str_contains($body, 'approval_status = "pending"'),
+        'submitting is a re-reviewable act, so approval cannot be carried over'
+    );
+    assertTrue(
+        str_contains($body, 'status = "pending", review_note = NULL'),
+        'a retained certificate must also return to the queue'
+    );
+});
+
+test('a certificate is demanded only when the profile has none', function () use ($handlers): void {
+    $body = methodBody($handlers, 'trainerApplication');
+    assertTrue(
+        str_contains($body, 'SELECT COUNT(*) AS total FROM trainer_certificates'),
+        'the handler must check whether a certificate is already on file'
+    );
+    assertTrue(
+        str_contains($body, 'if ($certificate === null && !$hasStoredCertificate)'),
+        'an approved trainer editing details must not be forced to re-upload'
+    );
+    assertTrue(
+        str_contains($body, "'certificates', false)"),
+        'the certificate upload is optional at the transport layer'
     );
 });
 

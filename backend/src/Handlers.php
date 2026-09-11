@@ -524,66 +524,105 @@ final class Handlers
     public function trainerApplication(): never
     {
         $user = $this->auth->requireUser(['trainer']);
-        $input = Http::body();
-        Http::requireFields($input, ['legalName', 'phone', 'serviceMode', 'trainingTypeId', 'experience']);
-        if (!in_array($input['serviceMode'], ['freelance', 'gym', 'both'], true)) {
-            throw new HttpException(422, 'รูปแบบการทำงานไม่ถูกต้อง', 'VALIDATION_FAILED', ['serviceMode' => 'เลือกค่าที่กำหนด']);
-        }
-        $type = $this->database->fetchOne('SELECT id FROM training_types WHERE id = ? AND active = 1', [(int) $input['trainingTypeId']]);
-        if (!$type) {
-            throw new HttpException(422, 'ประเภทการฝึกไม่ถูกต้อง', 'VALIDATION_FAILED');
-        }
-        $certificate = $this->saveUpload('certificate', ['application/pdf'], 8 * 1024 * 1024, 'certificates');
+        // One form owns the whole professional record. It previously accepted a
+        // fraction of it and wrote the free-text "experience" into bio, which is
+        // why a new trainer had to fill in a second surface before the storefront
+        // made sense.
+        $profile = ProfileRules::trainer(Http::body());
+        $certificate = $this->saveUpload('certificate', ['application/pdf'], 8 * 1024 * 1024, 'certificates', false);
 
         $replacedCertificatePaths = [];
         try {
-            $profileId = $this->database->transaction(function (PDO $pdo) use ($user, $input, $certificate, &$replacedCertificatePaths): int {
-                $existing = $pdo->prepare('SELECT id, approval_status FROM trainer_profiles WHERE user_id = ? FOR UPDATE');
+            $profileId = $this->database->transaction(function (PDO $pdo) use ($user, $profile, $certificate, &$replacedCertificatePaths): int {
+                $existing = $pdo->prepare('SELECT id FROM trainer_profiles WHERE user_id = ? FOR UPDATE');
                 $existing->execute([$user['id']]);
-                $profile = $existing->fetch();
-                if ($profile) {
-                    $profileId = (int) $profile['id'];
-                    // A rejected application goes back into the queue, but an
-                    // approved trainer editing their own details stays approved
-                    // and only clears the note that belonged to the old decision.
-                    $approvalStatus = $profile['approval_status'] === 'approved' ? 'approved' : 'pending';
-                    $pdo->prepare(
-                        'UPDATE trainer_profiles SET legal_name = ?, phone = ?, service_mode = ?, bio = ?, approval_status = ?, approval_note = NULL, updated_at = UTC_TIMESTAMP() WHERE id = ?'
-                    )->execute([
-                        trim((string) $input['legalName']), trim((string) $input['phone']),
-                        $input['serviceMode'], trim((string) $input['experience']), $approvalStatus, $profileId,
+                $stored = $existing->fetch();
+
+                $certificateStatement = $pdo->prepare('SELECT COUNT(*) AS total FROM trainer_certificates WHERE trainer_profile_id = ?');
+                $hasStoredCertificate = false;
+                if ($stored) {
+                    $certificateStatement->execute([(int) $stored['id']]);
+                    $hasStoredCertificate = (int) ($certificateStatement->fetch()['total'] ?? 0) > 0;
+                }
+                if ($certificate === null && !$hasStoredCertificate) {
+                    throw new HttpException(422, 'กรุณาแนบไฟล์ใบรับรอง', 'VALIDATION_FAILED', [
+                        'certificate' => 'แนบไฟล์ PDF ใบรับรองเพื่อให้ผู้ดูแลระบบตรวจ',
                     ]);
+                }
+
+                $typeIds = $profile['trainingTypeIds'];
+                $placeholders = implode(',', array_fill(0, count($typeIds), '?'));
+                $typeStatement = $pdo->prepare("SELECT id FROM training_types WHERE active = 1 AND id IN ($placeholders)");
+                $typeStatement->execute($typeIds);
+                if (count($typeStatement->fetchAll()) !== count($typeIds)) {
+                    throw new HttpException(422, 'ประเภทการฝึกไม่ถูกต้อง', 'VALIDATION_FAILED', [
+                        'trainingTypeIds' => 'เลือกประเภทการฝึกที่เปิดใช้งาน',
+                    ]);
+                }
+
+                if ($stored) {
+                    $profileId = (int) $stored['id'];
                 } else {
                     $pdo->prepare(
-                        'INSERT INTO trainer_profiles (user_id, slug, legal_name, phone, service_mode, bio, approval_status)
-                         VALUES (?, ?, ?, ?, ?, ?, "pending")'
-                    )->execute([
-                        $user['id'], 'trainer-' . $user['id'], trim((string) $input['legalName']),
-                        trim((string) $input['phone']), $input['serviceMode'], trim((string) $input['experience']),
-                    ]);
+                        'INSERT INTO trainer_profiles (user_id, slug, approval_status) VALUES (?, ?, "pending")'
+                    )->execute([$user['id'], 'trainer-' . $user['id']]);
                     $profileId = (int) $pdo->lastInsertId();
                 }
 
-                $pdo->prepare('DELETE FROM trainer_training_types WHERE trainer_profile_id = ?')->execute([$profileId]);
-                $pdo->prepare('INSERT INTO trainer_training_types (trainer_profile_id, training_type_id) VALUES (?, ?)')
-                    ->execute([$profileId, (int) $input['trainingTypeId']]);
-
-                // The application owns exactly one certificate. Replacing the set
-                // keeps a resubmission from stacking identical rows, and the files
-                // that leave the record are deleted once the transaction commits.
-                $previousFiles = $pdo->prepare('SELECT file_path FROM trainer_certificates WHERE trainer_profile_id = ?');
-                $previousFiles->execute([$profileId]);
-                $replacedCertificatePaths = array_column($previousFiles->fetchAll(), 'file_path');
-                $pdo->prepare('DELETE FROM trainer_certificates WHERE trainer_profile_id = ?')->execute([$profileId]);
-
+                // Submitting the application is a re-reviewable act: the record
+                // leaves the storefront until an administrator approves it again.
                 $pdo->prepare(
-                    'INSERT INTO trainer_certificates (trainer_profile_id, name, issuer, file_path, mime_type, status)
-                     VALUES (?, "เอกสารใบรับรองจากผู้สมัคร", "รอระบุ", ?, ?, "pending")'
-                )->execute([$profileId, $certificate['path'], $certificate['mime']]);
+                    'UPDATE trainer_profiles
+                     SET legal_name = ?, phone = ?, headline = ?, bio = ?, years_experience = ?,
+                         service_mode = ?, gym_name = ?, price_from = ?, monthly_price = ?, monthly_session_count = ?,
+                         payment_account_name = ?, promptpay_id = ?,
+                         approval_status = "pending", approval_note = NULL, reviewed_by_user_id = NULL, reviewed_at = NULL,
+                         updated_at = UTC_TIMESTAMP()
+                     WHERE id = ?'
+                )->execute([
+                    $profile['legalName'], self::blankToNull($profile['phone']), self::blankToNull($profile['headline']),
+                    self::blankToNull($profile['bio']), $profile['yearsExperience'], $profile['serviceMode'],
+                    $profile['serviceMode'] === 'freelance' ? null : self::blankToNull($profile['gymName']),
+                    $profile['priceFrom'], $profile['monthlyPrice'], $profile['monthlySessionCount'],
+                    $profile['paymentAccountName'], $profile['promptPayId'], $profileId,
+                ]);
+                $pdo->prepare('UPDATE users SET display_name = ?, updated_at = UTC_TIMESTAMP() WHERE id = ?')
+                    ->execute([$profile['displayName'], $user['id']]);
+
+                $pdo->prepare('DELETE FROM trainer_training_types WHERE trainer_profile_id = ?')->execute([$profileId]);
+                $insertType = $pdo->prepare(
+                    'INSERT INTO trainer_training_types (trainer_profile_id, training_type_id) VALUES (?, ?)'
+                );
+                foreach ($typeIds as $typeId) {
+                    $insertType->execute([$profileId, $typeId]);
+                }
+
+                if ($certificate !== null) {
+                    // The application owns exactly one certificate. Replacing the set
+                    // keeps a resubmission from stacking identical rows, and the files
+                    // that leave the record are deleted once the transaction commits.
+                    $previousFiles = $pdo->prepare('SELECT file_path FROM trainer_certificates WHERE trainer_profile_id = ?');
+                    $previousFiles->execute([$profileId]);
+                    $replacedCertificatePaths = array_column($previousFiles->fetchAll(), 'file_path');
+                    $pdo->prepare('DELETE FROM trainer_certificates WHERE trainer_profile_id = ?')->execute([$profileId]);
+
+                    $pdo->prepare(
+                        'INSERT INTO trainer_certificates (trainer_profile_id, name, issuer, file_path, mime_type, status)
+                         VALUES (?, "เอกสารใบรับรองจากผู้สมัคร", "รอระบุ", ?, ?, "pending")'
+                    )->execute([$profileId, $certificate['path'], $certificate['mime']]);
+                } else {
+                    // Keeping the stored file means the previous decision no longer
+                    // applies to it, so it returns to the review queue with the rest.
+                    $pdo->prepare('UPDATE trainer_certificates SET status = "pending", review_note = NULL, reviewed_by_user_id = NULL, reviewed_at = NULL WHERE trainer_profile_id = ?')
+                        ->execute([$profileId]);
+                }
+
                 return $profileId;
             });
         } catch (Throwable $error) {
-            $this->removeUpload($certificate['path']);
+            if ($certificate !== null) {
+                $this->removeUpload($certificate['path']);
+            }
             throw $error;
         }
 

@@ -61,7 +61,18 @@ final class Http
     {
         $contentType = $_SERVER['CONTENT_TYPE'] ?? '';
         if (str_contains($contentType, 'multipart/form-data')) {
-            return $_POST;
+            // PHP turns `trainingTypeIds[]` into that literal key, so a multipart
+            // form would otherwise look like it never sent the list at all.
+            $fields = [];
+            foreach ($_POST as $key => $value) {
+                if (str_ends_with((string) $key, '[]')) {
+                    $name = substr((string) $key, 0, -2);
+                    $fields[$name] = is_array($value) ? $value : [$value];
+                    continue;
+                }
+                $fields[$key] = $value;
+            }
+            return $fields;
         }
 
         $raw = file_get_contents('php://input');

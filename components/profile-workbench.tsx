@@ -5,7 +5,8 @@ import { useRouter } from "next/navigation";
 import { CircleAlert, LoaderCircle, RefreshCw } from "lucide-react";
 import { ProfileIdentity } from "@/components/profile-identity";
 import { MemberProfileForm } from "@/components/member-profile-form";
-import { TrainerAccountForm } from "@/components/trainer-account-form";
+import { TrainerPaymentQrManager } from "@/components/trainer-payment-qr-manager";
+import { TrainerProfileSummary } from "@/components/trainer-profile-summary";
 import { PasswordForm } from "@/components/password-form";
 import {
   Dialog,
@@ -197,7 +198,12 @@ export function ProfileWorkbench() {
       >
         {state.profile.role === "member"
           ? <MemberProfileForm profile={state.profile} onSaved={updateProfile} onDirtyChange={setPersonalDirty} />
-          : <TrainerAccountForm profile={state.profile} onSaved={updateProfile} onDirtyChange={setPersonalDirty} />}
+          : (
+            <>
+              <TrainerProfileSummary profile={state.profile} />
+              <TrainerPaymentQrManager profile={state.profile} onSaved={updateProfile} />
+            </>
+          )}
       </div>
       <div
         id="profile-security-panel"
