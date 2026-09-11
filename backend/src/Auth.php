@@ -149,6 +149,88 @@ final class Auth
         return ['changed' => true];
     }
 
+    /**
+     * Issues a reset code for an address that has an account. The endpoint that
+     * calls this answers the same way whatever happens here, so the reply cannot
+     * be used to discover which addresses are registered.
+     */
+    public function requestPasswordReset(array $input): ?array
+    {
+        $email = PasswordResetRules::email($input['email'] ?? '');
+        $user = $this->database->fetchOne(
+            'SELECT id, email, display_name, status FROM users WHERE email = ?',
+            [$email]
+        );
+        if (!$user || $user['status'] !== 'active') {
+            return null;
+        }
+
+        $userId = (int) $user['id'];
+        $code = PasswordResetRules::generateCode();
+        $this->database->transaction(function (PDO $pdo) use ($userId, $code): void {
+            // Older codes stop working the moment a new one is asked for.
+            $pdo->prepare('UPDATE password_reset_tokens SET used_at = UTC_TIMESTAMP() WHERE user_id = ? AND used_at IS NULL')
+                ->execute([$userId]);
+            $pdo->prepare(
+                'INSERT INTO password_reset_tokens (user_id, token_hash, expires_at)
+                 VALUES (?, ?, DATE_ADD(UTC_TIMESTAMP(), INTERVAL ? MINUTE))'
+            )->execute([$userId, PasswordResetRules::hashCode($userId, $code), PasswordResetRules::CODE_TTL_MINUTES]);
+            $pdo->prepare(
+                'DELETE FROM password_reset_tokens
+                 WHERE user_id = ? AND created_at <= UTC_TIMESTAMP() - INTERVAL 1 DAY'
+            )->execute([$userId]);
+        });
+
+        return ['email' => $user['email'], 'displayName' => $user['display_name'], 'code' => $code];
+    }
+
+    public function resetPassword(array $input): array
+    {
+        $email = PasswordResetRules::email($input['email'] ?? '');
+        $code = PasswordResetRules::code($input['code'] ?? '');
+        $newPassword = PasswordResetRules::newPassword($input['newPassword'] ?? '');
+
+        $user = $this->database->fetchOne('SELECT id FROM users WHERE email = ? AND status = "active"', [$email]);
+        if (!$user) {
+            throw new HttpException(422, 'รหัสยืนยันไม่ถูกต้องหรือหมดอายุ', 'INVALID_RESET_CODE', [
+                'code' => 'ขอรหัสใหม่แล้วลองอีกครั้ง',
+            ]);
+        }
+        $userId = (int) $user['id'];
+
+        $newHash = password_hash($newPassword, PASSWORD_DEFAULT);
+        $consumed = $this->database->transaction(function (PDO $pdo) use ($userId, $code, $newHash): bool {
+            $statement = $pdo->prepare(
+                'SELECT id FROM password_reset_tokens
+                 WHERE user_id = ? AND token_hash = ? AND used_at IS NULL AND expires_at > UTC_TIMESTAMP()
+                 ORDER BY id DESC LIMIT 1 FOR UPDATE'
+            );
+            $statement->execute([$userId, PasswordResetRules::hashCode($userId, $code)]);
+            $token = $statement->fetch();
+            if (!$token) {
+                return false;
+            }
+
+            $pdo->prepare('UPDATE password_reset_tokens SET used_at = UTC_TIMESTAMP() WHERE id = ?')
+                ->execute([(int) $token['id']]);
+            $pdo->prepare('UPDATE users SET password_hash = ?, updated_at = UTC_TIMESTAMP() WHERE id = ?')
+                ->execute([$newHash, $userId]);
+            // A reset is the answer to a suspected compromise, so every existing
+            // session ends here rather than staying valid for up to 30 days.
+            $pdo->prepare('UPDATE auth_tokens SET revoked_at = UTC_TIMESTAMP() WHERE user_id = ? AND revoked_at IS NULL')
+                ->execute([$userId]);
+            return true;
+        });
+
+        if (!$consumed) {
+            throw new HttpException(422, 'รหัสยืนยันไม่ถูกต้องหรือหมดอายุ', 'INVALID_RESET_CODE', [
+                'code' => 'ขอรหัสใหม่แล้วลองอีกครั้ง',
+            ]);
+        }
+
+        return ['reset' => true];
+    }
+
     private function issueToken(int $userId): array
     {
         $token = bin2hex(random_bytes(32));

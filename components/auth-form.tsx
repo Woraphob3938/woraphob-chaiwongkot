@@ -22,6 +22,8 @@ import type { AuthenticatedUser, TrainerWorkspace } from "@/lib/types";
 type AuthFormProps = {
   mode: "login" | "register";
   navigate?: (href: string) => void;
+  /** Comes from the server so the notice renders on the first paint. */
+  initialMessage?: { tone: "error" | "success"; text: string } | null;
 };
 
 const defaultNavigate = (href: string) => window.location.assign(href);
@@ -41,9 +43,9 @@ function getSafeRedirectUrl(): string | null {
   return null;
 }
 
-export function AuthForm({ mode, navigate = defaultNavigate }: AuthFormProps) {
+export function AuthForm({ mode, navigate = defaultNavigate, initialMessage = null }: AuthFormProps) {
   const [pending, setPending] = useState(false);
-  const [message, setMessage] = useState<{ tone: "error" | "success"; text: string } | null>(null);
+  const [message, setMessage] = useState<{ tone: "error" | "success"; text: string } | null>(initialMessage);
   const [authenticatedUser, setAuthenticatedUser] = useState<AuthenticatedUser | null>(readStoredUser);
   const [showPassword, setShowPassword] = useState(false);
   const [showConfirmPassword, setShowConfirmPassword] = useState(false);
@@ -190,13 +192,9 @@ export function AuthForm({ mode, navigate = defaultNavigate }: AuthFormProps) {
         <div className="field-header">
           <label htmlFor="password">รหัสผ่าน</label>
           {mode === "login" && (
-            <button
-              type="button"
-              className="text-link text-link--subtle forgot-link"
-              onClick={() => setMessage({ tone: "error", text: "หากลืมรหัสผ่าน โปรดติดต่อผู้ดูแลระบบเพื่อยืนยันตัวตนและรีเซ็ตรหัสผ่าน" })}
-            >
+            <Link className="text-link text-link--subtle forgot-link" href="/forgot-password">
               ลืมรหัสผ่าน?
-            </button>
+            </Link>
           )}
         </div>
         <div className="input-with-icon input-with-toggle">

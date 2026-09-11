@@ -2636,6 +2636,25 @@ body {
   text-decoration: underline;
 }
 
+.password-reset {
+  display: grid;
+  gap: var(--space-md);
+}
+
+.password-reset .auth-form {
+  display: grid;
+  gap: var(--space-md);
+}
+
+.password-reset__hint {
+  padding: var(--space-sm);
+  color: var(--color-ink-2);
+  background: var(--color-paper-2);
+  border-left: 3px solid var(--color-accent);
+  font-size: var(--text-sm);
+  overflow-wrap: anywhere;
+}
+
 .input-with-toggle input:not([type="file"]) {
   padding-right: 2.75rem;
 }

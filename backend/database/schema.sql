@@ -315,3 +315,12 @@ CREATE TABLE IF NOT EXISTS password_reset_tokens (
   KEY idx_reset_user_expiry (user_id, expires_at),
   CONSTRAINT fk_reset_user FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
 ) ENGINE=InnoDB;
+
+CREATE TABLE IF NOT EXISTS rate_limits (
+  scope VARCHAR(64) NOT NULL,
+  subject VARCHAR(190) NOT NULL,
+  window_started_at DATETIME NOT NULL,
+  attempts INT UNSIGNED NOT NULL DEFAULT 0,
+  PRIMARY KEY (scope, subject),
+  KEY idx_rate_limits_window (window_started_at)
+) ENGINE=InnoDB;

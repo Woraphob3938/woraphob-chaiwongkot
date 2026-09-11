@@ -6,6 +6,7 @@ final class Handlers
 {
     private Auth $auth;
     private NotificationService $notifications;
+    private RateLimiter $rateLimiter;
 
     public function __construct(
         private readonly Database $database,
@@ -13,6 +14,7 @@ final class Handlers
     ) {
         $this->auth = new Auth($database);
         $this->notifications = new NotificationService($database, $config);
+        $this->rateLimiter = new RateLimiter($database);
     }
 
     public function health(): never
@@ -234,12 +236,52 @@ final class Handlers
 
     public function register(): never
     {
-        Http::json($this->auth->register(Http::body()), 201);
+        $input = Http::body();
+        $this->rateLimiter->hit(RateLimiter::REGISTER, RateLimiter::clientKey());
+        Http::json($this->auth->register($input), 201);
     }
 
     public function login(): never
     {
-        Http::json($this->auth->login(Http::body()));
+        $input = Http::body();
+        // Counted per account and per address: the first stops a password guess
+        // against one mailbox, the second stops a sweep across many.
+        $this->rateLimiter->hit(RateLimiter::LOGIN, RateLimiter::accountKey((string) ($input['email'] ?? '')));
+        $this->rateLimiter->hit(RateLimiter::LOGIN, RateLimiter::clientKey());
+        $result = $this->auth->login($input);
+        $this->rateLimiter->clear(RateLimiter::LOGIN, RateLimiter::accountKey((string) ($input['email'] ?? '')));
+        Http::json($result);
+    }
+
+    public function forgotPassword(): never
+    {
+        $input = Http::body();
+        $this->rateLimiter->hit(
+            RateLimiter::PASSWORD_RESET_REQUEST,
+            RateLimiter::accountKey((string) ($input['email'] ?? ''))
+        );
+        $this->rateLimiter->hit(RateLimiter::PASSWORD_RESET_REQUEST, RateLimiter::clientKey());
+
+        $reset = $this->auth->requestPasswordReset($input);
+        if ($reset !== null) {
+            $this->mailPasswordResetCode($reset['email'], $reset['displayName'], $reset['code']);
+        }
+
+        // The same answer whether or not the address has an account.
+        Http::json(['message' => PasswordResetRules::genericRequestMessage()]);
+    }
+
+    public function resetPassword(): never
+    {
+        $input = Http::body();
+        $this->rateLimiter->hit(
+            RateLimiter::PASSWORD_RESET_CONFIRM,
+            RateLimiter::accountKey((string) ($input['email'] ?? ''))
+        );
+        $result = $this->auth->resetPassword($input);
+        $this->rateLimiter->clear(RateLimiter::PASSWORD_RESET_CONFIRM, RateLimiter::accountKey((string) ($input['email'] ?? '')));
+        $this->rateLimiter->clear(RateLimiter::LOGIN, RateLimiter::accountKey((string) ($input['email'] ?? '')));
+        Http::json($result);
     }
 
     public function logout(): never
@@ -336,6 +378,7 @@ final class Handlers
     public function uploadProfileImage(): never
     {
         $user = $this->auth->requireUser(['member', 'trainer']);
+        $this->rateLimiter->hit(RateLimiter::PROFILE_IMAGE, 'user:' . $user['id']);
         try {
             $upload = $this->saveUpload(
                 'image',
@@ -488,7 +531,36 @@ final class Handlers
 
     public function changeProfilePassword(): never
     {
-        Http::json($this->auth->changePassword(Http::body()));
+        $input = Http::body();
+        $this->rateLimiter->hit(RateLimiter::LOGIN, RateLimiter::clientKey());
+        Http::json($this->auth->changePassword($input));
+    }
+
+    /**
+     * The reset code goes out through the same Gmail transport as notifications.
+     * A mail failure must not change the answer to the caller, who has no way to
+     * act on it and should not learn whether the address exists.
+     */
+    private function mailPasswordResetCode(string $email, string $displayName, string $code): void
+    {
+        $mailer = new GmailMailer($this->config['mail'] ?? []);
+        if (!$mailer->isEnabled()) {
+            return;
+        }
+        try {
+            $mailer->send(
+                $email,
+                $displayName,
+                'รหัสตั้งรหัสผ่านใหม่ FitConnect',
+                'สวัสดี ' . $displayName . PHP_EOL . PHP_EOL
+                    . 'รหัสสำหรับตั้งรหัสผ่านใหม่คือ ' . $code . PHP_EOL
+                    . 'รหัสนี้ใช้ได้ ' . PasswordResetRules::CODE_TTL_MINUTES . ' นาที และใช้ได้ครั้งเดียว' . PHP_EOL . PHP_EOL
+                    . 'ถ้าคุณไม่ได้ขอรหัสนี้ ไม่ต้องทำอะไร รหัสผ่านเดิมยังใช้งานได้ตามปกติ',
+                '/reset-password'
+            );
+        } catch (Throwable $error) {
+            error_log('[fitconnect] password reset mail failed: ' . $error->getMessage());
+        }
     }
 
     public function profileImage(string $role, string $userId): never
@@ -529,8 +601,8 @@ final class Handlers
         // why a new trainer had to fill in a second surface before the storefront
         // made sense.
         $profile = ProfileRules::trainer(Http::body());
+        $this->rateLimiter->hit(RateLimiter::TRAINER_APPLICATION, 'user:' . $user['id']);
         $certificate = $this->saveUpload('certificate', ['application/pdf'], 8 * 1024 * 1024, 'certificates', false);
-
         $replacedCertificatePaths = [];
         try {
             $profileId = $this->database->transaction(function (PDO $pdo) use ($user, $profile, $certificate, &$replacedCertificatePaths): int {
@@ -1070,6 +1142,7 @@ final class Handlers
         $user = $this->auth->requireUser(['member']);
         $input = Http::body();
         Http::requireFields($input, ['bookingId']);
+        $this->rateLimiter->hit(RateLimiter::PAYMENT_SLIP, 'user:' . $user['id']);
         $file = $this->saveUpload(
             'slip',
             ['image/jpeg', 'image/png', 'image/webp', 'application/pdf'],
@@ -1199,6 +1272,7 @@ final class Handlers
         $user = $this->auth->requireUser();
         $room = $this->requireChatParticipant((int) $roomId, $user);
         WorkflowRules::assertChatWritable((string) $room['booking_status']);
+        $this->rateLimiter->hit(RateLimiter::CHAT_ATTACHMENT, 'user:' . $user['id'] . ':room:' . (int) $roomId);
         $input = Http::body();
         if (array_key_exists('message', $input) && !is_string($input['message'])) {
             throw new HttpException(422, 'รูปแบบข้อความไม่ถูกต้อง', 'VALIDATION_FAILED', ['message' => 'ต้องเป็นข้อความ']);
@@ -1213,8 +1287,7 @@ final class Handlers
             5 * 1024 * 1024,
             'messages',
             false
-        );
-        if ($message === '' && $file === null) {
+        );        if ($message === '' && $file === null) {
             throw new HttpException(422, 'กรุณาพิมพ์ข้อความหรือแนบไฟล์', 'VALIDATION_FAILED');
         }
 

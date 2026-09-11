@@ -3,7 +3,16 @@ import { CheckCircle2, ShieldCheck, Zap } from "lucide-react";
 
 export const metadata = { title: "เข้าสู่ระบบ" };
 
-export default function LoginPage() {
+export default async function LoginPage({
+  searchParams,
+}: {
+  searchParams: Promise<{ reset?: string }>;
+}) {
+  const { reset } = await searchParams;
+  const initialMessage = reset === "done"
+    ? { tone: "success" as const, text: "ตั้งรหัสผ่านใหม่แล้ว เข้าสู่ระบบด้วยรหัสผ่านใหม่ได้เลย" }
+    : null;
+
   return (
     <main className="auth-shell">
       <section className="auth-copy">
@@ -39,7 +48,7 @@ export default function LoginPage() {
       <section className="auth-panel">
         <p className="label">เข้าสู่ระบบ FITCONNECT</p>
         <h2>ยินดีต้อนรับกลับ</h2>
-        <AuthForm mode="login" />
+        <AuthForm mode="login" initialMessage={initialMessage} />
         <p className="connection-note">🔒 ข้อมูลของคุณปลอดภัยและเชื่อมต่อตรงกับระบบ FitConnect</p>
       </section>
     </main>

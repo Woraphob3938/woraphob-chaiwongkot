@@ -4,6 +4,8 @@ declare(strict_types=1);
 require_once __DIR__ . '/src/Database.php';
 require_once __DIR__ . '/src/Http.php';
 require_once __DIR__ . '/src/Auth.php';
+require_once __DIR__ . '/src/RateLimiter.php';
+require_once __DIR__ . '/src/PasswordResetRules.php';
 require_once __DIR__ . '/src/WorkflowRules.php';
 require_once __DIR__ . '/src/PaymentRouting.php';
 require_once __DIR__ . '/src/ProfileRules.php';
@@ -36,6 +38,8 @@ try {
     if ($method === 'GET' && $path === '/v1/trainers') $handlers->trainers();
     if ($method === 'POST' && $path === '/v1/auth/register') $handlers->register();
     if ($method === 'POST' && $path === '/v1/auth/login') $handlers->login();
+    if ($method === 'POST' && $path === '/v1/auth/forgot-password') $handlers->forgotPassword();
+    if ($method === 'POST' && $path === '/v1/auth/reset-password') $handlers->resetPassword();
     if ($method === 'POST' && $path === '/v1/auth/logout') $handlers->logout();
     if ($method === 'GET' && $path === '/v1/me') $handlers->me();
     if ($method === 'GET' && $path === '/v1/profile') $handlers->profile();
