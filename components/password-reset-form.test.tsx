@@ -80,7 +80,9 @@ describe("PasswordResetForm", () => {
         newPassword: "brand-new-password",
       }),
     })));
-    await waitFor(() => expect(push).toHaveBeenCalledWith("/login?reset=done"));
+    await waitFor(() => expect(push).toHaveBeenCalledWith(
+      "/login?reset=done&email=member%40fitconnect.local",
+    ));
   });
 
   it("shows the server message when the code is rejected", async () => {

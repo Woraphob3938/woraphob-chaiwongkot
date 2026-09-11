@@ -68,7 +68,8 @@ export function PasswordResetForm({ initialEmail = "" }: { initialEmail?: string
         method: "POST",
         body: JSON.stringify({ email: email.trim(), code: code.replace(/\D/g, ""), newPassword }),
       });
-      router.push("/login?reset=done");
+      // Carry the address back so the sign-in form does not ask for it again.
+      router.push(`/login?reset=done&email=${encodeURIComponent(email.trim())}`);
     } catch (error) {
       if (error instanceof ApiError) setFields(error.fields);
       setMessage({ tone: "error", text: error instanceof Error ? error.message : "ตั้งรหัสผ่านใหม่ไม่สำเร็จ" });

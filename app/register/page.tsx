@@ -1,5 +1,5 @@
 import { AuthForm } from "@/components/auth-form";
-import { CheckCircle2, Sparkles, UserCheck } from "lucide-react";
+import { BadgeCheck, CalendarClock, MessagesSquare } from "lucide-react";
 
 export const metadata = { title: "สร้างบัญชี" };
 
@@ -7,40 +7,42 @@ export default function RegisterPage() {
   return (
     <main className="auth-shell">
       <section className="auth-copy">
-        <span className="auth-badge">ONE ACCOUNT · FULL ACCESS</span>
+        <span className="auth-badge">เริ่มได้ในไม่กี่นาที</span>
         <h1>เริ่มจากบัญชีเดียว<br />แล้วไปต่อได้ทันที</h1>
-        <p>แพลตฟอร์มค้นหาและจัดการเทรนเนอร์ส่วนบุคคลที่ขับเคลื่อนด้วยหลักฐานจริงและความน่าเชื่อถือ</p>
+        <p>เลือกบทบาทตอนสมัครได้เลย สมาชิกจองได้ทันที ส่วนเทรนเนอร์ยื่นเอกสารให้ผู้ดูแลระบบตรวจก่อนเปิดรับสอน</p>
 
-        <ul className="auth-features" aria-label="สิทธิประโยชน์สำหรับผู้ใช้">
+        {/* The role cards already describe the two roles, so this list only
+            carries what the cards cannot say. */}
+        <ul className="auth-features" aria-label="สิ่งที่เกิดขึ้นหลังสร้างบัญชี">
           <li className="auth-feature-item">
-            <UserCheck aria-hidden="true" size={20} />
+            <BadgeCheck aria-hidden="true" size={20} />
             <div>
-              <strong>สำหรับสมาชิกทั่วไป</strong>
-              <span>ค้นหาเทรนเนอร์ที่ตรงเป้าหมาย เช็กใบรับรอง และจองได้ทันที</span>
+              <strong>เทรนเนอร์ต้องผ่านการตรวจ</strong>
+              <span>แนบใบรับรองเป็นไฟล์ PDF แล้วรอผล โปรไฟล์จะยังไม่ขึ้นหน้าค้นหาจนกว่าจะอนุมัติ</span>
             </div>
           </li>
           <li className="auth-feature-item">
-            <Sparkles aria-hidden="true" size={20} />
+            <CalendarClock aria-hidden="true" size={20} />
             <div>
-              <strong>สำหรับเทรนเนอร์</strong>
-              <span>สร้างโปรไฟล์วิชาชีพ ยื่นเอกสารรับรอง และจัดการตารางสอน</span>
+              <strong>สมาชิกเลือกเวลาแล้วล็อกไว้ 10 นาที</strong>
+              <span>ช่วงเวลาถูกกันไว้ระหว่างส่งหลักฐานการชำระเงิน ไม่มีขั้นตอนให้เทรนเนอร์กดตอบรับ</span>
             </div>
           </li>
           <li className="auth-feature-item">
-            <CheckCircle2 aria-hidden="true" size={20} />
+            <MessagesSquare aria-hidden="true" size={20} />
             <div>
-              <strong>ระบบตรวจเอกสารโปร่งใส</strong>
-              <span>ทุกขั้นตอนได้รับการตรวจสอบความถูกต้องโดยผู้ดูแลระบบ</span>
+              <strong>คุยกันได้ในระบบ</strong>
+              <span>ห้องสนทนาเปิดให้ทั้งสองฝ่ายหลังการจอง พร้อมไฟล์แนบและประวัติที่ตรวจย้อนหลังได้</span>
             </div>
           </li>
         </ul>
       </section>
 
       <section className="auth-panel">
-        <p className="label">สร้างบัญชี FITCONNECT</p>
+        <p className="label">สร้างบัญชี</p>
         <h2>สร้างบัญชีใหม่</h2>
         <AuthForm mode="register" />
-        <p className="connection-note">🔒 ข้อมูลส่วนตัวของคุณถูกเก็บรักษาอย่างปลอดภัยตามมาตรฐาน</p>
+        <p className="connection-note">สมัครฟรี ไม่มีค่าใช้จ่ายในการสร้างบัญชี</p>
       </section>
     </main>
   );
