@@ -23,7 +23,31 @@ final class NotificationService
               email_status, email_next_attempt_at)
              VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)'
         );
-        foreach (NotificationRules::forEvent($event, $context) as $definition) {
+        $definitions = NotificationRules::forEvent($event, $context);
+        if ($event === NotificationRules::PAYMENT_SUBMITTED) {
+            $reviewers = $pdo->prepare('SELECT DISTINCT u.id, u.role,
+                    (SELECT MAX(id) FROM payments WHERE booking_id = b.id) AS payment_id
+                FROM bookings b JOIN trainer_profiles tp ON tp.id = b.trainer_profile_id
+                JOIN users u ON (b.payment_service_mode = "freelance" AND u.role = "trainer" AND u.id = tp.user_id)
+                    OR (b.payment_service_mode = "gym" AND u.role = "admin" AND EXISTS (
+                        SELECT 1 FROM admin_permissions ap
+                        WHERE ap.user_id = u.id AND ap.review_payments = 1
+                    ))
+                WHERE b.id = ? AND u.status = "active"');
+            $reviewers->execute([(int) $context['bookingId']]);
+            foreach ($reviewers->fetchAll() as $reviewer) {
+                $definitions[] = [
+                    'recipientUserId' => (int) $reviewer['id'],
+                    'type' => 'payment_review_' . $reviewer['payment_id'],
+                    'category' => 'payment',
+                    'title' => 'มีสลิปรอตรวจ',
+                    'message' => 'สมาชิกส่งหลักฐานการชำระเงินของการจอง ' . $context['bookingPublicId'],
+                    'actionPath' => $reviewer['role'] === 'trainer' ? '/trainer#payment-review' : '/admin',
+                    'emailRequired' => true,
+                ];
+            }
+        }
+        foreach ($definitions as $definition) {
             $emailStatus = $definition['emailRequired'] ? 'pending' : 'skipped';
             $statement->execute([
                 $definition['recipientUserId'],

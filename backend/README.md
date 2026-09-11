@@ -7,7 +7,7 @@ PHP REST API แบบไม่พึ่ง Composer สำหรับ Apache +
 1. คัดลอก `.env.example` เป็น `.env` และแก้รหัสผ่านฐานข้อมูลถ้ามี
 2. เปิด Apache และ MySQL ใน XAMPP Control Panel
 3. จากโฟลเดอร์โปรเจกต์ รัน `npm run xampp:connect`
-4. หากใช้ฐานข้อมูลเดิม รัน `npm run migrate:admin-permissions` และ `npm run migrate:monthly-bookings` หนึ่งครั้ง คำสั่งแรกให้สิทธิ์ครบทั้ง 4 ด้านแก่ผู้ดูแลระบบเดิมที่ยังไม่มีรายการสิทธิ์ จากนั้นตรวจและลดสิทธิ์ของแต่ละบัญชีผ่านหน้า **ผู้ดูแลระบบ** ให้เหลือเท่าที่จำเป็น
+4. หากใช้ฐานข้อมูลเดิม รัน `npm run migrate:admin-permissions`, `npm run migrate:monthly-bookings` และ `npm run migrate:payment-proof` หนึ่งครั้ง คำสั่งสุดท้ายเพิ่มข้อมูลพร้อมเพย์และ QR รับเงินโดยสำรองฐานข้อมูลก่อน
 5. รัน `npm run booking-expiry:install` หนึ่งครั้ง เพื่อตรวจการจองที่หมดเวลาทุกหนึ่งนาที
 6. ตรวจ `http://localhost/fitconnect-api/v1/health`
 
@@ -68,7 +68,7 @@ npm run notifications:send-test -- -RecipientEmail you@example.com -ConfirmSend 
 - `POST /v1/bookings` รองรับ `bookingType=monthly` พร้อม `slotIds` ตามจำนวนครั้งที่เทรนเนอร์กำหนด โดยทุกครั้งต้องอยู่ภายใน 30 วันและใช้เส้นตายชำระเงินร่วมกัน 10 นาที
 - `POST /v1/bookings/{publicId}/cancel` — สมาชิกยกเลิกคำขอที่ยังไม่ส่งสลิป ระบบคืนช่วงเวลาให้จองต่อทันที
 - `PATCH /v1/bookings/{publicId}/status` — เทรนเนอร์บันทึกว่าฝึกเสร็จแล้ว หรือผู้ดูแลระบบยืนยันและยกเลิกตามสิทธิ์
-- `POST /v1/payments` — สมาชิกส่งหลักฐานการชำระเงินแบบ multipart
+- `POST /v1/payments` — สมาชิกส่ง `bookingId` และสลิปแบบ multipart ยอดเงินยึดจากราคาการจองฝั่งระบบ
 - `GET|POST /v1/chat-rooms/{id}/messages` — อ่านและส่งข้อความหรือไฟล์แนบในห้องของการจอง
 - `GET /v1/chat-rooms/{id}/messages/{messageId}/attachment` — ดาวน์โหลดไฟล์แนบสำหรับคู่สนทนาเท่านั้น
 - `POST /v1/reviews` — สมาชิกเจ้าของการจองเผยแพร่รีวิวหลังจบการฝึก
@@ -76,7 +76,7 @@ npm run notifications:send-test -- -RecipientEmail you@example.com -ConfirmSend 
 - `POST /v1/admin/trainers/{id}/reject`
 - `GET /v1/admin/review-queue` — คิวหลักฐานที่รอผู้ดูแลระบบตรวจ
 - `GET /v1/admin/files/{payment|certificate}/{id}` — เปิดหลักฐานที่มีสิทธิ์ดู
-- `POST /v1/admin/payments/{id}/{approve|reject}` — ผู้ดูแลระบบอนุมัติหรือปฏิเสธพร้อมเหตุผล
+- `POST /v1/admin/payments/{id}/{approve|reject}` — ผู้รับผิดชอบอนุมัติหลังยืนยันรายการเงินจริงในแอปธนาคาร หรือปฏิเสธพร้อมเหตุผล
 - `GET /v1/admin/operations` — บัญชี การจอง ประวัติสถานะ รายได้ และธุรกรรมตามสิทธิ์ของบัญชี แบ่งหน้าฝั่ง API ครั้งละ 10 รายการด้วย `userPage`, `administratorPage`, `bookingPage`, `incomePage`, `paymentPage` และกรองด้วย `userQuery`, `bookingStatus`
 - `POST /v1/admin/users` — เพิ่มบัญชีผู้ดูแลระบบพร้อมกำหนดสิทธิ์
 - `PATCH /v1/admin/users/{id}` — แก้ข้อมูล ระงับหรือเปิดบัญชี และปรับสิทธิ์ผู้ดูแลระบบ

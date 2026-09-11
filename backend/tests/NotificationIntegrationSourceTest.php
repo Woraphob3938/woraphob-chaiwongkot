@@ -55,6 +55,13 @@ test('delivers notification ids only after database transactions return', functi
 });
 
 $failures = 0;
+test('allows administrators through every personal notification endpoint', function () use ($source): void {
+    foreach (['notifications', 'notification', 'readNotification', 'readAllNotifications'] as $method) {
+        preg_match('/public function ' . $method . '\([^)]*\): never\s*\{(.*?)\n    \}/s', $source, $matches);
+        assertSourceContains($matches[1] ?? '', "requireUser(['member', 'trainer', 'admin'])");
+    }
+});
+
 foreach ($tests as $name => $callback) {
     try {
         $callback();

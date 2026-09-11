@@ -38,7 +38,7 @@ final class NotificationRules
                 'payment_submitted',
                 'payment',
                 'ส่งหลักฐานแล้ว',
-                "ผู้ดูแลระบบกำลังตรวจหลักฐานของการจอง {$booking}",
+                "ส่งหลักฐานของการจอง {$booking} ให้ผู้รับผิดชอบตรวจแล้ว",
                 self::MEMBER_BOOKINGS,
                 false
             )],

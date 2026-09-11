@@ -127,6 +127,10 @@ npm run smoke:monthly-booking
 rtk powershell -NoProfile -Command "$result = Get-Content 'output/smoke/instant-booking-result.json' | ConvertFrom-Json; & 'scripts/audit-booking.ps1' -BookingId $result.approvedBookingId; & 'scripts/audit-booking.ps1' -BookingId $result.expiredBookingId"
 ```
 
-ผู้ดูแลระบบยังตรวจสลิปด้วยตนเอง ระบบไม่ได้อนุมัติการชำระเงินอัตโนมัติ `smoke:postbooking` เก็บข้อมูลทดสอบไว้ให้ตรวจย้อนหลัง ส่วน `smoke:admin-operations` ลบบัญชีทดสอบที่สร้างขึ้นเมื่อจบการตรวจ
+การตรวจสลิป: ฟรีแลนซ์ตรวจสลิปของตนเอง ส่วนเทรนเนอร์ประจำยิมให้ผู้ดูแลระบบที่มีสิทธิ์ตรวจการชำระเงินตรวจ ระบบรองรับยิมเดียวและไม่อนุมัติเงินอัตโนมัติ
+
+เรียก `npm run migrate:payment-routing` หลังเปิด MySQL โดยสคริปต์สำรองข้อมูลใน `C:/xampp/fitconnect-backups` ก่อนเปลี่ยนโครงสร้าง จากนั้นเปิดหน้าผู้ดูแลระบบ → บัญชีผู้ดูแลระบบ → กำหนดผู้ตรวจสลิปของการจองเดิม เพื่อระบุรูปแบบบริการของรายการเก่าที่ยังไม่ชัดเจน
+
+ตรวจสิทธิ์ด้วย `npm run test:payment-routing` ใช้ตารางชั่วคราวใน MySQL ไม่แก้ข้อมูลจริงและไม่ส่งอีเมล สคริปต์ smoke เดิมที่ให้ผู้ดูแลระบบตรวจสลิปฟรีแลนซ์ไม่ตรงกับกติกาใหม่นี้
 
 ข้อมูลเทรนเนอร์ ราคา ใบรับรอง ตารางเวลา และข้อความที่มากับโครงการเป็นข้อมูลสาธิตทั้งหมด รูปบุคคลใน `public/demo` สร้างด้วย AI และระบุไว้บนหน้าเว็บแล้ว
