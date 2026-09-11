@@ -53,6 +53,15 @@ rtk --version
 
 - Project instructions: `AGENTS.md` references this file, installed with
   `rtk init --codex`.
-- Assistant hook: **not installed**. rtk prints
-  `[warn] No hook installed — run 'rtk init -g'` on every invocation. Installing
-  it is a global change (`~/.claude`, settings patching) and has not been done.
+- Global hook: **installed** with `rtk init -g --auto-patch`. It registers
+  `rtk hook claude` as a `PreToolUse` hook in `~/.claude/settings.json`, so
+  Claude Code rewrites `git status` into `rtk git status` on its own. Verify with
+  `rtk init --show` (expect `[ok] Hook`).
+
+### What the hook does not cover
+
+`rtk hook` only speaks the hook protocols of Claude Code, Cursor, Gemini CLI,
+GitHub Copilot, Factory Droid and Mistral Vibe. There is **no DeepSeek Harness
+target**, so a session running in DSH gets no automatic rewriting. In DSH the
+savings depend on the agent prefixing commands itself, which is why this file
+exists and why the safe forms below matter.
