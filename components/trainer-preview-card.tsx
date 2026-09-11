@@ -1,7 +1,7 @@
 import Image from "next/image";
 import Link from "next/link";
-import { BadgeCheck } from "lucide-react";
-import { formatMoney, initials } from "@/lib/format";
+import { BadgeCheck, UserRound } from "lucide-react";
+import { formatMoney, formatTrainingTypeName } from "@/lib/format";
 import type { Trainer } from "@/lib/types";
 
 type TrainerPreviewCardProps = {
@@ -10,7 +10,7 @@ type TrainerPreviewCardProps = {
 };
 
 export function TrainerPreviewCard({ trainer, priority = false }: TrainerPreviewCardProps) {
-  const specialty = trainer.trainingTypes[0]?.nameTh ?? "การฝึกส่วนบุคคล";
+  const specialty = formatTrainingTypeName(trainer.trainingTypes[0]?.nameTh ?? "การฝึกส่วนบุคคล");
   const price = trainer.priceFrom == null
     ? "สอบถามราคา"
     : `เริ่มต้น ${formatMoney(trainer.priceFrom)} / ครั้ง`;
@@ -28,7 +28,13 @@ export function TrainerPreviewCard({ trainer, priority = false }: TrainerPreview
             sizes="(max-width: 38rem) 100vw, 20rem"
           />
         ) : (
-          <span className="trainer-preview-card__initials" aria-hidden="true">{initials(trainer.displayName)}</span>
+          <span
+            aria-label={`ยังไม่มีรูปโปรไฟล์ของ${trainer.displayName}`}
+            className="trainer-preview-card__placeholder"
+            role="img"
+          >
+            <UserRound aria-hidden="true" />
+          </span>
         )}
       </div>
 

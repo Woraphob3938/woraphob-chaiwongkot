@@ -171,7 +171,6 @@ try {
     $paymentJson = & curl.exe --silent --show-error --fail-with-body --max-time 20 `
         -H "Authorization: Bearer $memberToken" `
         -F "bookingId=$createdBookingId" `
-        -F "amount=$($booking.quotedPrice)" `
         -F "slip=@$slipPath;type=image/png" `
         "$apiBase/v1/payments"
     Assert-True ($LASTEXITCODE -eq 0) "Payment upload failed: $paymentJson"
@@ -179,7 +178,7 @@ try {
     $queue = (Invoke-Api 'GET' '/v1/admin/review-queue' $null $adminToken).data
     $queuedPayment = @($queue.payments | Where-Object { $_.bookingId -eq $createdBookingId })[0]
     Assert-True ($null -ne $queuedPayment) 'Payment must appear in review queue.'
-    Invoke-Api 'POST' "/v1/admin/payments/$($queuedPayment.id)/approve" @{ note = 'หลักฐานถูกต้อง' } $adminToken | Out-Null
+    Invoke-Api 'POST' "/v1/admin/payments/$($queuedPayment.id)/approve" @{ note = 'หลักฐานถูกต้อง'; bankConfirmed = $true } $adminToken | Out-Null
 
     $memberInbox = Get-Inbox $memberToken
     $trainerInbox = Get-Inbox $trainerToken

@@ -2,13 +2,18 @@ import { readFileSync } from "node:fs";
 import { act, fireEvent, render, screen, within } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { ChatWorkbench } from "@/components/chat-workbench";
-import { authenticatedRequest, openProtectedFile } from "@/lib/api";
+import { authenticatedRequest, API_URL, openProtectedFile } from "@/lib/api";
+import { formatDateTime, initials } from "@/lib/format";
 import type { Booking, ChatMessage } from "@/lib/types";
 
-vi.mock("@/lib/api", () => ({
-  authenticatedRequest: vi.fn(),
-  openProtectedFile: vi.fn(),
-}));
+vi.mock("@/lib/api", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("@/lib/api")>();
+  return {
+    ...actual,
+    authenticatedRequest: vi.fn(),
+    openProtectedFile: vi.fn(),
+  };
+});
 
 function bookingFixture(overrides: Partial<Booking> = {}): Booking {
   return {
@@ -102,6 +107,12 @@ function declarationValue(ruleBody: string, property: string): string {
   const value = rule?.style.getPropertyValue(property) ?? "";
   styles.remove();
   return value;
+}
+
+function ruleBody(selector: string): string | undefined {
+  const styles = readFileSync("app/globals.css", "utf8");
+  const escapedSelector = selector.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+  return styles.match(new RegExp(`${escapedSelector}\\s*\\{([^}]*)\\}`))?.[1];
 }
 
 describe("ChatWorkbench", () => {
@@ -214,6 +225,96 @@ describe("ChatWorkbench", () => {
     expect(compactAttachmentRule).toBeDefined();
     expect(declarationValue(compactAttachmentRule ?? "", "grid-template-columns")).toContain("minmax(0, 1fr)");
     expect(declarationValue(compactAttachmentRule ?? "", "word-break")).not.toBe("break-all");
+  });
+
+  it("distinguishes appointments with the same trainer by date and time", async () => {
+    const first = bookingFixture();
+    const second = bookingFixture({ id: "BK-CHAT-002", chatRoomId: 22, startsAt: "2026-08-11T03:00:00.000Z" });
+    vi.mocked(authenticatedRequest).mockImplementation((path) => Promise.resolve(path === "/v1/bookings" ? [first, second] : []));
+    render(<ChatWorkbench />);
+    await flushPromises();
+    const rooms = screen.getByRole("complementary", { name: "ห้องตามคำขอจอง" });
+    for (const booking of [first, second]) {
+      const room = within(rooms).getByRole("button", { name: new RegExp(booking.id) });
+      expect(within(room).getByText(formatDateTime(booking.startsAt))).toHaveAttribute("datetime", booking.startsAt);
+    }
+  });
+
+  it("follows new messages only at the bottom, but scrolls after sending or switching rooms", async () => {
+    const initial = deferred<ChatMessage[]>();
+    const first = bookingFixture();
+    const second = bookingFixture({ id: "BK-CHAT-002", chatRoomId: 22 });
+    let nextId = 2;
+    vi.mocked(authenticatedRequest).mockImplementation((path, init) => {
+      if (path === "/v1/bookings") return Promise.resolve([first, second]);
+      if (path === "/v1/chat-rooms/11/messages?afterId=0") return initial.promise;
+      if (init?.method === "POST") return Promise.resolve(messageFixture(nextId++));
+      return Promise.resolve([messageFixture(nextId++)]);
+    });
+    render(<ChatWorkbench />);
+    await flushPromises();
+    const log = screen.getByRole("log");
+    Object.defineProperties(log, {
+      scrollHeight: { configurable: true, value: 2000 },
+      clientHeight: { configurable: true, value: 500 },
+    });
+    await act(async () => { initial.resolve([messageFixture(1)]); });
+    expect(log.scrollTop).toBe(2000);
+
+    log.scrollTop = 200;
+    fireEvent.scroll(log);
+    await act(async () => { vi.advanceTimersByTime(5000); });
+    await flushPromises();
+    expect(screen.getByText("ข้อความ 2")).toBeInTheDocument();
+    expect(log.scrollTop).toBe(200);
+
+    log.scrollTop = 1500;
+    fireEvent.scroll(log);
+    await act(async () => { vi.advanceTimersByTime(5000); });
+    await flushPromises();
+    expect(log.scrollTop).toBe(2000);
+
+    log.scrollTop = 200;
+    fireEvent.scroll(log);
+    fireEvent.change(screen.getByLabelText("ข้อความ"), { target: { value: "ส่งจากประวัติข้อความ" } });
+    fireEvent.click(screen.getByRole("button", { name: "ส่งข้อความ" }));
+    await flushPromises();
+    expect(log.scrollTop).toBe(2000);
+
+    log.scrollTop = 200;
+    fireEvent.scroll(log);
+    fireEvent.click(screen.getByRole("button", { name: /BK-CHAT-002/ }));
+    await flushPromises();
+    expect(log.scrollTop).toBe(2000);
+  });
+
+  it("keeps message bubbles from collapsing when the chat stack wrapper is present", () => {
+    const stackRule = ruleBody(".chat-message__stack");
+    const bubbleRule = ruleBody(".chat-message__bubble");
+
+    expect(stackRule).toBeDefined();
+    expect(declarationValue(stackRule ?? "", "flex")).toContain("1 1");
+    expect(declarationValue(stackRule ?? "", "min-width")).toBe("0px");
+    expect(declarationValue(bubbleRule ?? "", "width")).toBe("fit-content");
+    expect(declarationValue(bubbleRule ?? "", "min-inline-size")).toBe("0px");
+    expect(ruleBody(".chat-message--mine .chat-message__meta small")).toContain("var(--color-muted)");
+  });
+
+  it("keeps chat controls compact and easy to target", () => {
+    const composerFieldRule = ruleBody(".chat-composer__field");
+    const statusRule = ruleBody(".chat-contact .status-badge");
+    const profileRule = ruleBody(".chat-peer-profile-trigger");
+
+    expect(composerFieldRule).toBeDefined();
+    expect(declarationValue(composerFieldRule ?? "", "flex")).toContain("1 1");
+    expect(declarationValue(composerFieldRule ?? "", "min-width")).toBe("0px");
+
+    expect(statusRule).toBeDefined();
+    expect(declarationValue(statusRule ?? "", "width")).toBe("fit-content");
+    expect(declarationValue(statusRule ?? "", "justify-self")).toBe("start");
+
+    expect(profileRule).toBeDefined();
+    expect(declarationValue(profileRule ?? "", "border")).toContain("1px solid");
   });
 
   it.each([
@@ -365,6 +466,134 @@ describe("ChatWorkbench", () => {
     const conversation = screen.getByRole("region", { name: "สนทนากับ เทรนเนอร์ ค." });
     const facts = screen.getByText("รายละเอียดนัดหมาย", { selector: "summary" }).closest("details");
     expect(conversation).toContainElement(facts as HTMLElement);
+  });
+
+  it("shows the counterpart profile photo in the room list", async () => {
+    vi.mocked(authenticatedRequest)
+      .mockResolvedValueOnce([bookingFixture({
+        trainer: {
+          id: 3,
+          slug: "trainer-c",
+          displayName: "เทรนเนอร์ ค.",
+          imageUrl: "/v1/profile-images/trainer/3",
+        },
+      })])
+      .mockResolvedValueOnce([]);
+
+    render(<ChatWorkbench />);
+    await flushPromises();
+
+    const room = screen.getByRole("button", { name: /เทรนเนอร์ ค\./ });
+    expect(room.querySelector("img")).toHaveAttribute("src", `${API_URL}/v1/profile-images/trainer/3`);
+    expect(room.querySelector(".chat-contact__avatar")).not.toHaveTextContent(initials("เทรนเนอร์ ค."));
+  });
+
+  it("keeps initials in the room list when the counterpart has no photo", async () => {
+    vi.mocked(authenticatedRequest)
+      .mockResolvedValueOnce([bookingFixture()])
+      .mockResolvedValueOnce([]);
+
+    render(<ChatWorkbench />);
+    await flushPromises();
+
+    const room = screen.getByRole("button", { name: /เทรนเนอร์ ค\./ });
+    expect(room.querySelector("img")).toBeNull();
+    expect(room.querySelector(".chat-contact__avatar")).toHaveTextContent(initials("เทรนเนอร์ ค."));
+  });
+
+  it("shows the member photo when a trainer opens the room list", async () => {
+    localStorage.setItem("fitconnect_user", JSON.stringify({
+      id: 3,
+      email: "trainer@example.test",
+      displayName: "เทรนเนอร์ ค.",
+      role: "trainer",
+      status: "active",
+    }));
+    vi.mocked(authenticatedRequest)
+      .mockResolvedValueOnce([bookingFixture({
+        member: { displayName: "สมาชิกทดสอบ", imageUrl: "/v1/profile-images/member/9" },
+      })])
+      .mockResolvedValueOnce([]);
+
+    render(<ChatWorkbench />);
+    await flushPromises();
+
+    const room = screen.getByRole("button", { name: /สมาชิกทดสอบ/ });
+    expect(room.querySelector("img")).toHaveAttribute("src", `${API_URL}/v1/profile-images/member/9`);
+    expect(screen.getByRole("heading", { name: "สนทนากับ สมาชิกทดสอบ" })).toBeInTheDocument();
+  });
+
+  it("lets a member inspect the trainer profile from the active conversation", async () => {
+    vi.mocked(authenticatedRequest)
+      .mockResolvedValueOnce([bookingFixture()])
+      .mockResolvedValueOnce([]);
+
+    render(<ChatWorkbench />);
+    await flushPromises();
+
+    fireEvent.click(screen.getByRole("button", { name: "ดูโปรไฟล์คู่สนทนา" }));
+
+    const dialog = screen.getByRole("dialog", { name: "โปรไฟล์ของ เทรนเนอร์ ค." });
+    expect(within(dialog).getByText("เทรนเนอร์", { selector: "span" })).toBeInTheDocument();
+    expect(within(dialog).getByRole("link", { name: "ดูโปรไฟล์เทรนเนอร์ฉบับเต็ม" })).toHaveAttribute(
+      "href",
+      "/trainers/trainer-c",
+    );
+  });
+
+  it("lets a trainer inspect the member profile without exposing private account fields", async () => {
+    localStorage.setItem("fitconnect_user", JSON.stringify({
+      id: 3,
+      email: "trainer@example.test",
+      displayName: "เทรนเนอร์ ค.",
+      role: "trainer",
+      status: "active",
+    }));
+    vi.mocked(authenticatedRequest)
+      .mockResolvedValueOnce([bookingFixture({ member: { displayName: "สมาชิกทดสอบ", goals: "เพิ่มความแข็งแรง", experienceLevel: "beginner", weight: 65, height: 170 } })])
+      .mockResolvedValueOnce([]);
+
+    render(<ChatWorkbench />);
+    await flushPromises();
+
+    fireEvent.click(screen.getByRole("button", { name: "ดูโปรไฟล์คู่สนทนา" }));
+
+    const dialog = screen.getByRole("dialog", { name: "โปรไฟล์ของ สมาชิกทดสอบ" });
+    expect(within(dialog).getByText("สมาชิก", { selector: "span" })).toBeInTheDocument();
+    expect(within(dialog).getByText("เป้าหมายการออกกำลังกาย")).toBeInTheDocument();
+    expect(within(dialog).getByText("ระดับประสบการณ์")).toBeInTheDocument();
+    expect(within(dialog).getByText("เพิ่มความแข็งแรง")).toBeInTheDocument();
+    expect(within(dialog).getByText("65 กก.")).toBeInTheDocument();
+    expect(within(dialog).getByText("เริ่มต้น")).toBeInTheDocument();
+    expect(within(dialog).queryByRole("link", { name: "ดูโปรไฟล์เทรนเนอร์ฉบับเต็ม" })).not.toBeInTheDocument();
+  });
+
+  it("uses the paper surface for the signed-in user's message bubble", async () => {
+    vi.mocked(authenticatedRequest)
+      .mockResolvedValueOnce([bookingFixture()])
+      .mockResolvedValueOnce([messageFixture(2, "ข้อความของฉัน")]);
+
+    render(<ChatWorkbench />);
+    await flushPromises();
+
+    expect(screen.getByText("ข้อความของฉัน").closest(".chat-message__bubble")).toBeInTheDocument();
+    const mineBubble = ruleBody(".chat-message--mine .chat-message__bubble");
+    expect(mineBubble).toContain("background: var(--color-paper)");
+    expect(mineBubble).toContain("color: var(--color-ink)");
+  });
+
+  it("keeps completed chat history readable and offers a new booking instead of a composer", async () => {
+    const booking = bookingFixture();
+    vi.mocked(authenticatedRequest)
+      .mockResolvedValueOnce([{ ...booking, status: "completed", actions: { ...booking.actions, canSendChat: false } }])
+      .mockResolvedValueOnce([messageFixture(1, "ข้อความก่อนจบการฝึก")]);
+    render(<ChatWorkbench />);
+    await flushPromises();
+    expect(screen.getByText("ข้อความก่อนจบการฝึก")).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "ส่งข้อความ" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "แนบไฟล์" })).not.toBeInTheDocument();
+    expect(screen.getByText("การฝึกครั้งนี้เสร็จสิ้นแล้ว อ่านประวัติได้แต่ส่งข้อความเพิ่มไม่ได้")).toBeInTheDocument();
+    expect(screen.getByRole("link", { name: "จองอีกครั้ง" })).toHaveAttribute("href", "/trainers/trainer-c");
   });
 
   it("aligns the signed-in member message separately and keeps a compact accessible composer", async () => {
@@ -794,5 +1023,20 @@ describe("ChatWorkbench", () => {
     const empty = screen.getByRole("region", { name: "ยังไม่มีห้องสนทนาที่เปิดอ่านได้" });
     expect(within(empty).getByText("ห้องสนทนาจะเปิดตามสถานะของคำขอจอง")).toBeInTheDocument();
     expect(within(empty).getByRole("link", { name: "กลับไปดูการจอง" })).toHaveAttribute("href", "/member");
+  });
+
+  it("renders date dividers in the message log for messages on different dates", async () => {
+    vi.mocked(authenticatedRequest)
+      .mockResolvedValueOnce([bookingFixture()])
+      .mockResolvedValueOnce([
+        messageFixture(1, "ข้อความวันที่ 1", { createdAt: "2026-08-01T10:00:00.000Z" }),
+        messageFixture(2, "ข้อความวันที่ 2", { createdAt: "2026-08-02T10:00:00.000Z" }),
+      ]);
+
+    render(<ChatWorkbench />);
+    await flushPromises();
+
+    const dividers = screen.getAllByRole("separator");
+    expect(dividers.length).toBeGreaterThanOrEqual(2);
   });
 });

@@ -35,4 +35,13 @@ describe("TrainerPreviewCard", () => {
     expect(screen.getByRole("img", { name: `รูปโปรไฟล์ของ${liveTrainer.displayName}` })).toBeInTheDocument();
     expect(screen.queryByText("ภาพสังเคราะห์ · สาธิต")).not.toBeInTheDocument();
   });
+
+  it("uses one accessible profile placeholder when a trainer has no portrait", () => {
+    const trainer = { ...trainers[0], image: undefined };
+
+    const { container } = render(<TrainerPreviewCard trainer={trainer} />);
+
+    expect(screen.getByRole("img", { name: `ยังไม่มีรูปโปรไฟล์ของ${trainer.displayName}` })).toBeInTheDocument();
+    expect(container.querySelector(".trainer-preview-card__initials")).not.toBeInTheDocument();
+  });
 });

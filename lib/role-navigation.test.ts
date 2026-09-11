@@ -38,13 +38,12 @@ describe("navigationFor", () => {
     expect(navigationFor("admin")).not.toContainEqual(expect.objectContaining({ href: "/profile" }));
   });
 
-  it("adds notifications only for members and trainers", () => {
-    for (const role of ["member", "trainer"] as const) {
+  it("adds notifications for every signed-in role", () => {
+    for (const role of ["member", "trainer", "admin"] as const) {
       expect(navigationFor(role)).toContainEqual(expect.objectContaining({
         href: "/notifications", label: "การแจ้งเตือน", icon: "notifications",
       }));
     }
     expect(navigationFor(null)).not.toContainEqual(expect.objectContaining({ href: "/notifications" }));
-    expect(navigationFor("admin")).not.toContainEqual(expect.objectContaining({ href: "/notifications" }));
   });
 });

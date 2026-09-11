@@ -9,18 +9,26 @@ export type DashboardAction = {
   state: "action" | "waiting" | "complete";
 };
 
+function memberBookingDescription(booking: Booking): string {
+  return `${booking.trainer.displayName} · ${formatDateTime(booking.startsAt)} · คำขอ ${booking.id}`;
+}
+
+export function hasValidBookingPeriod(booking: Pick<Booking, "startsAt" | "endsAt">): boolean {
+  return new Date(booking.endsAt).getTime() > new Date(booking.startsAt).getTime();
+}
+
 export function getMemberNextAction(bookings: Booking[]): DashboardAction {
   const payment = bookings.find((booking) => booking.actions.canPay);
-  if (payment) return { title: "ส่งหลักฐานการชำระเงิน", description: `ส่งสลิปก่อนหมดเวลา · คำขอ ${payment.id}`, href: `/member#booking-${payment.id}`, cta: "อัปโหลดสลิป", state: "action" };
+  if (payment) return { title: "ส่งหลักฐานการชำระเงิน", description: memberBookingDescription(payment), href: `/member#booking-${payment.id}`, cta: "อัปโหลดสลิป", state: "action" };
 
   const review = bookings.find((booking) => booking.actions.canReview);
-  if (review) return { title: "แบ่งปันผลการฝึก", description: `คำขอ ${review.id}`, href: `/member#booking-${review.id}`, cta: "เขียนรีวิว", state: "action" };
+  if (review) return { title: "แบ่งปันผลการฝึก", description: memberBookingDescription(review), href: `/member#booking-${review.id}`, cta: "เขียนรีวิว", state: "action" };
 
   const paymentReview = bookings.find((booking) => booking.status === "payment_review");
-  if (paymentReview) return { title: "รอผู้ดูแลระบบตรวจหลักฐาน", description: `คำขอ ${paymentReview.id}`, href: `/member#booking-${paymentReview.id}`, cta: "ดูสถานะ", state: "waiting" };
+  if (paymentReview) return { title: "รอตรวจหลักฐาน", description: memberBookingDescription(paymentReview), href: `/member#booking-${paymentReview.id}`, cta: "ดูสถานะ", state: "waiting" };
 
   const confirmed = bookings.find((booking) => booking.status === "confirmed");
-  if (confirmed) return { title: "เตรียมตัวสำหรับการฝึก", description: `คำขอ ${confirmed.id}`, href: `/member#booking-${confirmed.id}`, cta: "ดูนัดหมาย", state: "waiting" };
+  if (confirmed) return { title: "เตรียมตัวสำหรับการฝึก", description: memberBookingDescription(confirmed), href: `/member#booking-${confirmed.id}`, cta: "ดูนัดหมาย", state: "waiting" };
 
   return { title: "เริ่มค้นหาเทรนเนอร์", description: "เปรียบเทียบคุณสมบัติและตารางว่าง", href: "/trainers", cta: "ค้นหาเทรนเนอร์", state: "complete" };
 }
@@ -50,14 +58,14 @@ export function getTrainerNextAction(workspace: TrainerWorkspace | null, booking
     };
   }
 
-  const completable = bookings.find((booking) => booking.status === "confirmed" && booking.actions.canComplete);
+  const completable = bookings.find((booking) => booking.status === "confirmed" && booking.actions.canComplete && hasValidBookingPeriod(booking));
   if (completable) {
     const memberName = completable.member?.displayName ?? "สมาชิก FitConnect";
     return {
-      title: "บันทึกว่าฝึกเสร็จแล้ว",
+      title: "บันทึกผลการฝึก",
       description: `${memberName} · คำขอ ${completable.id}`,
       href: `/trainer#booking-${completable.id}`,
-      cta: "ฝึกเสร็จแล้ว",
+      cta: "บันทึกว่าฝึกเสร็จ",
       state: "action",
     };
   }
@@ -83,7 +91,7 @@ export function getTrainerNextAction(workspace: TrainerWorkspace | null, booking
     };
   }
 
-  return { title: "ตารางงานพร้อมแล้ว", description: "ดูนัดหมายและช่วงเวลาว่างปัจจุบัน", href: "/trainer#schedule", cta: "ดูตารางงาน", state: "complete" };
+  return { title: "พร้อมดูแลสมาชิกแล้ว", description: "ตรวจนัดหมายและช่วงเวลาที่เปิดรับจอง", href: "/trainer#schedule", cta: "ดูตารางงาน", state: "complete" };
 }
 
 export function getAdminNextAction(queue: AdminQueue): DashboardAction {

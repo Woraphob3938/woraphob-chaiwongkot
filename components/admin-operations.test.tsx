@@ -73,7 +73,6 @@ describe("AdminOperations", () => {
   });
 
   it("suspends an account only after confirmation and reloads current data", async () => {
-    vi.spyOn(window, "confirm").mockReturnValue(true);
     vi.mocked(authenticatedRequest)
       .mockResolvedValueOnce(operations)
       .mockResolvedValueOnce({ id: 7, status: "suspended" })
@@ -81,6 +80,8 @@ describe("AdminOperations", () => {
     render(<AdminOperations />);
     fireEvent.click(await screen.findByRole("tab", { name: "บัญชีผู้ใช้" }));
     fireEvent.click(screen.getByRole("button", { name: "ระงับบัญชี สมาชิกหนึ่ง" }));
+    expect(screen.getByRole("dialog", { name: "ระงับบัญชี" })).toHaveTextContent("member@example.com");
+    fireEvent.click(screen.getByRole("button", { name: "ยืนยันการเปลี่ยนสถานะ" }));
 
     await waitFor(() => expect(authenticatedRequest).toHaveBeenCalledWith("/v1/admin/users/7", {
       method: "PATCH",
@@ -89,11 +90,33 @@ describe("AdminOperations", () => {
     expect(await screen.findByRole("status")).toHaveTextContent("ระงับบัญชี “สมาชิกหนึ่ง” แล้ว");
   });
 
-  it("creates a system administrator with explicit permissions", async () => {
+  it("cancels a booking from a dialog with an explicit reason", async () => {
     vi.mocked(authenticatedRequest)
       .mockResolvedValueOnce(operations)
-      .mockResolvedValueOnce({ id: 11, role: "admin", status: "active" })
+      .mockResolvedValueOnce({ id: "BK-ONE", status: "cancelled" })
       .mockResolvedValueOnce(operations);
+    render(<AdminOperations />);
+    fireEvent.click(await screen.findByRole("tab", { name: "การจองทั้งหมด" }));
+    fireEvent.click(screen.getByText("BK-ONE"));
+    fireEvent.click(screen.getByRole("button", { name: "ยกเลิกคำขอจองนี้" }));
+
+    const dialog = screen.getByRole("dialog", { name: "ยกเลิกคำขอจอง" });
+    fireEvent.change(within(dialog).getByLabelText("เหตุผลในการยกเลิก"), { target: { value: "สมาชิกแจ้งยกเลิก" } });
+    fireEvent.click(within(dialog).getByRole("button", { name: "ยืนยันการยกเลิก" }));
+
+    await waitFor(() => expect(authenticatedRequest).toHaveBeenCalledWith("/v1/bookings/BK-ONE/status", {
+      method: "PATCH",
+      body: JSON.stringify({ status: "cancelled", note: "สมาชิกแจ้งยกเลิก" }),
+    }));
+  });
+
+  it("creates a system administrator with explicit permissions", async () => {
+    vi.mocked(authenticatedRequest).mockImplementation((path, init) => {
+      if (isOperationsRequest(path)) return Promise.resolve(operations);
+      if (path === "/v1/admin/payment-routing") return Promise.resolve({ unresolved: [] });
+      if (path === "/v1/admin/users" && init?.method === "POST") return Promise.resolve({ id: 11, role: "admin", status: "active" });
+      throw new Error(`Unexpected request: ${path}`);
+    });
     render(<AdminOperations />);
     fireEvent.click(await screen.findByRole("tab", { name: "ผู้ดูแลระบบ" }));
     const form = screen.getByRole("form", { name: "เพิ่มผู้ดูแลระบบ" });

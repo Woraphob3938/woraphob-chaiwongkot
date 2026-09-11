@@ -43,12 +43,21 @@ type PaymentDecisionResponse = {
   paymentDeadlineAt: string | null;
 };
 
-export function AdminReviewQueue() {
+export function TrainerPaymentReview() {
+  const [open, setOpen] = useState(false);
+  return <details id="payment-review" className="admin-record-disclosure" onToggle={(event) => setOpen(event.currentTarget.open)}>
+    <summary>ตรวจสลิปการจองฟรีแลนซ์ของฉัน</summary>
+    {open && <AdminReviewQueue reviewer="trainer" />}
+  </details>;
+}
+
+export function AdminReviewQueue({ reviewer = "admin" }: { reviewer?: "admin" | "trainer" }) {
   const router = useRouter();
   const navigate = router.push;
   const [queue, setQueue] = useState<AdminQueue | null>(null);
   const [notes, setNotes] = useState<Record<number, string>>({});
   const [paymentNotes, setPaymentNotes] = useState<Record<number, string>>({});
+  const [bankConfirmations, setBankConfirmations] = useState<Record<number, boolean>>({});
   const [rowErrors, setRowErrors] = useState<Record<string, string>>({});
   const [resolvedPayments, setResolvedPayments] = useState<Record<number, true>>({});
   const [loadError, setLoadError] = useState("");
@@ -76,7 +85,7 @@ export function AdminReviewQueue() {
     setLoadError("");
     setLoading(true);
     try {
-      const nextQueue = await authenticatedRequest<AdminQueue>("/v1/admin/review-queue");
+      const nextQueue = await authenticatedRequest<AdminQueue>(`/v1/${reviewer}/review-queue`);
       if (requestId !== queueRequestRef.current) return "superseded" as const;
       setQueue(nextQueue);
       const availableKeys = [
@@ -100,7 +109,7 @@ export function AdminReviewQueue() {
     } finally {
       if (requestId === queueRequestRef.current) setLoading(false);
     }
-  }, [navigate]);
+  }, [navigate, reviewer]);
 
   useEffect(() => {
     void loadQueue();
@@ -176,6 +185,10 @@ export function AdminReviewQueue() {
     if (busyRows[rowKey] || resolvedPayments[paymentId]) return;
     const paymentCode = `PAY-${String(paymentId).padStart(6, "0")}`;
     const note = paymentNotes[paymentId]?.trim() ?? "";
+    if (decision === "approve" && !bankConfirmations[paymentId]) {
+      setRowErrors((current) => ({ ...current, [rowKey]: "ตรวจรายการเงินจริงในแอปธนาคารและทำเครื่องหมายยืนยันก่อนอนุมัติ" }));
+      return;
+    }
     if (decision === "reject" && !note) {
       setRowErrors((current) => ({ ...current, [rowKey]: "กรุณาระบุเหตุผลที่สลิปไม่ผ่าน" }));
       return;
@@ -187,7 +200,7 @@ export function AdminReviewQueue() {
     try {
       const result = await authenticatedRequest<PaymentDecisionResponse>(`/v1/admin/payments/${paymentId}/${decision}`, {
         method: "POST",
-        body: JSON.stringify(decision === "approve" ? {} : { note }),
+        body: JSON.stringify(decision === "approve" ? { bankConfirmed: true } : { note }),
       });
       setResolvedPayments((current) => ({ ...current, [paymentId]: true }));
       const refreshResult = await loadQueue();
@@ -287,7 +300,7 @@ export function AdminReviewQueue() {
 
   return (
     <div className="admin-board">
-      <NextActionCard action={getAdminNextAction(currentQueue)} />
+      {reviewer === "admin" && <NextActionCard action={getAdminNextAction(currentQueue)} />}
 
       <section className="admin-summary" aria-label="สรุปคิวตรวจสอบ">
         <div><span>ใบสมัครรอตรวจ</span><strong>{String(currentQueue.trainers.length).padStart(2, "0")}</strong></div>
@@ -387,7 +400,7 @@ export function AdminReviewQueue() {
                 ["สมาชิก", selectedPayment.memberName],
                 ["เทรนเนอร์", selectedPayment.trainerName],
                 ["วันและเวลานัด", `${formatDateTime(selectedPayment.startsAt)} ถึง ${formatDateTime(selectedPayment.endsAt)}`],
-                ["ค่าฝึกต่อครั้ง", formatPaymentAmount(selectedPayment.quotedPrice)],
+                [selectedPayment.bookingType === "monthly" ? "ราคาแพ็กเกจ" : "ค่าฝึกต่อครั้ง", formatPaymentAmount(selectedPayment.quotedPrice)],
                 ["ยอดที่โอน", formatPaymentAmount(selectedPayment.amount)],
                 ["ส่วนต่าง", formatPaymentDifference(selectedPayment.difference)],
                 ["ส่งหลักฐานเมื่อ", formatDateTime(selectedPayment.submittedAt)],
@@ -401,7 +414,7 @@ export function AdminReviewQueue() {
                         <div><span>{paymentCode}</span><h3 style={wrapAnywhereStyle}>คำขอจอง {selectedPayment.bookingId}</h3></div>
                         <StatusBadge status="reviewing" />
                       </header>
-                      <p>ผู้ดูแลระบบกำลังตรวจหลักฐาน</p>
+                      <p>{reviewer === "trainer" ? "ตรวจหลักฐานการชำระเงินของคุณ" : "ตรวจหลักฐานของยิมที่คุณดูแล"}</p>
                       <dl className="admin-evidence-facts admin-evidence-facts--payment">
                         {evidence.map(([label, value]) => (
                           <div key={label}><dt>{label}</dt><dd style={wrapAnywhereStyle}>{value}</dd></div>
@@ -424,10 +437,22 @@ export function AdminReviewQueue() {
                         placeholder="ระบุเหตุผลเมื่อสลิปไม่ผ่าน"
                       />
                     </label>
+                    <label className="admin-bank-confirmation">
+                      <input
+                        type="checkbox"
+                        checked={Boolean(bankConfirmations[selectedPayment.id])}
+                        disabled={isBusy || isResolved}
+                        onChange={(event) => {
+                          setBankConfirmations((current) => ({ ...current, [selectedPayment.id]: event.target.checked }));
+                          setRowErrors((current) => ({ ...current, [rowKey]: "" }));
+                        }}
+                      />
+                      <span><strong>พบเงินเข้าในแอปธนาคารแล้ว</strong><small>ตรวจผู้รับ ยอดเงิน วันเวลา และเลขอ้างอิงให้ตรงกับสลิป</small></span>
+                    </label>
                     {isResolved && <p className="queue-notice" role="status">บันทึกผลแล้ว รอคิวอัปเดต</p>}
                     {rowErrors[rowKey] && <p className="row-error" role="alert">{rowErrors[rowKey]}</p>}
                     <div className="queue-actions">
-                      <button type="button" aria-label={`อนุมัติสลิป ${paymentCode}`} disabled={isBusy || isResolved} onClick={() => void decidePayment(selectedPayment.id, "approve")}>{busyAction === "approve" ? "กำลังบันทึก…" : "อนุมัติ"}</button>
+                      <button type="button" aria-label={`อนุมัติสลิป ${paymentCode}`} disabled={isBusy || isResolved || !bankConfirmations[selectedPayment.id]} onClick={() => void decidePayment(selectedPayment.id, "approve")}>{busyAction === "approve" ? "กำลังบันทึก…" : "อนุมัติ"}</button>
                       <button type="button" aria-label={`ไม่อนุมัติสลิป ${paymentCode}`} disabled={isBusy || isResolved} onClick={() => void decidePayment(selectedPayment.id, "reject")}>{busyAction === "reject" ? "กำลังบันทึก…" : "ไม่อนุมัติ"}</button>
                       {isResolved && (
                         <button type="button" aria-label={`ลองโหลดคิว ${paymentCode} อีกครั้ง`} disabled={isBusy} onClick={() => void retryPaymentRefresh(selectedPayment.id)}>

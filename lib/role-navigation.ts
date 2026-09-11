@@ -31,6 +31,7 @@ const navigationByAudience: Record<"guest" | UserRole, RoleNavigationItem[]> = {
   ],
   admin: [
     { href: "/admin", label: "พื้นที่ผู้ดูแลระบบ", icon: "workspace", desktop: true, mobile: true },
+    { href: "/notifications", label: "การแจ้งเตือน", icon: "notifications", desktop: true, mobile: true },
   ],
 };
 

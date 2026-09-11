@@ -33,17 +33,33 @@ function completeForm(mode: "login" | "register", role: "member" | "trainer" = "
   if (mode === "register") {
     fireEvent.change(screen.getByLabelText("ชื่อที่ใช้ในระบบ"), { target: { value: trainerUser.displayName } });
     fireEvent.change(screen.getByLabelText("ฉันต้องการใช้งานในฐานะ"), { target: { value: role } });
+    const confirmInput = screen.queryByLabelText("ยืนยันรหัสผ่าน");
+    if (confirmInput) {
+      fireEvent.change(confirmInput, { target: { value: "password123" } });
+    }
   }
   fireEvent.change(screen.getByLabelText("อีเมล"), { target: { value: trainerUser.email } });
   fireEvent.change(screen.getByLabelText("รหัสผ่าน"), { target: { value: "password123" } });
   fireEvent.submit(screen.getByRole("button", { name: mode === "login" ? "เข้าสู่ระบบ" : "สร้างบัญชี" }).closest("form")!);
 }
 
-describe("AuthForm trainer onboarding", () => {
+describe("AuthForm trainer onboarding and enhanced UX", () => {
   beforeEach(() => {
     localStorage.clear();
     vi.mocked(apiRequest).mockReset();
     vi.mocked(authenticatedRequest).mockReset();
+  });
+
+  it("redirects an existing member session without showing the login flow again", async () => {
+    const navigate = vi.fn();
+    const member = { ...trainerUser, role: "member" as const };
+    localStorage.setItem("fitconnect_token", "member-token");
+    localStorage.setItem("fitconnect_user", JSON.stringify(member));
+
+    render(<AuthForm mode="login" navigate={navigate} />);
+
+    await waitFor(() => expect(navigate).toHaveBeenCalledWith("/member"));
+    expect(apiRequest).not.toHaveBeenCalled();
   });
 
   it("continues a newly registered trainer to professional profile setup", async () => {
@@ -87,4 +103,38 @@ describe("AuthForm trainer onboarding", () => {
     expect(apiRequest).toHaveBeenCalledTimes(1);
     expect(authenticatedRequest).toHaveBeenCalledTimes(2);
   });
+
+  it("toggles password visibility when eye toggle button is clicked", () => {
+    render(<AuthForm mode="login" />);
+    const passwordInput = screen.getByLabelText("รหัสผ่าน");
+    const toggleButton = screen.getByRole("button", { name: "แสดงรหัสผ่าน" });
+
+    expect(passwordInput).toHaveAttribute("type", "password");
+    fireEvent.click(toggleButton);
+    expect(passwordInput).toHaveAttribute("type", "text");
+    expect(toggleButton).toHaveAttribute("aria-label", "ซ่อนรหัสผ่าน");
+  });
+
+  it("validates password mismatch on register submission", async () => {
+    render(<AuthForm mode="register" />);
+    fireEvent.change(screen.getByLabelText("ชื่อที่ใช้ในระบบ"), { target: { value: "สมาชิกทดสอบ" } });
+    fireEvent.change(screen.getByLabelText("อีเมล"), { target: { value: "member@fitconnect.test" } });
+    fireEvent.change(screen.getByLabelText("รหัสผ่าน"), { target: { value: "password123" } });
+    fireEvent.change(screen.getByLabelText("ยืนยันรหัสผ่าน"), { target: { value: "differentPassword" } });
+    fireEvent.submit(screen.getByRole("button", { name: "สร้างบัญชี" }).closest("form")!);
+
+    expect(await screen.findByRole("alert")).toHaveTextContent("รหัสผ่านและยืนยันรหัสผ่านไม่ตรงกัน");
+    expect(apiRequest).not.toHaveBeenCalled();
+  });
+
+  it("updates role when role card is clicked", () => {
+    render(<AuthForm mode="register" />);
+    const trainerCard = screen.getByRole("button", { name: "เทรนเนอร์ เปิดรับสอนและสร้างโปรไฟล์" });
+    const select = screen.getByLabelText("ฉันต้องการใช้งานในฐานะ") as HTMLSelectElement;
+
+    expect(select.value).toBe("member");
+    fireEvent.click(trainerCard);
+    expect(select.value).toBe("trainer");
+  });
 });
+

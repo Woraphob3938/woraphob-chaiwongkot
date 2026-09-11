@@ -9,27 +9,35 @@ import type { Trainer } from "@/lib/types";
 export function TrainerMarketplaceCard({
   trainer,
   priority = false,
+  returnTo,
 }: {
   trainer: Trainer;
   priority?: boolean;
+  returnTo?: string;
 }) {
   const firstSlot = trainer.slots[0];
+  const profileHref = `/trainers/${trainer.slug}${returnTo && returnTo !== "/trainers" ? `?returnTo=${encodeURIComponent(returnTo)}` : ""}`;
+  const canChooseTime = firstSlot !== undefined && trainer.priceFrom != null;
 
   return (
     <li className="trainer-marketplace-card">
-      <div className="trainer-marketplace-card__media">
+      <Link
+        className="trainer-marketplace-card__media"
+        href={profileHref}
+        aria-label={`ดูโปรไฟล์ของ${trainer.displayName}`}
+      >
         {trainer.image ? (
           <Image
             src={trainer.image}
             alt={`รูปโปรไฟล์ของ${trainer.displayName}`}
             fill
             priority={priority}
-            sizes="(max-width: 47.99rem) 100vw, (max-width: 75rem) 50vw, (max-width: 90rem) 33vw, 25vw"
+            sizes="(max-width: 40rem) 120px, (max-width: 75rem) 50vw, (max-width: 90rem) 33vw, 25vw"
           />
         ) : (
           <span aria-hidden="true">{initials(trainer.displayName)}</span>
         )}
-      </div>
+      </Link>
 
       <div className="trainer-marketplace-card__body">
         <div className="trainer-marketplace-card__eyebrow">
@@ -42,7 +50,7 @@ export function TrainerMarketplaceCard({
         </div>
 
         <div>
-          <h2>{trainer.displayName}</h2>
+          <h2><Link href={profileHref}>{trainer.displayName}</Link></h2>
           <p className="trainer-marketplace-card__headline">{trainer.headline}</p>
         </div>
 
@@ -50,6 +58,9 @@ export function TrainerMarketplaceCard({
           <span>ประสบการณ์ {trainer.yearsExperience} ปี</span>
           {trainer.reviewCount > 0 && trainer.rating !== undefined && (
             <span><Star aria-hidden="true" /> {trainer.rating} ({trainer.reviewCount} รีวิว)</span>
+          )}
+          {(trainer.reviewCount === 0 || trainer.rating === undefined) && (
+            <span><Star aria-hidden="true" /> ยังไม่มีรีวิว</span>
           )}
           <span>
             <CalendarClock aria-hidden="true" />
@@ -62,11 +73,13 @@ export function TrainerMarketplaceCard({
         <div className="trainer-marketplace-card__footer">
           <div>
             <span>ค่าฝึกต่อครั้ง</span>
-            <strong>{trainer.priceFrom == null ? "ยังไม่กำหนด" : formatMoney(trainer.priceFrom)}</strong>
+            <strong className={trainer.priceFrom == null ? "is-unavailable" : undefined}>
+              {trainer.priceFrom == null ? "ยังไม่กำหนด" : formatMoney(trainer.priceFrom)}
+            </strong>
           </div>
-          <Button asChild>
-            <Link href={`/trainers/${trainer.slug}`}>
-              ดูโปรไฟล์และเลือกเวลา <ArrowUpRight aria-hidden="true" />
+          <Button asChild variant={canChooseTime ? "default" : "outline"}>
+            <Link href={profileHref}>
+              {canChooseTime ? "ดูโปรไฟล์และเลือกเวลา" : "ดูโปรไฟล์"} <ArrowUpRight aria-hidden="true" />
             </Link>
           </Button>
         </div>

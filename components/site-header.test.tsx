@@ -60,7 +60,7 @@ describe("MobileRoleNav", () => {
   it.each([
     ["member", "/member", "การจองของฉัน", ["ค้นหาเทรนเนอร์", "การจองของฉัน", "การแจ้งเตือน", "แชต", "โปรไฟล์"]],
     ["trainer", "/trainer", "พื้นที่เทรนเนอร์", ["พื้นที่เทรนเนอร์", "การแจ้งเตือน", "แชต", "โปรไฟล์"]],
-    ["admin", "/admin", "พื้นที่ผู้ดูแลระบบ", ["พื้นที่ผู้ดูแลระบบ"]],
+    ["admin", "/admin", "พื้นที่ผู้ดูแลระบบ", ["พื้นที่ผู้ดูแลระบบ", "การแจ้งเตือน"]],
   ] as const)("routes %s users to their role workspace", (role, workspaceHref, workspaceLabel, expectedLabels) => {
     mockedPathname.mockReturnValue(workspaceHref);
     render(<MobileRoleNav user={user(role)} />);
@@ -142,7 +142,7 @@ describe("SiteHeader", () => {
   it.each([
     ["member", "/member", ["ค้นหาเทรนเนอร์", "การจองของฉัน", "การแจ้งเตือน", "แชต", "โปรไฟล์"]],
     ["trainer", "/trainer", ["พื้นที่เทรนเนอร์", "การแจ้งเตือน", "แชต", "โปรไฟล์"]],
-    ["admin", "/admin", ["พื้นที่ผู้ดูแลระบบ"]],
+    ["admin", "/admin", ["พื้นที่ผู้ดูแลระบบ", "การแจ้งเตือน"]],
   ] as const)("moves %s navigation into the authenticated side rail", async (role, pathname, labels) => {
     const signedInUser = user(role);
     mockedPathname.mockReturnValue(pathname);
@@ -213,6 +213,21 @@ describe("SiteHeader", () => {
     fireEvent.click(within(sidebar).getByRole("button", { name: "ขยายแถบเมนู" }));
     expect(sidebar).toHaveAttribute("data-collapsed", "false");
     expect(within(sidebar).getByRole("button", { name: "ย่อแถบเมนู" })).toHaveAttribute("aria-expanded", "true");
+  });
+
+  it("keeps the account menu mounted and usable while the sidebar is collapsed", async () => {
+    const member = user("member");
+    localStorage.setItem("fitconnect_token", "test-token");
+    localStorage.setItem("fitconnect_user", JSON.stringify(member));
+    mockedApiRequest.mockResolvedValue(member);
+
+    render(<SiteHeader />);
+    const sidebar = await screen.findByRole("complementary", { name: "แถบนำทาง FitConnect" });
+    fireEvent.click(within(sidebar).getByRole("button", { name: "ย่อแถบเมนู" }));
+    fireEvent.click(within(sidebar).getByRole("button", { name: `เปิดเมนูบัญชีของ ${member.displayName}` }));
+
+    expect(within(sidebar).getByRole("link", { name: "ดูโปรไฟล์" })).toHaveAttribute("href", "/profile");
+    expect(within(sidebar).getByRole("button", { name: "ออกจากระบบ" })).toBeInTheDocument();
   });
 
   it("returns the side rail to its expanded state after a page refresh", async () => {

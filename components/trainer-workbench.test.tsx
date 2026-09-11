@@ -1,3 +1,4 @@
+import { readFileSync } from "node:fs";
 import { act, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { TrainerWorkbench } from "@/components/trainer-workbench";
@@ -75,7 +76,7 @@ describe("TrainerWorkbench", () => {
 
     render(<TrainerWorkbench />);
 
-    const actionTitle = await screen.findByRole("heading", { name: "ตารางงานพร้อมแล้ว" });
+    const actionTitle = await screen.findByRole("heading", { name: "พร้อมดูแลสมาชิกแล้ว" });
     const weekHeading = screen.getByRole("heading", { name: "ตารางรายสัปดาห์" });
     expect(screen.getByRole("link", { name: "ดูตารางงาน" })).toHaveAttribute("href", "/trainer#schedule");
     expect(screen.queryByText("สถานที่")).not.toBeInTheDocument();
@@ -124,6 +125,94 @@ describe("TrainerWorkbench", () => {
 
   });
 
+  it("uses a distinct success color for confirmed appointments", () => {
+    const styles = readFileSync("app/globals.css", "utf8");
+
+    expect(styles).toMatch(/\.trainer-week-event--confirmed\s*\{[\s\S]*?background:\s*var\(--color-success-soft\);[\s\S]*?border-color:\s*var\(--color-success\);/);
+    expect(styles).toMatch(/\.trainer-week__legend \.is-confirmed\s*\{[\s\S]*?background:\s*var\(--color-success-soft\);/);
+  });
+
+  it("keeps appointment details inside the dialog without horizontal overflow", () => {
+    const styles = readFileSync("app/globals.css", "utf8");
+
+    expect(styles).toMatch(/\.trainer-appointment-dialog\s*\{[\s\S]*?max-width:\s*42rem;[\s\S]*?overflow-x:\s*hidden;/);
+    expect(styles).toMatch(/\.trainer-appointment-dialog \.trainer-booking-card\s*\{[\s\S]*?grid-template-columns:\s*minmax\(0,\s*1fr\) minmax\(0,\s*1fr\);/);
+    expect(styles).toMatch(/\.trainer-appointment-dialog \.trainer-booking-card \.queue-actions\s*\{[\s\S]*?grid-column:\s*1\s*\/\s*-1;[\s\S]*?grid-row:\s*auto;/);
+  });
+
+  it("shows only the next two appointments beside the urgent action until expanded", async () => {
+    const future = (day: number, hour: number) => {
+      const date = new Date();
+      date.setDate(date.getDate() + day);
+      date.setHours(hour, 0, 0, 0);
+      return date.toISOString();
+    };
+    const bookings = [
+      bookingFixture({ id: "BK-URGENT", status: "confirmed", actions: { ...bookingFixture().actions, canComplete: true } }),
+      bookingFixture({ id: "BK-NEXT-1", status: "confirmed", startsAt: future(1, 9), endsAt: future(1, 10) }),
+      bookingFixture({ id: "BK-NEXT-2", status: "confirmed", startsAt: future(2, 9), endsAt: future(2, 10) }),
+      bookingFixture({ id: "BK-LATER", status: "confirmed", startsAt: future(3, 9), endsAt: future(3, 10) }),
+    ];
+    vi.mocked(authenticatedRequest)
+      .mockResolvedValueOnce(approvedWorkspace)
+      .mockResolvedValueOnce(bookings);
+
+    const { container } = render(<TrainerWorkbench />);
+
+    expect(await screen.findByRole("heading", { name: "บันทึกผลการฝึก" })).toBeInTheDocument();
+    expect(Array.from(container.querySelectorAll(".trainer-booking-preview .trainer-appointment-row")).map((card) => card.id)).toEqual([
+      "booking-BK-NEXT-1",
+      "booking-BK-NEXT-2",
+    ]);
+    fireEvent.click(screen.getByRole("button", { name: "ดูนัดหมายทั้งหมด" }));
+    expect(container.querySelectorAll(".trainer-booking-preview .trainer-appointment-row")).toHaveLength(4);
+    fireEvent.change(screen.getByLabelText("ค้นหานัดหมาย"), { target: { value: "BK-LATER" } });
+    expect(container.querySelectorAll(".trainer-booking-preview .trainer-appointment-row")).toHaveLength(1);
+    fireEvent.click(screen.getByRole("button", { name: "ดูรายละเอียด" }));
+    expect(screen.getByRole("dialog", { name: "รายละเอียดนัดหมาย" })).toBeInTheDocument();
+  });
+
+  it("labels booked and blocked schedule slots by their real state", async () => {
+    const startsAt = new Date();
+    startsAt.setDate(startsAt.getDate() + 1);
+    startsAt.setHours(9, 0, 0, 0);
+    const endsAt = new Date(startsAt);
+    endsAt.setHours(10, 0, 0, 0);
+    vi.mocked(authenticatedRequest)
+      .mockResolvedValueOnce({
+        ...approvedWorkspace,
+        slots: [
+          { id: 82, startsAt: startsAt.toISOString(), endsAt: endsAt.toISOString(), state: "booked" },
+          { id: 83, startsAt: new Date(startsAt.getTime() + 3_600_000).toISOString(), endsAt: new Date(endsAt.getTime() + 3_600_000).toISOString(), state: "blocked" },
+        ],
+      })
+      .mockResolvedValueOnce([]);
+
+    render(<TrainerWorkbench />);
+
+    const schedule = await screen.findByRole("region", { name: "ตารางรายสัปดาห์" });
+    expect(within(schedule).getByText("ถูกจองแล้ว")).toBeInTheDocument();
+    expect(within(schedule).getAllByText("ปิดช่วงเวลา")).not.toHaveLength(0);
+  });
+
+  it("blocks completion when an appointment ends before it starts", async () => {
+    vi.mocked(authenticatedRequest)
+      .mockResolvedValueOnce(approvedWorkspace)
+      .mockResolvedValueOnce([bookingFixture({
+        id: "BK-BAD-TIME",
+        status: "confirmed",
+        startsAt: "2026-09-12T04:00:00.000Z",
+        endsAt: "2026-09-12T03:00:00.000Z",
+        actions: { ...bookingFixture().actions, canComplete: true, canReadChat: true },
+      })]);
+
+    render(<TrainerWorkbench />);
+
+    fireEvent.click(await screen.findByRole("button", { name: "ดูรายละเอียด" }));
+    expect(screen.getAllByText("ข้อมูลเวลาไม่ถูกต้อง").length).toBeGreaterThan(0);
+    expect(screen.queryByRole("button", { name: /บันทึกว่าฝึกเสร็จ BK-BAD-TIME/ })).not.toBeInTheDocument();
+  });
+
   it("adds a one-hour availability slot from the calendar dialog", async () => {
     vi.mocked(authenticatedRequest).mockImplementation((path, init) => {
       if (path === "/v1/trainer/me") return Promise.resolve(approvedWorkspace);
@@ -169,7 +258,7 @@ describe("TrainerWorkbench", () => {
     first.setDate(first.getDate() + 1);
     first.setHours(9, 0, 0, 0);
     const second = new Date(first);
-    second.setDate(second.getDate() + 2);
+    second.setHours(second.getHours() + 2);
     vi.mocked(authenticatedRequest)
       .mockResolvedValueOnce({ ...approvedWorkspace, slots: [] })
       .mockResolvedValueOnce([bookingFixture({
@@ -314,7 +403,7 @@ describe("TrainerWorkbench", () => {
 
     render(<TrainerWorkbench />);
 
-    expect(await screen.findByRole("heading", { name: "โปรไฟล์พร้อมเปิดตาราง" })).toBeInTheDocument();
+    expect(await screen.findByRole("region", { name: "สถานะโปรไฟล์" })).toBeInTheDocument();
     const alert = screen.getByRole("alert");
     expect(alert).toHaveTextContent("โหลดคำขอจองไม่ได้");
     expect(screen.queryByTestId("next-action")).not.toBeInTheDocument();
@@ -365,15 +454,16 @@ describe("TrainerWorkbench", () => {
       .mockResolvedValueOnce([]);
 
     render(<TrainerWorkbench />);
-    fireEvent.click(await screen.findByRole("button", { name: "ฝึกเสร็จแล้ว BK-DONE" }));
-    fireEvent.click(screen.getByRole("button", { name: "ยืนยันว่าฝึกเสร็จแล้ว" }));
+    fireEvent.click(await screen.findByRole("button", { name: "ดูรายละเอียด" }));
+    fireEvent.click(await screen.findByRole("button", { name: "บันทึกว่าฝึกเสร็จ BK-DONE" }));
+    fireEvent.click(screen.getByRole("button", { name: "บันทึกผลการฝึก" }));
 
     await waitFor(() => expect(authenticatedRequest).toHaveBeenCalledWith(
       "/v1/bookings/BK-DONE/status",
       { method: "PATCH", body: JSON.stringify({ status: "completed" }) },
     ));
     expect(authenticatedRequest).toHaveBeenLastCalledWith("/v1/bookings");
-    expect(await screen.findByRole("status")).toHaveTextContent("บันทึกว่าคำขอ BK-DONE ฝึกเสร็จแล้ว");
+    expect(await screen.findByRole("status")).toHaveTextContent("บันทึกผลการฝึกสำหรับคำขอ BK-DONE แล้ว");
   });
 
   it("keeps completion disabled until the server allows it and shows the appointment end", async () => {
@@ -384,9 +474,10 @@ describe("TrainerWorkbench", () => {
 
     render(<TrainerWorkbench />);
 
+    fireEvent.click(await screen.findByRole("button", { name: "ดูรายละเอียด" }));
     expect(await screen.findByRole("button", { name: "รอสิ้นสุดการฝึก BK-WAIT" })).toBeDisabled();
-    expect(screen.queryByRole("button", { name: "ฝึกเสร็จแล้ว BK-WAIT" })).not.toBeInTheDocument();
-    expect(screen.getByText("ฝึกเสร็จได้หลัง จันทร์ 10 ส.ค. · 10:00 น.")).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "บันทึกว่าฝึกเสร็จ BK-WAIT" })).not.toBeInTheDocument();
+    expect(screen.getByText("บันทึกผลได้หลัง จันทร์ 10 ส.ค. · 10:00 น.")).toBeInTheDocument();
   });
 
   it("prevents duplicate completion and reports a failed refresh beside confirmed bookings", async () => {
@@ -404,16 +495,17 @@ describe("TrainerWorkbench", () => {
       .mockRejectedValueOnce(new Error("โหลดรายการนัดล่าสุดไม่ได้"));
 
     render(<TrainerWorkbench />);
-    fireEvent.click(await screen.findByRole("button", { name: "ฝึกเสร็จแล้ว BK-REFRESH" }));
-    fireEvent.click(screen.getByRole("button", { name: "ยืนยันว่าฝึกเสร็จแล้ว" }));
-    await waitFor(() => expect(screen.queryByRole("dialog", { name: "บันทึกว่าฝึกเสร็จแล้ว?" })).not.toBeInTheDocument());
+    fireEvent.click(await screen.findByRole("button", { name: "ดูรายละเอียด" }));
+    fireEvent.click(await screen.findByRole("button", { name: "บันทึกว่าฝึกเสร็จ BK-REFRESH" }));
+    fireEvent.click(screen.getByRole("button", { name: "บันทึกผลการฝึก" }));
+    await waitFor(() => expect(screen.queryByRole("dialog", { name: "บันทึกว่าฝึกเสร็จ?" })).not.toBeInTheDocument());
 
-    const confirmedSection = screen.getByRole("region", { name: "นัดหมายที่ยืนยันแล้ว" });
+    const confirmedSection = screen.getByRole("region", { name: "นัดถัดไปของสมาชิก" });
     const refreshError = await within(confirmedSection).findByRole("alert");
-    expect(refreshError).toHaveTextContent("บันทึกว่าฝึกเสร็จแล้ว แต่โหลดรายการล่าสุดไม่สำเร็จ");
+    expect(refreshError).toHaveTextContent("บันทึกผลแล้ว แต่โหลดรายการล่าสุดไม่สำเร็จ");
     await waitFor(() => expect(refreshError).toHaveFocus());
-    expect(screen.queryByText("บันทึกว่าคำขอ BK-REFRESH ฝึกเสร็จแล้ว")).not.toBeInTheDocument();
-    expect(within(confirmedSection).queryByRole("button", { name: "ฝึกเสร็จแล้ว BK-REFRESH" })).not.toBeInTheDocument();
+    expect(screen.queryByText("บันทึกผลการฝึกสำหรับคำขอ BK-REFRESH แล้ว")).not.toBeInTheDocument();
+    expect(within(confirmedSection).queryByRole("button", { name: "บันทึกว่าฝึกเสร็จ BK-REFRESH" })).not.toBeInTheDocument();
     expect(vi.mocked(authenticatedRequest).mock.calls.filter(([path, options]) => (
       path === "/v1/bookings/BK-REFRESH/status" && options?.method === "PATCH"
     ))).toHaveLength(1);
@@ -435,11 +527,12 @@ describe("TrainerWorkbench", () => {
       .mockImplementationOnce(() => pendingRetry);
 
     render(<TrainerWorkbench />);
-    fireEvent.click(await screen.findByRole("button", { name: "ฝึกเสร็จแล้ว BK-RETRY-OK" }));
-    fireEvent.click(screen.getByRole("button", { name: "ยืนยันว่าฝึกเสร็จแล้ว" }));
-    await waitFor(() => expect(screen.queryByRole("dialog", { name: "บันทึกว่าฝึกเสร็จแล้ว?" })).not.toBeInTheDocument());
+    fireEvent.click(await screen.findByRole("button", { name: "ดูรายละเอียด" }));
+    fireEvent.click(await screen.findByRole("button", { name: "บันทึกว่าฝึกเสร็จ BK-RETRY-OK" }));
+    fireEvent.click(screen.getByRole("button", { name: "บันทึกผลการฝึก" }));
+    await waitFor(() => expect(screen.queryByRole("dialog", { name: "บันทึกว่าฝึกเสร็จ?" })).not.toBeInTheDocument());
 
-    const confirmedSection = screen.getByRole("region", { name: "นัดหมายที่ยืนยันแล้ว" });
+    const confirmedSection = screen.getByRole("region", { name: "นัดถัดไปของสมาชิก" });
     const refreshError = await within(confirmedSection).findByRole("alert");
     const retryButton = within(refreshError).getByRole("button", { name: "ลองโหลดใหม่" });
     retryButton.focus();
@@ -473,11 +566,12 @@ describe("TrainerWorkbench", () => {
       .mockImplementationOnce(() => pendingRetry);
 
     render(<TrainerWorkbench />);
-    fireEvent.click(await screen.findByRole("button", { name: "ฝึกเสร็จแล้ว BK-RETRY-FAIL" }));
-    fireEvent.click(screen.getByRole("button", { name: "ยืนยันว่าฝึกเสร็จแล้ว" }));
-    await waitFor(() => expect(screen.queryByRole("dialog", { name: "บันทึกว่าฝึกเสร็จแล้ว?" })).not.toBeInTheDocument());
+    fireEvent.click(await screen.findByRole("button", { name: "ดูรายละเอียด" }));
+    fireEvent.click(await screen.findByRole("button", { name: "บันทึกว่าฝึกเสร็จ BK-RETRY-FAIL" }));
+    fireEvent.click(screen.getByRole("button", { name: "บันทึกผลการฝึก" }));
+    await waitFor(() => expect(screen.queryByRole("dialog", { name: "บันทึกว่าฝึกเสร็จ?" })).not.toBeInTheDocument());
 
-    const confirmedSection = screen.getByRole("region", { name: "นัดหมายที่ยืนยันแล้ว" });
+    const confirmedSection = screen.getByRole("region", { name: "นัดถัดไปของสมาชิก" });
     const refreshError = await within(confirmedSection).findByRole("alert");
     fireEvent.click(within(refreshError).getByRole("button", { name: "ลองโหลดใหม่" }));
 

@@ -17,7 +17,7 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog";
 import { ApiError, authenticatedRequest } from "@/lib/api";
-import { getTrainerNextAction } from "@/lib/dashboard-actions";
+import { getTrainerNextAction, hasValidBookingPeriod } from "@/lib/dashboard-actions";
 import { formatDateTime } from "@/lib/format";
 import type { Booking, SlotState, TrainerAvailabilitySlot, TrainerWorkspace } from "@/lib/types";
 
@@ -124,6 +124,13 @@ export function TrainerWorkbench({ onIncompleteProfile }: { onIncompleteProfile?
   const [busy, setBusy] = useState<string | null>(null);
   const [slotToDelete, setSlotToDelete] = useState<TrainerAvailabilitySlot | null>(null);
   const [bookingToComplete, setBookingToComplete] = useState<Booking | null>(null);
+  const [showAllBookings, setShowAllBookings] = useState(false);
+  const [bookingQuery, setBookingQuery] = useState("");
+  const [bookingDate, setBookingDate] = useState("");
+  const [bookingPage, setBookingPage] = useState(0);
+  const [slotFilterDate, setSlotFilterDate] = useState("");
+  const [slotPage, setSlotPage] = useState(0);
+  const [selectedBooking, setSelectedBooking] = useState<Booking | null>(null);
   const [weekOffset, setWeekOffset] = useState(0);
   const [loading, setLoading] = useState(true);
   const [workspaceReady, setWorkspaceReady] = useState(false);
@@ -236,8 +243,33 @@ export function TrainerWorkbench({ onIncompleteProfile }: { onIncompleteProfile?
   const selectedSlotIsValid = selectedStarts.length > 0;
   const approved = workspace?.profile?.approvalStatus === "approved";
   const confirmedBookings = bookingsReady ? bookings.filter((booking) => booking.status === "confirmed") : [];
+  const completedBookings = bookingsReady ? bookings.filter((booking) => booking.status === "completed") : [];
+  const totalEarned = completedBookings.reduce((sum, b) => sum + (b.quotedPrice ?? 0), 0);
+  const upcomingEarned = confirmedBookings.reduce((sum, b) => sum + (b.quotedPrice ?? 0), 0);
   const nextAction = workspaceReady && bookingsReady ? getTrainerNextAction(workspace, bookings) : null;
+  const actionBookingId = nextAction?.href.match(/(?:booking-|booking=)([^&#]+)/)?.[1];
+  const orderedConfirmedBookings = confirmedBookings.slice().sort((left, right) => new Date(left.startsAt).getTime() - new Date(right.startsAt).getTime());
+  const urgentBooking = orderedConfirmedBookings.find((booking) => booking.id === actionBookingId && booking.actions.canComplete && hasValidBookingPeriod(booking));
+  function nextSession(booking: Booking) {
+    return (booking.sessions?.length ? booking.sessions : [booking])
+      .filter((session) => new Date(session.endsAt) > now)
+      .sort((a, b) => new Date(a.startsAt).getTime() - new Date(b.startsAt).getTime())[0];
+  }
+  const upcomingBookings = orderedConfirmedBookings.filter((booking) => nextSession(booking))
+    .sort((a, b) => new Date(nextSession(a)!.startsAt).getTime() - new Date(nextSession(b)!.startsAt).getTime());
+  const pendingBookings = orderedConfirmedBookings.filter((booking) => !nextSession(booking));
+  const bookingPreview = upcomingBookings.slice(0, 2);
+  const filteredBookings = orderedConfirmedBookings.filter((booking) =>
+    `${booking.id} ${booking.member?.displayName ?? ""}`.toLocaleLowerCase("th-TH").includes(bookingQuery.trim().toLocaleLowerCase("th-TH"))
+    && (!bookingDate || (booking.sessions?.length ? booking.sessions : [booking]).some((session) => localDateKey(new Date(session.startsAt)) === bookingDate)));
+  const bookingPages = Math.max(1, Math.ceil(filteredBookings.length / 6));
+  const activeBookingPage = Math.min(bookingPage, bookingPages - 1);
+  const visibleConfirmedBookings = showAllBookings ? filteredBookings.slice(activeBookingPage * 6, (activeBookingPage + 1) * 6) : bookingPreview;
   const slots = workspace?.slots ?? [];
+  const filteredSlots = slots.filter((slot) => !slotFilterDate || localDateKey(new Date(slot.startsAt)) === slotFilterDate)
+    .slice().sort((a, b) => new Date(a.startsAt).getTime() - new Date(b.startsAt).getTime());
+  const slotPages = Math.max(1, Math.ceil(filteredSlots.length / 6));
+  const activeSlotPage = Math.min(slotPage, slotPages - 1);
   const slotsOnSelectedDay = slotDate
     ? slots.filter((slot) => localDateKey(new Date(slot.startsAt)) === slotDate)
     : [];
@@ -264,7 +296,7 @@ export function TrainerWorkbench({ onIncompleteProfile }: { onIncompleteProfile?
         kind: "slot" as const,
         state: slot.state,
         title: slotStateCopy[slot.state],
-        detail: slot.state === "held" ? "สมาชิกกำลังส่งสลิป ล็อก 10 นาที" : "ช่วงเวลาว่าง",
+        detail: slot.state === "held" ? "สมาชิกกำลังส่งสลิป ล็อก 10 นาที" : slot.state === "booked" ? "ถูกจองแล้ว" : slot.state === "blocked" ? "ปิดช่วงเวลา" : "ช่วงเวลาว่าง",
         slot,
       })),
     ...confirmedSessions
@@ -283,6 +315,26 @@ export function TrainerWorkbench({ onIncompleteProfile }: { onIncompleteProfile?
         booking,
       })),
   ].sort((left, right) => new Date(left.startsAt).getTime() - new Date(right.startsAt).getTime());
+
+  function openSlotDialog() {
+    setAvailabilityError("");
+    setFieldErrors({});
+    setVisibleSlotMonth(monthKey(now));
+    setSlotTimes([]);
+    setCopyNextDay(false);
+    setSlotDialogOpen(true);
+  }
+
+  function renderBookingRow(booking: Booking) {
+    const session = nextSession(booking);
+    return (
+      <article className="trainer-appointment-row" id={`booking-${booking.id}`} key={booking.id}>
+        <div><strong>{booking.member?.displayName ?? "สมาชิก FitConnect"}</strong><small>{booking.id}</small></div>
+        <div><span>{formatDateTime(session?.startsAt ?? booking.startsAt)}</span><small>{session ? "นัดที่กำลังจะถึง" : booking.actions.canComplete ? "รอบันทึกผล" : "รอจัดเวลาที่เหลือ / ตรวจรายละเอียด"}</small></div>
+        <Button type="button" variant="outline" onClick={() => setSelectedBooking(booking)}>ดูรายละเอียด</Button>
+      </article>
+    );
+  }
 
   async function createSlot(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -354,18 +406,19 @@ export function TrainerWorkbench({ onIncompleteProfile }: { onIncompleteProfile?
         ? { ...booking, status: "completed", actions: { ...booking.actions, canComplete: false } }
         : booking));
       setBookingToComplete(null);
+      setSelectedBooking(null);
       try {
         await refreshBookings();
         setBookingError("");
       } catch (error) {
         if (leaveExpiredSession(error, navigate)) return;
-        setCompletionError("บันทึกว่าฝึกเสร็จแล้ว แต่โหลดรายการล่าสุดไม่สำเร็จ กรุณาลองใหม่");
+        setCompletionError("บันทึกผลแล้ว แต่โหลดรายการล่าสุดไม่สำเร็จ กรุณาลองใหม่");
         return;
       }
-      setActionNotice(`บันทึกว่าคำขอ ${bookingId} ฝึกเสร็จแล้ว`);
+      setActionNotice(`บันทึกผลการฝึกสำหรับคำขอ ${bookingId} แล้ว`);
     } catch (error) {
       if (leaveExpiredSession(error, navigate)) return;
-      setCompletionError(error instanceof Error ? error.message : "บันทึกการฝึกเสร็จแล้วไม่สำเร็จ");
+      setCompletionError(error instanceof Error ? error.message : "บันทึกผลการฝึกไม่สำเร็จ");
     } finally {
       setBusy(null);
     }
@@ -390,13 +443,32 @@ export function TrainerWorkbench({ onIncompleteProfile }: { onIncompleteProfile?
 
   function renderConfirmedBooking(booking: Booking) {
     const isBusy = busy === `booking-${booking.id}`;
+    const validPeriod = hasValidBookingPeriod(booking);
     return (
-      <article className="trainer-booking-card" id={`booking-${booking.id}`} key={booking.id} aria-busy={isBusy}>
+      <article className="trainer-booking-card" key={booking.id} aria-busy={isBusy}>
         <div className="trainer-booking-card__identity"><span>{booking.id}</span><h3>{booking.member?.displayName ?? "สมาชิก FitConnect"}</h3></div>
         <dl>
           <div><dt>เริ่มฝึก</dt><dd>{formatDateTime(booking.startsAt)}</dd></div>
           <div><dt>สิ้นสุด</dt><dd>{formatDateTime(booking.endsAt)}</dd></div>
         </dl>
+        {(booking.member?.goals || booking.member?.medicalNote || booking.member?.weight || booking.member?.height) && (
+          <div className="trainer-booking-card__health text-sm space-y-1 my-2 p-2 bg-muted/40 rounded">
+            {booking.member.goals && <div><span className="font-semibold text-xs text-muted-foreground">เป้าหมาย:</span> {booking.member.goals}</div>}
+            {(booking.member.weight || booking.member.height) && (
+              <div className="text-xs text-muted-foreground">
+                {booking.member.weight && <span>น้ำหนัก: {booking.member.weight} กก. </span>}
+                {booking.member.height && <span>ส่วนสูง: {booking.member.height} ซม.</span>}
+              </div>
+            )}
+            {booking.member.medicalNote && <div className="text-destructive text-xs"><span>ข้อควรระวัง:</span> {booking.member.medicalNote}</div>}
+          </div>
+        )}
+        {booking.note && (
+          <div className="trainer-booking-card__note text-sm my-2 p-2 bg-accent/20 rounded">
+            <span className="font-semibold text-xs text-muted-foreground">บันทึกเพิ่มเติมจากสมาชิก:</span>
+            <p>{booking.note}</p>
+          </div>
+        )}
         {booking.bookingType === "monthly" && (
           <div className="monthly-booking-sessions">
             <strong>แพ็กเกจ 30 วัน · {booking.sessionCount ?? booking.sessions?.length ?? 0} ครั้ง</strong>
@@ -404,15 +476,16 @@ export function TrainerWorkbench({ onIncompleteProfile }: { onIncompleteProfile?
           </div>
         )}
         <div className="queue-actions">
-          {!booking.actions.canComplete && <span>ฝึกเสร็จได้หลัง {formatDateTime(booking.endsAt)}</span>}
+          {!validPeriod && <span className="booking-time-error">ข้อมูลเวลาไม่ถูกต้อง</span>}
+          {validPeriod && !booking.actions.canComplete && <span>บันทึกผลได้หลัง {formatDateTime(booking.endsAt)}</span>}
           {booking.actions.canReadChat && (
             <Link href={`/chat?booking=${encodeURIComponent(booking.id)}`}>
               <MessageSquareText aria-hidden="true" size={17} /> เปิดการสนทนา
             </Link>
           )}
-          <button type="button" disabled={!booking.actions.canComplete || isBusy} aria-label={`${booking.actions.canComplete ? "ฝึกเสร็จแล้ว" : "รอสิ้นสุดการฝึก"} ${booking.id}`} onClick={() => setBookingToComplete(booking)}>
-            {isBusy ? "กำลังบันทึก…" : booking.actions.canComplete ? "ฝึกเสร็จแล้ว" : "รอสิ้นสุดการฝึก"}
-          </button>
+          {validPeriod && <button type="button" disabled={!booking.actions.canComplete || isBusy} aria-label={`${booking.actions.canComplete ? "บันทึกว่าฝึกเสร็จ" : "รอสิ้นสุดการฝึก"} ${booking.id}`} onClick={() => setBookingToComplete(booking)}>
+            {isBusy ? "กำลังบันทึก…" : booking.actions.canComplete ? "บันทึกว่าฝึกเสร็จ" : "รอสิ้นสุดการฝึก"}
+          </button>}
         </div>
       </article>
     );
@@ -452,14 +525,14 @@ export function TrainerWorkbench({ onIncompleteProfile }: { onIncompleteProfile?
 
   return (
     <div className="trainer-workbench">
-      <section className="approval-panel" id="approval-status">
-        <div>
-          <h2>{approved ? "โปรไฟล์พร้อมเปิดตาราง" : "โปรไฟล์ยังเปิดตารางไม่ได้"}</h2>
-          <p>{workspace?.profile?.approvalNote ?? (approved ? "สร้างช่วงเวลาว่างล่วงหน้าได้ไม่เกิน 2 เดือน" : "รอผู้ดูแลระบบตรวจใบรับรองก่อนสร้างช่วงเวลาว่าง")}</p>
-        </div>
+      <section className={approved ? "trainer-workspace-status" : "approval-panel"} id="approval-status" aria-label="สถานะโปรไฟล์">
+        {!approved && <div>
+          <h2>โปรไฟล์ยังเปิดตารางไม่ได้</h2>
+          <p>{workspace?.profile?.approvalNote ?? "รอผู้ดูแลระบบตรวจใบรับรองก่อนสร้างช่วงเวลาว่าง"}</p>
+        </div>}
         {workspace?.profile && (
           <div className="approval-panel__actions">
-            <Link className="button button--accent" href={`/trainers/${encodeURIComponent(workspace.profile.slug)}`}>
+            <Link className="button button--outline" href={`/trainers/${encodeURIComponent(workspace.profile.slug)}`}>
               หน้าโปรไฟล์เทรนเนอร์
             </Link>
             <StatusBadge status={workspace.profile.approvalStatus} />
@@ -471,13 +544,44 @@ export function TrainerWorkbench({ onIncompleteProfile }: { onIncompleteProfile?
       {nextAction && <NextActionCard action={nextAction} />}
       {actionNotice && <p ref={actionNoticeRef} className="queue-notice workbench-success" role="status" tabIndex={-1}>{actionNotice}</p>}
 
+      {bookingsReady && pendingBookings.length > 0 && !showAllBookings && (
+        <section className="trainer-booking-list" aria-label="รอบันทึกผลและจัดเวลาที่เหลือ">
+          <header className="section-line-heading"><h2>งานที่ยังต้องจัดการ</h2><span>{pendingBookings.length} รายการ</span></header>
+          {(urgentBooking ? [urgentBooking] : pendingBookings.slice(0, 1)).map(renderBookingRow)}
+          {pendingBookings.length > 1 && <Button type="button" variant="outline" onClick={() => { setShowAllBookings(true); setBookingPage(0); document.getElementById("trainer-confirmed-title")?.scrollIntoView({ block: "start" }); }}>ดูงานที่เหลือในรายการทั้งหมด</Button>}
+        </section>
+      )}
+
+      {approved && (
+        <section className="trainer-metrics-summary my-4" aria-label="สรุปรายได้และนัดหมาย">
+          <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 p-4 rounded-lg bg-card border">
+            <div>
+              <span className="text-xs text-muted-foreground block">รายได้สะสม (งานที่สำเร็จ)</span>
+              <strong className="text-xl font-bold text-foreground">{bookingsReady ? `฿${totalEarned.toLocaleString("th-TH", { minimumFractionDigits: 0 })}` : "—"}</strong>
+              <small className="block text-xs text-muted-foreground">{bookingsReady ? `${completedBookings.length} การจองที่เสร็จสิ้น` : "โหลดข้อมูลนัดหมายไม่สำเร็จ"}</small>
+            </div>
+            <div>
+              <span className="text-xs text-muted-foreground block">มูลค่านัดที่ยืนยันแล้ว</span>
+              <strong className="text-xl font-bold text-foreground">{bookingsReady ? `฿${upcomingEarned.toLocaleString("th-TH", { minimumFractionDigits: 0 })}` : "—"}</strong>
+              <small className="block text-xs text-muted-foreground">{bookingsReady ? `${confirmedBookings.length} การจองที่ยังไม่ปิดงาน` : "โหลดข้อมูลนัดหมายไม่สำเร็จ"}</small>
+            </div>
+            <div>
+              <span className="text-xs text-muted-foreground block">ช่วงเวลาพร้อมจอง</span>
+              <strong className="text-xl font-bold text-foreground">{slots.filter((s) => s.state === "available").length}</strong>
+              <small className="block text-xs text-muted-foreground">จากทั้งหมด {slots.length} ช่วงเวลา</small>
+            </div>
+          </div>
+        </section>
+      )}
+
       <section className="trainer-week" id="schedule" aria-labelledby="trainer-week-title">
         <header className="trainer-week__heading">
           <div>
             <h2 id="trainer-week-title">ตารางรายสัปดาห์</h2>
-            <p>ช่วงเวลาว่างและนัดยืนยันในมุมมองเดียว</p>
+            <p>ดูนัดของสมาชิกและเวลาที่เปิดรับจองในมุมมองเดียว</p>
           </div>
           <div className="trainer-week__controls" aria-label="เปลี่ยนสัปดาห์">
+            <Button type="button" disabled={!approved} onClick={openSlotDialog}><CalendarPlus aria-hidden="true" size={18} /> เพิ่มช่วงเวลาว่าง</Button>
             <button type="button" aria-label="สัปดาห์ก่อนหน้า" onClick={() => setWeekOffset((current) => current - 1)}>
               <ChevronLeft aria-hidden="true" size={18} />
             </button>
@@ -490,32 +594,35 @@ export function TrainerWorkbench({ onIncompleteProfile }: { onIncompleteProfile?
             {weekDateFormatter.format(weekStart)} – {weekDateFormatter.format(addDays(weekEnd, -1))}
           </p>
         </header>
+        {!bookingsReady && <div className="workbench-error" role="alert"><span>{bookingError || "โหลดนัดหมายไม่สำเร็จ"} · ตารางนี้แสดงเฉพาะช่วงเวลา ยังไม่ใช่ข้อมูลนัดหมายทั้งหมด</span><Button type="button" variant="outline" onClick={() => void loadBookings()}>ลองใหม่</Button></div>}
         <div className="trainer-week__grid">
           {weekDays.map((day) => {
             const dayItems = weeklySchedule.filter((item) => localDateKey(new Date(item.startsAt)) === localDateKey(day));
             const dayLabel = `${dayNameFormatter.format(day)} ${dayDateFormatter.format(day)}`;
             return (
-              <section className="trainer-week__day" role="group" aria-label={dayLabel} key={localDateKey(day)}>
+              <section className={`trainer-week__day${localDateKey(day) === localDateKey(now) ? " is-today" : ""}`} role="group" aria-label={dayLabel} key={localDateKey(day)}>
                 <header>
                   <span>{dayNameFormatter.format(day)}</span>
                   <strong>{dayDateFormatter.format(day)}</strong>
+                  {localDateKey(day) === localDateKey(now) && <span aria-current="date">วันนี้</span>}
                 </header>
                 <div className="trainer-week__events">
                   {dayItems.map((item) => {
                     const timeRange = formatTimeRange(item.startsAt, item.endsAt);
                     const canDeleteSlot = item.slot?.state === "available" && new Date(item.startsAt).getTime() > now.getTime();
                     const booking = item.booking;
-                    const canCompleteBooking = Boolean(booking?.actions.canComplete);
+                    const validBookingPeriod = !booking || hasValidBookingPeriod(booking);
+                    const canCompleteBooking = Boolean(booking?.actions.canComplete && validBookingPeriod);
                     const canOpenChat = Boolean(booking?.actions.canReadChat);
                     const eventClass = `trainer-week-event trainer-week-event--${item.kind} trainer-week-event--${item.state}`;
                     if (canDeleteSlot && item.slot) {
                       const slot = item.slot;
                       return (
-                        <button type="button" className={eventClass} key={item.key} aria-label={`ลบช่วงว่าง ${timeRange}`} onClick={() => setSlotToDelete(slot)}>
+                        <article className={eventClass} key={item.key}>
                           <time dateTime={item.startsAt}>{timeRange}</time>
                           <strong>{item.title}</strong>
-                          <span>ลบ</span>
-                        </button>
+                          <button type="button" className="trainer-slot-delete" aria-label={`ลบช่วงว่าง ${timeRange}`} onClick={() => setSlotToDelete(slot)}><Trash2 aria-hidden="true" size={15} /> ลบ</button>
+                        </article>
                       );
                     }
                     if (booking && (canCompleteBooking || canOpenChat)) {
@@ -523,9 +630,10 @@ export function TrainerWorkbench({ onIncompleteProfile }: { onIncompleteProfile?
                         <article className={eventClass} key={item.key}>
                           <time dateTime={item.startsAt}>{timeRange}</time>
                           <strong>{item.title}</strong>
+                          {!validBookingPeriod && <span className="trainer-week-event__warning">ข้อมูลเวลาไม่ถูกต้อง</span>}
                           <span className="trainer-week-event__actions">
                             {canCompleteBooking && (
-                              <button type="button" onClick={() => setBookingToComplete(booking)}>ฝึกเสร็จ</button>
+                              <button type="button" onClick={() => setBookingToComplete(booking)}>บันทึกผล</button>
                             )}
                             {canOpenChat && (
                               <Link href={`/chat?booking=${encodeURIComponent(booking.id)}`}>แชต</Link>
@@ -549,14 +657,12 @@ export function TrainerWorkbench({ onIncompleteProfile }: { onIncompleteProfile?
           })}
         </div>
         <footer className="trainer-week__legend" aria-label="คำอธิบายสถานะตาราง">
-          <span><i className="is-available" aria-hidden="true" /> พร้อมจอง · กดเพื่อลบ</span>
+          <span><i className="is-available" aria-hidden="true" /> พร้อมจอง</span>
           <span><i className="is-held" aria-hidden="true" /> ล็อกชั่วคราว · สมาชิกกำลังส่งสลิป 10 นาที</span>
           <span><i className="is-confirmed" aria-hidden="true" /> นัดยืนยันแล้ว · ฝึกเสร็จหรือแชต</span>
           <span><i className="is-blocked" aria-hidden="true" /> ปิดช่วงเวลา</span>
         </footer>
       </section>
-
-      {bookingError && <div className="workbench-error" role="alert"><span>{bookingError}</span><button type="button" onClick={() => void loadBookings()}><RefreshCw aria-hidden="true" size={15} /> ลองใหม่</button></div>}
 
       <details
         className="trainer-disclosure trainer-availability"
@@ -566,21 +672,13 @@ export function TrainerWorkbench({ onIncompleteProfile }: { onIncompleteProfile?
       >
         <summary><span><CalendarPlus aria-hidden="true" size={20} /><strong>จัดการช่วงเวลาว่าง</strong></span><small>{slots.length} ช่วงเวลา</small></summary>
         <div className="availability-launch">
-          <p id="availability-add-hint">{approved ? "เลือกวันแล้วเลือกชั่วโมงเริ่มต้น ระบบกำหนดเวลาฝึกครั้งละ 1 ชั่วโมง" : "รอผู้ดูแลระบบอนุมัติโปรไฟล์ก่อนจึงจะเพิ่มช่วงเวลาได้"}</p>
-          <Button className="button button--accent" type="button" disabled={!approved} aria-describedby="availability-add-hint" onClick={() => {
-            setAvailabilityError("");
-            setFieldErrors({});
-            setVisibleSlotMonth(monthKey(now));
-            setSlotTimes([]);
-            setCopyNextDay(false);
-            setSlotDialogOpen(true);
-          }}>
-            <CalendarPlus aria-hidden="true" /> เพิ่มช่วงเวลาว่าง
-          </Button>
+          <p id="availability-add-hint">{approved ? "เลือกวันที่สะดวกและเวลาเริ่มต้น ระบบกำหนดเวลาฝึกครั้งละ 1 ชั่วโมง" : "รอผู้ดูแลระบบอนุมัติโปรไฟล์ก่อนจึงจะเพิ่มช่วงเวลาได้"}</p>
+          <label className="field">กรองวันที่ว่าง<input type="date" value={slotFilterDate} onChange={(event) => { setSlotFilterDate(event.target.value); setSlotPage(0); }} /></label>
+          {slotFilterDate && <Button type="button" variant="outline" onClick={() => { setSlotFilterDate(""); setSlotPage(0); }}>ล้างวันที่</Button>}
         </div>
         {availabilityError && !slotDialogOpen && <p className="row-error" role="alert">{availabilityError}</p>}
         <div className="trainer-slot-list">
-          {slots.map((slot) => {
+          {filteredSlots.slice(activeSlotPage * 6, (activeSlotPage + 1) * 6).map((slot) => {
             const canDelete = slot.state === "available" && new Date(slot.startsAt).getTime() > now.getTime();
             return (
               <div className="trainer-slot-row" key={slot.id} aria-busy={busy === `slot-${slot.id}`}>
@@ -590,7 +688,9 @@ export function TrainerWorkbench({ onIncompleteProfile }: { onIncompleteProfile?
             );
           })}
           {slots.length === 0 && <div className="empty-state"><strong>ยังไม่มีช่วงเวลาว่าง</strong><p>เพิ่มช่วงเวลาแรกเมื่อโปรไฟล์ได้รับการอนุมัติ</p></div>}
+          {slots.length > 0 && filteredSlots.length === 0 && <p className="empty-state">ไม่พบช่วงเวลาในวันที่เลือก</p>}
         </div>
+        {slotPages > 1 && <nav className="trainer-list-pagination" aria-label="หน้ารายการเวลาว่าง"><Button type="button" variant="outline" disabled={activeSlotPage === 0} onClick={() => setSlotPage(activeSlotPage - 1)}>ก่อนหน้า</Button><span aria-live="polite">หน้า {activeSlotPage + 1} / {slotPages}</span><Button type="button" variant="outline" disabled={activeSlotPage + 1 === slotPages} onClick={() => setSlotPage(activeSlotPage + 1)}>ถัดไป</Button></nav>}
       </details>
 
       <Dialog open={slotDialogOpen} onOpenChange={(open) => {
@@ -704,8 +804,16 @@ export function TrainerWorkbench({ onIncompleteProfile }: { onIncompleteProfile?
       </Dialog>
 
       <section className="trainer-booking-list" aria-labelledby="trainer-confirmed-title">
-        <details className="trainer-disclosure" open={nextAction?.href.startsWith("/trainer#booking-") || undefined}>
-          <summary><span><strong id="trainer-confirmed-title">นัดหมายที่ยืนยันแล้ว</strong><small>เปิดเพื่อจัดการและบันทึกผลหลังเวลานัด</small></span><span className="queue-count">{bookingsReady ? String(confirmedBookings.length) : "—"}</span></summary>
+        <header className="section-line-heading trainer-booking-list__heading">
+          <div><h2 id="trainer-confirmed-title">{showAllBookings ? "นัดหมายทั้งหมดที่ยังไม่ปิดงาน" : "นัดถัดไปของสมาชิก"}</h2><p>{showAllBookings ? "ค้นหานัดหมายหรือเปิดรายละเอียดเพื่อบันทึกผล" : "2 รายการใกล้ที่สุด · เปิดรายละเอียดเพื่อเตรียมตัว"}</p></div>
+          <span className="queue-count">{bookingsReady ? String(showAllBookings ? filteredBookings.length : upcomingBookings.length) : "—"}</span>
+        </header>
+        {showAllBookings && <div className="trainer-list-filters">
+          <label className="field">ค้นหานัดหมาย<input type="search" placeholder="ชื่อสมาชิกหรือรหัสการจอง" value={bookingQuery} onChange={(event) => { setBookingQuery(event.target.value); setBookingPage(0); }} /></label>
+          <label className="field">วันที่ฝึก<input type="date" value={bookingDate} onChange={(event) => { setBookingDate(event.target.value); setBookingPage(0); }} /></label>
+          {(bookingQuery || bookingDate) && <Button type="button" variant="outline" onClick={() => { setBookingQuery(""); setBookingDate(""); setBookingPage(0); }}>ล้างตัวกรอง</Button>}
+        </div>}
+        <div className="trainer-booking-preview">
           {completionError && (
             <div ref={completionErrorRef} className="workbench-error" role="alert" tabIndex={-1}>
               <span>{completionError}</span>
@@ -714,10 +822,24 @@ export function TrainerWorkbench({ onIncompleteProfile }: { onIncompleteProfile?
               </button>
             </div>
           )}
-          {confirmedBookings.map(renderConfirmedBooking)}
-          {bookingsReady && confirmedBookings.length === 0 && <div className="empty-state"><strong>ยังไม่มีนัดที่ยืนยันแล้ว</strong><p>นัดหมายจะย้ายมาที่นี่หลังผู้ดูแลระบบอนุมัติการชำระเงิน</p></div>}
-        </details>
+          {visibleConfirmedBookings.map(renderBookingRow)}
+          {bookingsReady && confirmedBookings.length === 0 && <div className="empty-state"><strong>ยังไม่มีนัดที่ยืนยันแล้ว</strong><p>เมื่อนัดได้รับการยืนยัน รายละเอียดสมาชิกจะมาอยู่ตรงนี้</p></div>}
+          {bookingsReady && confirmedBookings.length > 0 && visibleConfirmedBookings.length === 0 && <div className="empty-state"><strong>{showAllBookings ? "ไม่พบนัดหมายที่ตรงกับตัวกรอง" : "ยังไม่มีนัดที่กำลังจะถึง"}</strong><p>{showAllBookings ? "ลองเปลี่ยนชื่อหรือวันที่ค้นหา" : "นัดเก่าอยู่ในงานที่ยังต้องจัดการ"}</p></div>}
+        </div>
+        {showAllBookings && bookingPages > 1 && <nav className="trainer-list-pagination" aria-label="หน้ารายการนัดหมาย"><Button type="button" variant="outline" disabled={activeBookingPage === 0} onClick={() => setBookingPage(activeBookingPage - 1)}>ก่อนหน้า</Button><span aria-live="polite">หน้า {activeBookingPage + 1} / {bookingPages}</span><Button type="button" variant="outline" disabled={activeBookingPage + 1 === bookingPages} onClick={() => setBookingPage(activeBookingPage + 1)}>ถัดไป</Button></nav>}
+        {confirmedBookings.length > 0 && (
+          <Button className="trainer-booking-toggle" type="button" variant="outline" aria-expanded={showAllBookings} onClick={() => setShowAllBookings((current) => !current)}>
+            {showAllBookings ? "ย่อนัดหมาย" : "ดูนัดหมายทั้งหมด"}
+          </Button>
+        )}
       </section>
+
+      <Dialog open={selectedBooking !== null} onOpenChange={(open) => { if (!open) setSelectedBooking(null); }}>
+        <DialogContent className="trainer-appointment-dialog">
+          <DialogHeader><DialogTitle>รายละเอียดนัดหมาย</DialogTitle><DialogDescription>ข้อมูลสมาชิกและการฝึกในรายการจองนี้</DialogDescription></DialogHeader>
+          {selectedBooking && renderConfirmedBooking(bookings.find((booking) => booking.id === selectedBooking.id) ?? selectedBooking)}
+        </DialogContent>
+      </Dialog>
 
       <Dialog open={slotToDelete !== null} onOpenChange={(open) => {
         if (busy?.startsWith("slot-")) return;
@@ -755,11 +877,13 @@ export function TrainerWorkbench({ onIncompleteProfile }: { onIncompleteProfile?
       }}>
         <DialogContent>
           <DialogHeader>
-            <DialogTitle>บันทึกว่าฝึกเสร็จแล้ว?</DialogTitle>
+            <DialogTitle>บันทึกว่าฝึกเสร็จ?</DialogTitle>
             <DialogDescription className="grid gap-1">
               <span>{bookingToComplete?.member?.displayName ?? "สมาชิก FitConnect"}</span>
               <span>{bookingToComplete ? `${formatDateTime(bookingToComplete.startsAt)} – ${formatDateTime(bookingToComplete.endsAt)}` : ""}</span>
               <span>คำสั่งนี้ปิดการจอง {bookingToComplete?.id} และให้สมาชิกเขียนรีวิวได้</span>
+              {bookingToComplete?.bookingType === "monthly" && <span>เป็นการปิดทั้งแพ็กเกจรายเดือน ไม่ใช่เฉพาะการฝึกครั้งนี้</span>}
+              <span>ห้องแชตจะอ่านประวัติได้อย่างเดียว สมาชิกและเทรนเนอร์จะส่งข้อความหรือไฟล์เพิ่มไม่ได้</span>
             </DialogDescription>
           </DialogHeader>
           {completionError && <p className="row-error" role="alert">{completionError}</p>}
@@ -774,7 +898,7 @@ export function TrainerWorkbench({ onIncompleteProfile }: { onIncompleteProfile?
                 void completeBooking(bookingToComplete.id);
               }}
             >
-              {busy === `booking-${bookingToComplete?.id}` ? "กำลังบันทึก…" : "ยืนยันว่าฝึกเสร็จแล้ว"}
+              {busy === `booking-${bookingToComplete?.id}` ? "กำลังบันทึก…" : "บันทึกผลการฝึก"}
             </Button>
           </DialogFooter>
         </DialogContent>

@@ -393,9 +393,15 @@ export function SiteHeader() {
                     <AccountAvatar key={user.imageUrl ?? "fallback-menu"} user={user} />
                     <span><strong>{user.displayName || "บัญชีของฉัน"}</strong><small>{user.email}</small></span>
                   </div>
-                  <Link href="/profile" onClick={() => setProfileOpen(false)}>
-                    <UserRound aria-hidden="true" size={17} /> ดูโปรไฟล์
-                  </Link>
+                  {user.role === "admin" ? (
+                    <Link href="/admin" onClick={() => setProfileOpen(false)}>
+                      <UserRound aria-hidden="true" size={17} /> พื้นที่ผู้ดูแลระบบ
+                    </Link>
+                  ) : (
+                    <Link href="/profile" onClick={() => setProfileOpen(false)}>
+                      <UserRound aria-hidden="true" size={17} /> ดูโปรไฟล์
+                    </Link>
+                  )}
                   <button type="button" onClick={() => void signOut()}>
                     <LogOut aria-hidden="true" size={17} /> ออกจากระบบ
                   </button>
@@ -427,8 +433,8 @@ export function SiteHeader() {
           </form>
           <div className="search-suggestions" aria-label="คำค้นหาแนะนำ">
               <span>ลองค้นหา</span>
-              <Link href="/trainers?type=strength">เวทเทรนนิง</Link>
-              <Link href="/trainers?type=mobility">การเคลื่อนไหว</Link>
+              <Link href="/trainers?type=strength" onClick={() => dialogRef.current?.close()}>เวทเทรนนิง</Link>
+              <Link href="/trainers?type=mobility" onClick={() => dialogRef.current?.close()}>การเคลื่อนไหว</Link>
           </div>
         </div>
       </dialog>}

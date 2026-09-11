@@ -23,6 +23,7 @@ describe("MobileRoleNav notification badge", () => {
     expect(link).toHaveAttribute("href", "/notifications");
     expect(link).toHaveAttribute("aria-current", "page");
     expect(within(link).getByText("3")).toBeInTheDocument();
+    expect(within(link).getByText("การแจ้งเตือน")).toHaveAttribute("data-short-label", "แจ้งเตือน");
     expect(within(link).getByText("มีการแจ้งเตือนที่ยังไม่ได้อ่าน 3 รายการ")).toHaveClass("sr-only");
   });
 

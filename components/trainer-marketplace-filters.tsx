@@ -5,8 +5,11 @@ import { NativeSelect, NativeSelectOption } from "@/components/ui/native-select"
 import type { TrainingType } from "@/lib/types";
 
 export type TrainerPriceRange = "all" | "under_700" | "701_1000" | "over_1000";
+export type TrainerRatingFilter = "all" | "4_plus" | "4_5_plus";
 
 type TrainerMarketplaceFiltersProps = {
+  ratingFilter?: TrainerRatingFilter;
+  onRatingFilterChange?: (value: TrainerRatingFilter) => void;
   idPrefix: "desktop" | "mobile";
   trainingTypes: TrainingType[];
   trainingType: string;
@@ -24,8 +27,10 @@ export function TrainerMarketplaceFilters({
   trainingTypes,
   trainingType,
   priceRange,
+  ratingFilter,
   verifiedOnly,
   availableOnly,
+  onRatingFilterChange,
   onTrainingTypeChange,
   onPriceRangeChange,
   onVerifiedOnlyChange,
@@ -65,6 +70,21 @@ export function TrainerMarketplaceFilters({
           <NativeSelectOption value="over_1000">มากกว่า ฿1,000</NativeSelectOption>
         </NativeSelect>
       </div>
+
+      {onRatingFilterChange && (
+        <div className="field">
+          <Label htmlFor={`${idPrefix}-rating-filter`}>คะแนนรีวิว</Label>
+          <NativeSelect
+            id={`${idPrefix}-rating-filter`}
+            value={ratingFilter ?? "all"}
+            onChange={(event) => onRatingFilterChange(event.target.value as TrainerRatingFilter)}
+          >
+            <NativeSelectOption value="all">ทุกคะแนน</NativeSelectOption>
+            <NativeSelectOption value="4_plus">4.0 ดาวขึ้นไป</NativeSelectOption>
+            <NativeSelectOption value="4_5_plus">4.5 ดาวขึ้นไป</NativeSelectOption>
+          </NativeSelect>
+        </div>
+      )}
 
       <label className="marketplace-check-row" htmlFor={verifiedId}>
         <input

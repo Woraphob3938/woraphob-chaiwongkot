@@ -97,11 +97,12 @@ export async function getTrainers(): Promise<{ data: Trainer[]; source: "api" | 
   }
 }
 
-export async function getTrainer(slug: string): Promise<{ data: Trainer | null; source: "api" | "demo" }> {
+export async function getTrainer(slug: string): Promise<{ data: Trainer | null; source: "api"; error?: string }> {
   try {
-    return { data: await apiRequest<Trainer>(`/v1/trainers/${encodeURIComponent(slug)}`), source: "api" };
-  } catch {
-    return { data: trainers.find((trainer) => trainer.slug === slug) ?? null, source: "demo" };
+    return { data: await apiRequest<Trainer>(`/v1/trainers/${encodeURIComponent(slug)}`, { cache: "no-store" }), source: "api" };
+  } catch (error) {
+    if (error instanceof ApiError && error.status === 404) return { data: null, source: "api" };
+    return { data: null, source: "api", error: "โหลดข้อมูลเทรนเนอร์ไม่สำเร็จ กรุณาลองใหม่อีกครั้ง" };
   }
 }
 

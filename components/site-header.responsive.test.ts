@@ -56,4 +56,9 @@ describe("responsive site header", () => {
       "(prefers-reduced-motion: reduce)",
     )).toBe("var(--dur-short)");
   });
+
+  it("does not clip the account menu when the sidebar is expanded or collapsed", () => {
+    expect(propertyAtWidth(".app-sidebar", "overflow", 1280)).toBe("visible");
+    expect(propertyAtWidth(".app-sidebar .profile-menu", "left", 1280)).toBe("0");
+  });
 });

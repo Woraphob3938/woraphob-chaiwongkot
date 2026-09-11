@@ -29,6 +29,13 @@ const icons: Record<NavigationIcon, LucideIcon> = {
   register: UserPlus,
 };
 
+const compactLabels: Partial<Record<NavigationIcon, string>> = {
+  search: "ค้นหา",
+  bookings: "การจอง",
+  workspace: "พื้นที่งาน",
+  notifications: "แจ้งเตือน",
+};
+
 function isCurrentDestination(pathname: string, href: string) {
   return href === "/" ? pathname === href : pathname === href || pathname.startsWith(`${href}/`);
 }
@@ -56,7 +63,7 @@ export function MobileRoleNav({
                 <span className="mobile-role-nav__badge">{notificationUnreadCount > 99 ? "99+" : notificationUnreadCount}</span>
               )}
             </span>
-            <span>{item.label}</span>
+            <span className="mobile-role-nav__label" data-short-label={compactLabels[item.icon] ?? item.label}>{item.label}</span>
             {item.icon === "notifications" && notificationUnreadCount > 0 && (
               <span className="sr-only">มีการแจ้งเตือนที่ยังไม่ได้อ่าน {notificationUnreadCount} รายการ</span>
             )}

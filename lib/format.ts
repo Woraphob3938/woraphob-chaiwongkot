@@ -23,8 +23,32 @@ export function formatTime(value: string) {
   return `${twoDigits(date.getUTCHours())}:${twoDigits(date.getUTCMinutes())}`;
 }
 
+export function crossesBangkokDay(startsAt: string, endsAt: string) {
+  const start = bangkokDate(startsAt);
+  const end = bangkokDate(endsAt);
+  return start.getUTCFullYear() !== end.getUTCFullYear()
+    || start.getUTCMonth() !== end.getUTCMonth()
+    || start.getUTCDate() !== end.getUTCDate();
+}
+
+export function formatTimeRange(startsAt: string, endsAt: string) {
+  const range = `${formatTime(startsAt)} ถึง ${formatTime(endsAt)} น.`;
+  return crossesBangkokDay(startsAt, endsAt)
+    ? `${range} · สิ้นสุดวันถัดไป ${formatDay(endsAt)}`
+    : range;
+}
+
 export function formatMoney(value?: number) {
   return value === undefined ? "รอยืนยันราคา" : `฿${Math.round(value).toLocaleString("en-US")}`;
+}
+
+const trainingTypeNames: Record<string, string> = {
+  "เฉพาะเเต่ละกีฬา": "เฉพาะแต่ละกีฬา",
+  "เวทเทรนนิง": "เวทเทรนนิ่ง",
+};
+
+export function formatTrainingTypeName(value: string) {
+  return trainingTypeNames[value] ?? value;
 }
 
 export function initials(name: string) {

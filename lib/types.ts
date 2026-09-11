@@ -42,6 +42,7 @@ export type BookingActions = {
   canComplete: boolean;
   canReview: boolean;
   canCancel: boolean;
+  canScheduleSession?: boolean;
 };
 
 export type AccountUser = {
@@ -87,6 +88,9 @@ export type TrainerAccountProfile = {
     priceFrom: number | null;
     monthlyPrice?: number | null;
     monthlySessionCount?: number | null;
+    paymentAccountName?: string;
+    promptPayId?: string;
+    paymentQrUrl?: string | null;
     trainingTypeIds: number[];
     approvalStatus: TrainerApprovalStatus;
     approvalNote: string | null;
@@ -172,6 +176,7 @@ export type AdminQueue = {
   payments: Array<{
     id: number;
     bookingId: string;
+    bookingType?: "single" | "monthly";
     memberName: string;
     trainerName: string;
     startsAt: string;
@@ -198,6 +203,7 @@ export type Trainer = {
   priceFrom?: number | null;
   monthlyPrice?: number | null;
   monthlySessionCount?: number | null;
+  paymentQrUrl?: string | null;
   rating?: number;
   reviewCount: number;
   reviews?: PublicTrainerReview[];
@@ -297,8 +303,13 @@ export type PublicTrainerReview = {
 };
 
 export type Booking = {
+  paymentServiceMode?: "freelance" | "gym" | null;
+  paymentRecipient?: {
+    accountName: string;
+    promptPayId: string;
+  } | null;
   id: string;
-  trainer: Pick<Trainer, "id" | "displayName" | "slug">;
+  trainer: Pick<Trainer, "id" | "displayName" | "slug"> & { imageUrl?: string | null };
   startsAt: string;
   endsAt: string;
   bookingType?: "single" | "monthly";
@@ -316,7 +327,15 @@ export type Booking = {
   actions: BookingActions;
   createdAt: string;
   demo: boolean;
-  member?: { displayName: string };
+  member?: {
+    displayName: string;
+    imageUrl?: string | null;
+    goals?: string;
+    experienceLevel?: string;
+    weight?: number | null;
+    height?: number | null;
+    medicalNote?: string;
+  };
   note?: string;
 };
 

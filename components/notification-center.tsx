@@ -10,14 +10,17 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import {
   ArrowLeft,
   Bell,
+  CalendarCheck,
   CalendarClock,
   CheckCheck,
   ChevronLeft,
   ChevronRight,
   CircleAlert,
+  Clock3,
   CreditCard,
+  Search,
 } from "lucide-react";
-import { authenticatedRequest } from "@/lib/api";
+import { ApiError, authenticatedRequest } from "@/lib/api";
 import type {
   NotificationCategory,
   NotificationDetail,
@@ -27,15 +30,18 @@ import type {
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
+import { NativeSelect, NativeSelectOption } from "@/components/ui/native-select";
 import { Skeleton } from "@/components/ui/skeleton";
+import { StatusBadge } from "@/components/status-badge";
 
 type LoadState = "loading" | "ready" | "error";
+type LoadErrorKind = "auth" | "connection" | "server";
 
 const categories: Array<{ key: NotificationCategory; label: string; icon: typeof Bell }> = [
   { key: "all", label: "ทั้งหมด", icon: Bell },
   { key: "booking", label: "การจอง", icon: CalendarClock },
   { key: "payment", label: "การชำระเงิน", icon: CreditCard },
-  { key: "appointment", label: "นัดหมาย", icon: CalendarClock },
+  { key: "appointment", label: "นัดหมาย", icon: CalendarCheck },
 ];
 
 const emptyResponse: NotificationListResponse = {
@@ -53,19 +59,65 @@ const bookingStatus: Record<string, string> = {
   expired: "หมดเวลา",
 };
 
-const paymentStatus: Record<string, string> = {
-  not_submitted: "ยังไม่ส่งหลักฐาน",
-  reviewing: "กำลังตรวจสอบ",
-  approved: "อนุมัติแล้ว",
-  rejected: "ต้องส่งใหม่",
-};
-
 function formatDateTime(value: string) {
   return new Intl.DateTimeFormat("th-TH", {
     dateStyle: "medium",
     timeStyle: "short",
     timeZone: "Asia/Bangkok",
   }).format(new Date(value));
+}
+
+function formatRelativeTime(value: string) {
+  try {
+    const date = new Date(value);
+    const now = new Date();
+    const diffMs = now.getTime() - date.getTime();
+    if (diffMs < 0) return formatDateTime(value);
+    const diffSec = Math.floor(diffMs / 1000);
+    const diffMin = Math.floor(diffSec / 60);
+    const diffHour = Math.floor(diffMin / 60);
+    const diffDays = Math.floor(diffHour / 24);
+
+    if (diffMin < 1) return "เมื่อสักครู่";
+    if (diffMin < 60) return `${diffMin} นาทีที่แล้ว`;
+    if (diffHour < 24) return `${diffHour} ชม. ที่แล้ว`;
+    if (diffDays === 1) return "เมื่อวานนี้";
+    if (diffDays < 7) return `${diffDays} วันที่แล้ว`;
+
+    return new Intl.DateTimeFormat("th-TH", {
+      day: "numeric",
+      month: "short",
+      timeZone: "Asia/Bangkok",
+    }).format(date);
+  } catch {
+    return value;
+  }
+}
+
+function getCategoryIcon(category: NotificationItem["category"]) {
+  switch (category) {
+    case "payment":
+      return CreditCard;
+    case "appointment":
+      return CalendarCheck;
+    case "booking":
+      return CalendarClock;
+    default:
+      return Bell;
+  }
+}
+
+function isUrgentNotification(item: NotificationItem) {
+  const text = `${item.title} ${item.message}`.toLowerCase();
+  return (
+    text.includes("รอชำระเงิน") ||
+    text.includes("รอการชำระเงิน") ||
+    text.includes("ไม่ผ่าน") ||
+    text.includes("ปฏิเสธ") ||
+    text.includes("10 นาที") ||
+    item.type.includes("payment_rejected") ||
+    item.type.includes("deadline")
+  );
 }
 
 function categoryLabel(category: NotificationItem["category"]) {
@@ -79,12 +131,78 @@ function safeInternalPath(path: string) {
   return url.origin === base ? `${url.pathname}${url.search}${url.hash}` : null;
 }
 
+function loadErrorKind(error: unknown): LoadErrorKind {
+  if (error instanceof ApiError && error.status === 401) return "auth";
+  if (error instanceof ApiError && error.status === 503) return "connection";
+  return "server";
+}
+
+function categoryAccessibleLabel(label: string, unread: number) {
+  return unread > 0 ? `${label} มี ${unread} รายการที่ยังไม่ได้อ่าน` : `${label} ไม่มีรายการที่ยังไม่ได้อ่าน`;
+}
+
+function actionLabel(detail: NotificationDetail) {
+  if (detail.actionPath === "/admin" || detail.actionPath.startsWith("/admin#")) {
+    return detail.booking.status === "payment_review" ? "ตรวจสอบการชำระเงิน" : "ดูการจองในหน้าผู้ดูแลระบบ";
+  }
+  if (detail.booking.status === "completed") return "เขียนรีวิว";
+  if (
+    detail.booking.status === "awaiting_payment"
+    && ["not_submitted", "rejected"].includes(detail.booking.paymentStatus)
+  ) return "ส่งหลักฐานการชำระเงิน";
+  if (detail.booking.status === "payment_review") return "ดูสถานะการชำระเงิน";
+  if (detail.booking.status === "confirmed" || detail.actionPath.startsWith("/trainer")) return "ดูตารางนัดหมาย";
+  if (["cancelled", "expired"].includes(detail.booking.status) || detail.actionPath.startsWith("/trainers")) {
+    return "ค้นหาเทรนเนอร์";
+  }
+  return "ดูการจอง";
+}
+
+function PaymentStatusBadge({ status }: { status: NotificationDetail["booking"]["paymentStatus"] }) {
+  if (status === "not_submitted") {
+    return (
+      <span className="status-badge status-badge--warning">
+        <Clock3 aria-hidden="true" size={15} strokeWidth={2} />
+        ยังไม่ส่งหลักฐาน
+      </span>
+    );
+  }
+  return <StatusBadge status={status} />;
+}
+
+function LoadError({ kind, onRetry }: { kind: LoadErrorKind; onRetry: () => void }) {
+  if (kind === "auth") {
+    return (
+      <Alert variant="destructive" className="notification-center__error">
+        <CircleAlert aria-hidden="true" />
+        <AlertTitle>กรุณาเข้าสู่ระบบอีกครั้ง</AlertTitle>
+        <AlertDescription>เซสชันของคุณหมดอายุแล้ว เข้าสู่ระบบเพื่อดูการแจ้งเตือนล่าสุด</AlertDescription>
+        <Button asChild><Link href="/login">เข้าสู่ระบบ</Link></Button>
+      </Alert>
+    );
+  }
+
+  return (
+    <Alert variant="destructive" className="notification-center__error">
+      <CircleAlert aria-hidden="true" />
+      <AlertTitle>{kind === "connection" ? "เชื่อมต่อ FitConnect ไม่ได้" : "โหลดการแจ้งเตือนไม่สำเร็จ"}</AlertTitle>
+      <AlertDescription>
+        {kind === "connection"
+          ? "บริการยังไม่พร้อม โปรดตรวจการเชื่อมต่อหรือเปิด Apache แล้วลองอีกครั้ง"
+          : "ระบบมีปัญหาชั่วคราว กรุณาลองโหลดรายการอีกครั้ง"}
+      </AlertDescription>
+      <Button type="button" variant="outline" onClick={onRetry}>ลองใหม่</Button>
+    </Alert>
+  );
+}
+
 export function NotificationCenter() {
   const [loadState, setLoadState] = useState<LoadState>("loading");
   const [response, setResponse] = useState<NotificationListResponse>(emptyResponse);
   const [category, setCategory] = useState<NotificationCategory>("all");
   const [unreadOnly, setUnreadOnly] = useState(false);
   const [page, setPage] = useState(0);
+  const [searchQuery, setSearchQuery] = useState("");
   const [reloadVersion, setReloadVersion] = useState(0);
   const [selectedId, setSelectedId] = useState<number | null>(null);
   const [detail, setDetail] = useState<NotificationDetail | null>(null);
@@ -92,18 +210,34 @@ export function NotificationCenter() {
   const [detailError, setDetailError] = useState<string | null>(null);
   const [markingAll, setMarkingAll] = useState(false);
   const [announcement, setAnnouncement] = useState("");
+  const [loadError, setLoadError] = useState<LoadErrorKind | null>(null);
+  const [listRefreshing, setListRefreshing] = useState(false);
+  const [actionError, setActionError] = useState<string | null>(null);
   const selectionRequestRef = useRef(0);
+  const listRequestRef = useRef(0);
+  const hasLoadedRef = useRef(false);
 
   const loadNotifications = useCallback(async () => {
-    setLoadState("loading");
+    const requestId = listRequestRef.current + 1;
+    listRequestRef.current = requestId;
+    const refreshing = hasLoadedRef.current;
+    setLoadError(null);
+    if (refreshing) setListRefreshing(true);
+    else setLoadState("loading");
     try {
       const nextResponse = await authenticatedRequest<NotificationListResponse>(
         `/v1/notifications?page=${page}&category=${category}&unread=${unreadOnly}`,
       );
+      if (listRequestRef.current !== requestId) return;
       setResponse(nextResponse);
+      hasLoadedRef.current = true;
       setLoadState("ready");
-    } catch {
-      setLoadState("error");
+    } catch (error) {
+      if (listRequestRef.current !== requestId) return;
+      setLoadError(loadErrorKind(error));
+      setLoadState(refreshing ? "ready" : "error");
+    } finally {
+      if (listRequestRef.current === requestId) setListRefreshing(false);
     }
   }, [category, page, unreadOnly]);
 
@@ -123,6 +257,7 @@ export function NotificationCenter() {
     setPage(0);
     setSelectedId(null);
     setDetail(null);
+    setLoadError(null);
   }
 
   function updateUnreadFilter() {
@@ -131,6 +266,18 @@ export function NotificationCenter() {
     setPage(0);
     setSelectedId(null);
     setDetail(null);
+    setLoadError(null);
+  }
+
+  function resetFilters() {
+    selectionRequestRef.current += 1;
+    setCategory("all");
+    setUnreadOnly(false);
+    setSearchQuery("");
+    setPage(0);
+    setSelectedId(null);
+    setDetail(null);
+    setLoadError(null);
   }
 
   async function openNotification(item: NotificationItem) {
@@ -186,6 +333,7 @@ export function NotificationCenter() {
   }
 
   async function markAllRead() {
+    setActionError(null);
     setMarkingAll(true);
     try {
       await authenticatedRequest<{ updated: number }>("/v1/notifications/read-all", { method: "POST" });
@@ -204,27 +352,37 @@ export function NotificationCenter() {
         detail: { unreadTotal: 0 },
       }));
     } catch {
-      setAnnouncement("ยังทำเครื่องหมายว่าอ่านแล้วทั้งหมดไม่ได้ ลองอีกครั้ง");
+      const message = "ยังทำเครื่องหมายว่าอ่านแล้วทั้งหมดไม่ได้ ลองอีกครั้ง";
+      setActionError(message);
+      setAnnouncement(message);
     } finally {
       setMarkingAll(false);
     }
   }
 
+  const filteredItems = response.items.filter((item) => {
+    if (!searchQuery.trim()) return true;
+    const q = searchQuery.toLowerCase().trim();
+    return (
+      item.title.toLowerCase().includes(q) ||
+      item.message.toLowerCase().includes(q) ||
+      item.bookingId.toLowerCase().includes(q)
+    );
+  });
+
   return (
     <section className="notification-center" data-detail-open={selectedId !== null}>
-      <div className="notification-center__actions">
-        <Button
-          type="button"
-          variant="outline"
-          disabled={response.unread.all === 0 || markingAll}
-          onClick={() => void markAllRead()}
-        >
-          <CheckCheck aria-hidden="true" />
-          {markingAll ? "กำลังอัปเดต…" : "ทำเครื่องหมายว่าอ่านแล้วทั้งหมด"}
-        </Button>
-      </div>
+      <h1 className="sr-only">การแจ้งเตือน</h1>
 
       <p className="sr-only" aria-live="polite">{announcement}</p>
+
+      {actionError && (
+        <Alert variant="destructive" className="notification-center__action-error">
+          <CircleAlert aria-hidden="true" />
+          <AlertTitle>อัปเดตรายการไม่สำเร็จ</AlertTitle>
+          <AlertDescription>{actionError}</AlertDescription>
+        </Alert>
+      )}
 
       {loadState === "loading" && (
         <div className="notification-center__loading" role="status" aria-label="กำลังโหลดการแจ้งเตือน" aria-live="polite">
@@ -236,22 +394,32 @@ export function NotificationCenter() {
       )}
 
       {loadState === "error" && (
-        <Alert variant="destructive" className="notification-center__error">
-          <CircleAlert aria-hidden="true" />
-          <AlertTitle>โหลดการแจ้งเตือนไม่สำเร็จ</AlertTitle>
-          <AlertDescription>ตรวจว่า Apache และ MySQL ทำงานอยู่ แล้วลองโหลดรายการอีกครั้ง</AlertDescription>
-          <Button type="button" variant="outline" onClick={() => setReloadVersion((version) => version + 1)}>ลองใหม่</Button>
-        </Alert>
+        <LoadError kind={loadError ?? "server"} onRetry={() => setReloadVersion((version) => version + 1)} />
       )}
 
       {loadState === "ready" && (
         <div className="notification-center__grid">
+          <label className="notification-category-select">
+            <span>หมวดการแจ้งเตือน</span>
+            <NativeSelect
+              aria-label="หมวดการแจ้งเตือน"
+              value={category}
+              onChange={(event) => updateCategory(event.target.value as NotificationCategory)}
+            >
+              {categories.map(({ key, label }) => (
+                <NativeSelectOption key={key} value={key}>
+                  {label}{response.unread[key] > 0 ? ` (${response.unread[key] > 99 ? "99+" : response.unread[key]})` : ""}
+                </NativeSelectOption>
+              ))}
+            </NativeSelect>
+          </label>
+
           <nav className="notification-categories" aria-label="หมวดการแจ้งเตือน">
             {categories.map(({ key, label, icon: Icon }) => (
               <button
                 type="button"
                 key={key}
-                aria-label={label}
+                aria-label={categoryAccessibleLabel(label, response.unread[key])}
                 aria-pressed={category === key}
                 onClick={() => updateCategory(key)}
               >
@@ -262,49 +430,104 @@ export function NotificationCenter() {
             ))}
           </nav>
 
-          <section className="notification-list-panel" aria-label="กล่องข้อความแจ้งเตือน">
+          <section className="notification-list-panel" aria-label="กล่องข้อความแจ้งเตือน" aria-busy={listRefreshing}>
             <div className="notification-list-panel__toolbar">
-              <div>
+              <div className="toolbar-headline">
                 <strong>{categories.find((entry) => entry.key === category)?.label}</strong>
                 <span>{response.pagination.total} รายการ</span>
               </div>
-              <Button
-                type="button"
-                size="sm"
-                variant={unreadOnly ? "secondary" : "outline"}
-                aria-pressed={unreadOnly}
-                onClick={updateUnreadFilter}
-              >เฉพาะที่ยังไม่ได้อ่าน</Button>
+              <div className="toolbar-controls">
+                <div className="notification-search-box">
+                  <Search aria-hidden="true" size={15} />
+                  <input
+                    type="search"
+                    aria-label="ค้นหาการแจ้งเตือน"
+                    placeholder="ค้นหารหัสการจอง หรือข้อความ..."
+                    value={searchQuery}
+                    onChange={(e) => setSearchQuery(e.target.value)}
+                  />
+                </div>
+                <Button
+                  type="button"
+                  size="sm"
+                  variant="outline"
+                  aria-label="ทำเครื่องหมายว่าอ่านแล้วทั้งหมด"
+                  disabled={response.unread.all === 0 || markingAll}
+                  onClick={() => void markAllRead()}
+                >
+                  <CheckCheck aria-hidden="true" />
+                  {markingAll ? "กำลังอัปเดต…" : "อ่านแล้วทั้งหมด"}
+                </Button>
+                <Button
+                  type="button"
+                  size="sm"
+                  variant={unreadOnly ? "secondary" : "outline"}
+                  aria-pressed={unreadOnly}
+                  onClick={updateUnreadFilter}
+                >
+                  เฉพาะที่ยังไม่ได้อ่าน
+                </Button>
+              </div>
             </div>
 
-            {response.items.length === 0 ? (
+            {loadError && (
+              <LoadError kind={loadError} onRetry={() => setReloadVersion((version) => version + 1)} />
+            )}
+
+            {listRefreshing ? (
+              <div className="notification-list-loading" role="status" aria-label="กำลังโหลดรายการแจ้งเตือน" aria-live="polite">
+                <span className="sr-only">กำลังโหลดรายการแจ้งเตือน…</span>
+                <Skeleton className="h-24 w-full" />
+                <Skeleton className="h-24 w-full" />
+                <Skeleton className="h-24 w-full" />
+              </div>
+            ) : filteredItems.length === 0 ? (
               <div className="notification-empty">
                 <Bell aria-hidden="true" />
-                <strong>ยังไม่มีการแจ้งเตือนในหมวดนี้</strong>
-                <p>เมื่อสถานะการจองหรือการชำระเงินเปลี่ยน รายการจะปรากฏที่นี่</p>
-                <Button type="button" variant="outline" onClick={() => updateCategory("all")}>ดูทั้งหมด</Button>
+                <strong>{searchQuery ? "ไม่พบการแจ้งเตือนที่ตรงกับการค้นหา" : "ยังไม่มีการแจ้งเตือนในหมวดนี้"}</strong>
+                <p>{searchQuery ? "ลองเปลี่ยนคำค้นหาหรือล้างตัวกรอง" : "เมื่อสถานะการจองหรือการชำระเงินเปลี่ยน รายการจะปรากฏที่นี่"}</p>
+                {(category !== "all" || unreadOnly || searchQuery) && (
+                  <Button type="button" variant="outline" onClick={resetFilters}>ดูทั้งหมด</Button>
+                )}
               </div>
             ) : (
               <ul className="notification-list" aria-label="รายการแจ้งเตือน">
-                {response.items.slice(0, 10).map((item) => (
-                  <li key={item.id}>
-                    <button
-                      type="button"
-                      data-read={item.readAt ? "true" : "false"}
-                      aria-current={selectedId === item.id ? "true" : undefined}
-                      aria-label={`${item.title} ${item.readAt ? "อ่านแล้ว" : "ยังไม่ได้อ่าน"}`}
-                      onClick={() => void openNotification(item)}
-                    >
-                      <span className="notification-list__marker" aria-hidden="true" />
-                      <span className="notification-list__copy">
-                        <span><Badge variant="outline">{categoryLabel(item.category)}</Badge><time dateTime={item.createdAt}>{formatDateTime(item.createdAt)}</time></span>
-                        <strong>{item.title}</strong>
-                        <small>{item.message}</small>
-                        <code>{item.bookingId}</code>
-                      </span>
-                    </button>
-                  </li>
-                ))}
+                {filteredItems.slice(0, 10).map((item) => {
+                  const Icon = getCategoryIcon(item.category);
+                  const urgent = isUrgentNotification(item);
+                  return (
+                    <li key={item.id}>
+                      <button
+                        type="button"
+                        data-read={item.readAt ? "true" : "false"}
+                        data-urgent={urgent ? "true" : undefined}
+                        aria-current={selectedId === item.id ? "true" : undefined}
+                        aria-label={`${item.title} ${item.readAt ? "อ่านแล้ว" : "ยังไม่ได้อ่าน"}`}
+                        onClick={() => void openNotification(item)}
+                      >
+                        <div className={`notification-item-icon notification-item-icon--${item.category}`} aria-hidden="true">
+                          <Icon size={16} />
+                        </div>
+                        <span className="notification-list__copy">
+                          <span className="notification-list__meta">
+                            <span className="notification-list__badges">
+                              <Badge variant="outline" className={`category-badge category-badge--${item.category}`}>
+                                {categoryLabel(item.category)}
+                              </Badge>
+                              {urgent && <span className="urgency-badge">⚠️ ต้องดำเนินการ</span>}
+                            </span>
+                            <time dateTime={item.createdAt} title={formatDateTime(item.createdAt)}>
+                              {formatRelativeTime(item.createdAt)}
+                            </time>
+                          </span>
+                          <strong>{item.title}</strong>
+                          <small>{item.message}</small>
+                          <code>{item.bookingId}</code>
+                        </span>
+                      </button>
+                    </li>
+                  );
+                })}
               </ul>
             )}
 
@@ -346,22 +569,43 @@ export function NotificationCenter() {
                 <CircleAlert aria-hidden="true" />
                 <AlertTitle>เปิดรายละเอียดไม่สำเร็จ</AlertTitle>
                 <AlertDescription>{detailError}</AlertDescription>
+                <Button type="button" variant="outline" onClick={() => {
+                  const selectedItem = response.items.find((item) => item.id === selectedId);
+                  if (selectedItem) void openNotification(selectedItem);
+                }}>ลองเปิดรายละเอียดอีกครั้ง</Button>
               </Alert>
             )}
 
             {!detailLoading && !detailError && !detail && (
               <div className="notification-detail-placeholder">
-                <Bell aria-hidden="true" />
+                <div className="notification-placeholder-icon">
+                  <Bell aria-hidden="true" size={36} />
+                </div>
                 <strong>เลือกรายการเพื่อดูรายละเอียด</strong>
-                <p>ข้อมูลการจองและขั้นตอนถัดไปจะแสดงในพื้นที่นี้</p>
+                <p>ข้อมูลการจอง สถานะการชำระเงิน และขั้นตอนถัดไปจะแสดงในพื้นที่นี้</p>
+                <div className="notification-placeholder-tips">
+                  <div className="placeholder-tip">
+                    <CreditCard size={16} aria-hidden="true" />
+                    <span>ตรวจสอบสถานะสลิปและยอดชำระเงิน</span>
+                  </div>
+                  <div className="placeholder-tip">
+                    <CalendarCheck size={16} aria-hidden="true" />
+                    <span>ติดตามนัดหมายและตารางเวลากับเทรนเนอร์</span>
+                  </div>
+                </div>
               </div>
             )}
 
             {!detailLoading && detail && (
               <article className="notification-detail" key={detail.id}>
                 <header>
-                  <Badge variant="outline">{categoryLabel(detail.category)}</Badge>
-                  <time dateTime={detail.createdAt}>{formatDateTime(detail.createdAt)}</time>
+                  <div className="notification-detail__meta">
+                    <Badge variant="outline" className={`category-badge category-badge--${detail.category}`}>
+                      {categoryLabel(detail.category)}
+                    </Badge>
+                    {isUrgentNotification(detail) && <span className="urgency-badge">⚠️ ต้องดำเนินการ</span>}
+                    <time dateTime={detail.createdAt}>{formatDateTime(detail.createdAt)}</time>
+                  </div>
                   <h2>{detail.title}</h2>
                   <p>{detail.message}</p>
                 </header>
@@ -371,8 +615,8 @@ export function NotificationCenter() {
                   <div><dt>สมาชิก</dt><dd>{detail.booking.memberName}</dd></div>
                   <div><dt>เทรนเนอร์</dt><dd>{detail.booking.trainerName}</dd></div>
                   <div><dt>วันและเวลา</dt><dd>{formatDateTime(detail.booking.startsAt)}–{formatDateTime(detail.booking.endsAt)}</dd></div>
-                  <div><dt>สถานะการจอง</dt><dd>{bookingStatus[detail.booking.status] ?? detail.booking.status}</dd></div>
-                  <div><dt>การชำระเงิน</dt><dd>{paymentStatus[detail.booking.paymentStatus] ?? detail.booking.paymentStatus}</dd></div>
+                  <div><dt>สถานะการจอง</dt><dd><StatusBadge status={detail.booking.status} /></dd></div>
+                  <div><dt>การชำระเงิน</dt><dd><PaymentStatusBadge status={detail.booking.paymentStatus} /></dd></div>
                   <div><dt>ยอดชำระ</dt><dd>{detail.booking.quotedPrice === null ? "—" : new Intl.NumberFormat("th-TH", { style: "currency", currency: "THB", maximumFractionDigits: 0 }).format(detail.booking.quotedPrice)}</dd></div>
                 </dl>
 
@@ -392,8 +636,8 @@ export function NotificationCenter() {
                 )}
 
                 {safeInternalPath(detail.actionPath) && (
-                  <Button asChild>
-                    <Link href={safeInternalPath(detail.actionPath) ?? "/"}>เปิดรายการที่เกี่ยวข้อง</Link>
+                  <Button className="button--accent button--wide notification-cta-btn" asChild>
+                    <Link href={safeInternalPath(detail.actionPath) ?? "/"}>{actionLabel(detail)}</Link>
                   </Button>
                 )}
               </article>

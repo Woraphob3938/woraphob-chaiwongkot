@@ -41,6 +41,14 @@ describe("BookingForm", () => {
     localStorage.setItem("fitconnect_user", JSON.stringify({ role: "member" }));
   });
 
+  it("explains that a trainer was chosen but no time was selected", async () => {
+    vi.mocked(apiRequest).mockResolvedValue(liveTrainer);
+
+    render(<BookingForm trainerSlug="live-trainer" />);
+
+    expect(await screen.findByRole("heading", { name: "ยังไม่ได้เลือกเวลา" })).toBeInTheDocument();
+  });
+
   it("warns unauthenticated user to log in when submitting", async () => {
     localStorage.removeItem("fitconnect_token");
     localStorage.removeItem("fitconnect_user");
@@ -157,9 +165,29 @@ describe("BookingForm", () => {
     expect(await screen.findByText("เกิดข้อผิดพลาดจากระบบ")).toBeInTheDocument();
   });
 
-  it("submits one monthly booking with every selected slot", async () => {
-    const secondSlot = { id: 45, startsAt: "2026-08-17T02:00:00.000Z", endsAt: "2026-08-17T03:00:00.000Z", available: true };
-    vi.mocked(apiRequest).mockResolvedValue({ ...liveTrainer, slots: [...liveTrainer.slots, secondSlot] });
+  it("uses the trainer's fixed gym route without asking the member to choose a service mode", async () => {
+    vi.mocked(apiRequest).mockResolvedValue({ ...liveTrainer, serviceMode: "both" });
+    vi.mocked(authenticatedRequest).mockResolvedValue({
+      id: "BK-GYM",
+      status: "awaiting_payment",
+      quotedPrice: 500,
+      paymentDeadlineAt: "2026-08-10T02:10:00.000Z",
+    });
+
+    render(<BookingForm trainerSlug="live-trainer" slotId="44" />);
+    await screen.findByText("เทรนเนอร์จริง");
+    expect(screen.queryByText("เลือกรูปแบบบริการ")).not.toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: /ตรวจสอบและยืนยัน/ }));
+    fireEvent.click(screen.getByRole("button", { name: "ยืนยันและเริ่มเวลา 10 นาที" }));
+
+    await waitFor(() => expect(authenticatedRequest).toHaveBeenCalledWith("/v1/bookings", {
+      method: "POST",
+      body: JSON.stringify({ trainerId: 1, slotId: 44, note: "", paymentServiceMode: "gym" }),
+    }));
+  });
+
+  it("submits a monthly package with its first appointment and explains later scheduling", async () => {
+    vi.mocked(apiRequest).mockResolvedValue(liveTrainer);
     vi.mocked(authenticatedRequest).mockResolvedValue({
       id: "BK-MONTHLY",
       status: "awaiting_payment",
@@ -167,14 +195,17 @@ describe("BookingForm", () => {
       paymentDeadlineAt: "2026-08-10T02:10:00.000Z",
     });
 
-    render(<BookingForm trainerSlug="live-trainer" bookingType="monthly" slotIds="44,45" />);
+    render(<BookingForm trainerSlug="live-trainer" bookingType="monthly" slotIds="44" />);
     await screen.findByText("แพ็กเกจ 30 วัน");
+    expect(screen.getByText("นัดแรก 1 จาก 2 ครั้ง")).toBeInTheDocument();
+    expect(screen.getByText("อีก 1 นัดจัดเวลาได้หลังการชำระเงินผ่าน")).toBeInTheDocument();
+    expect(screen.getByText(/หากไม่ส่งสลิปภายในเวลา การจองจะหมดอายุ/)).toBeInTheDocument();
     fireEvent.click(screen.getByRole("button", { name: /ตรวจสอบและยืนยัน/ }));
     fireEvent.click(screen.getByRole("button", { name: "ยืนยันและเริ่มเวลา 10 นาที" }));
 
     await waitFor(() => expect(authenticatedRequest).toHaveBeenCalledWith("/v1/bookings", {
       method: "POST",
-      body: JSON.stringify({ trainerId: 1, bookingType: "monthly", slotIds: [44, 45], note: "" }),
+      body: JSON.stringify({ trainerId: 1, bookingType: "monthly", slotIds: [44], note: "" }),
     }));
   });
 });

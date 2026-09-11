@@ -44,7 +44,12 @@ describe("getMemberNextAction", () => {
       expiredBooking,
       { ...booking, id: "BK-PAYMENT", status: "payment_review" },
       { ...booking, id: "BK-CONFIRMED", status: "confirmed" },
-    ])).toMatchObject({ href: "/member#booking-BK-PAY", cta: "อัปโหลดสลิป", description: "ส่งสลิปก่อนหมดเวลา · คำขอ BK-PAY", state: "action" });
+    ])).toMatchObject({
+      href: "/member#booking-BK-PAY",
+      cta: "อัปโหลดสลิป",
+      description: expect.stringMatching(`${booking.trainer.displayName}.*คำขอ BK-PAY`),
+      state: "action",
+    });
   });
 
   it("prioritizes an actionable review over all lower member states", () => {
@@ -144,9 +149,20 @@ describe("getTrainerNextAction", () => {
       actions: { ...booking.actions, canComplete: true },
     }])).toMatchObject({
       href: "/trainer#booking-BK-DONE",
-      cta: "ฝึกเสร็จแล้ว",
+      cta: "บันทึกว่าฝึกเสร็จ",
       state: "action",
     });
+  });
+
+  it("does not offer completion for an invalid appointment time range", () => {
+    expect(getTrainerNextAction(workspace, [{
+      ...booking,
+      id: "BK-BAD-TIME",
+      status: "confirmed",
+      startsAt: "2026-09-12T04:00:00.000Z",
+      endsAt: "2026-09-12T03:00:00.000Z",
+      actions: { ...booking.actions, canComplete: true, canReadChat: false },
+    }])).toMatchObject({ state: "waiting", cta: "ดูนัดหมาย" });
   });
 });
 

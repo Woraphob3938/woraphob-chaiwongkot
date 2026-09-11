@@ -99,12 +99,11 @@ if ($Scenario -eq 'all') {
     }
 
     function Submit-AllFlowPayment {
-        param([string]$BookingId, [decimal]$Amount)
+        param([string]$BookingId)
         $paymentJson = & curl.exe --silent --show-error --fail-with-body `
             --max-time 20 `
             -H "Authorization: Bearer $($member.token)" `
             -F "bookingId=$BookingId" `
-            -F "amount=$Amount" `
             -F "slip=@$evidencePath;type=image/png" `
             "$ApiUrl/v1/payments"
         Assert-True ($LASTEXITCODE -eq 0) "Payment upload failed: $paymentJson"
@@ -158,7 +157,7 @@ if ($Scenario -eq 'all') {
     Assert-True ($attachmentMessage.id -gt $textMessage.id) 'Member image message must follow the text message'
     Assert-True ($attachmentMessage.attachment.name -eq $evidenceFile.Name) 'Member image metadata must preserve its safe name'
 
-    Submit-AllFlowPayment $booking.id ([decimal]$booking.quotedPrice) | Out-Null
+    Submit-AllFlowPayment $booking.id | Out-Null
     $firstQueuePayment = Get-AllFlowQueuePayment $booking.id
     Assert-True ($null -ne $firstQueuePayment) 'First payment must appear in the admin queue'
     $rejectionReason = 'ยอดและหลักฐานไม่ตรงกัน กรุณาส่งใหม่'
@@ -169,11 +168,11 @@ if ($Scenario -eq 'all') {
     Assert-True ($rejected.bookingStatus -eq 'awaiting_payment') 'Admin rejection must return the booking to awaiting_payment'
     Assert-True ([DateTime]::Parse($rejected.paymentDeadlineAt).ToUniversalTime() -gt [DateTime]::UtcNow) 'First rejection must grant one fresh 10-minute deadline'
 
-    Submit-AllFlowPayment $booking.id ([decimal]$booking.quotedPrice) | Out-Null
+    Submit-AllFlowPayment $booking.id | Out-Null
     $secondQueuePayment = Get-AllFlowQueuePayment $booking.id
     Assert-True ($secondQueuePayment.id -ne $firstQueuePayment.id) 'Second payment must create a new attempt'
     $approved = (
-        Invoke-RestMethod -Method Post -Uri "$ApiUrl/v1/admin/payments/$($secondQueuePayment.id)/approve" -Headers $adminHeaders -ContentType 'application/json' -Body ([Text.Encoding]::UTF8.GetBytes((@{ note = 'หลักฐานรอบที่สองถูกต้อง' } | ConvertTo-Json)))
+        Invoke-RestMethod -Method Post -Uri "$ApiUrl/v1/admin/payments/$($secondQueuePayment.id)/approve" -Headers $adminHeaders -ContentType 'application/json' -Body ([Text.Encoding]::UTF8.GetBytes((@{ note = 'หลักฐานรอบที่สองถูกต้อง'; bankConfirmed = $true } | ConvertTo-Json)))
     ).data
     Assert-True ($approved.status -eq 'approved') 'Admin approval must approve the second payment'
     Assert-True ($approved.bookingStatus -eq 'confirmed') 'Admin approval must confirm the booking'
@@ -325,10 +324,10 @@ if ($Scenario -in @('payment', 'all')) {
         $publicId = "BK-LEGACY-$([Guid]::NewGuid().ToString('N').Substring(0, 10).ToUpperInvariant())"
         $sql = @"
 INSERT INTO bookings
-    (public_id, member_user_id, trainer_profile_id, starts_at, ends_at, member_note, quoted_price, status, payment_status, is_demo)
+    (public_id, member_user_id, trainer_profile_id, starts_at, ends_at, member_note, quoted_price, payment_service_mode, status, payment_status, is_demo)
 VALUES
     ('$publicId', 1, 1, DATE_ADD(UTC_TIMESTAMP(), INTERVAL 7 DAY), DATE_ADD(UTC_TIMESTAMP(), INTERVAL 7 DAY) + INTERVAL 1 HOUR,
-     'legacy payment regression fixture', NULL, 'payment_review', 'reviewing', 0);
+     'legacy payment regression fixture', NULL, 'gym', 'payment_review', 'reviewing', 0);
 SET @legacy_booking_id = LAST_INSERT_ID();
 INSERT INTO payments
     (booking_id, submitted_by_user_id, amount, slip_path, mime_type, status, submitted_at)
@@ -368,21 +367,17 @@ VALUES
         $booking = (
             Invoke-RestMethod -Method Post -Uri "$ApiUrl/v1/bookings" -Headers $memberHeaders -ContentType 'application/json' -Body ([Text.Encoding]::UTF8.GetBytes($bookingBody))
         ).data
-        $accepted = (
-            Invoke-RestMethod -Method Patch -Uri "$ApiUrl/v1/bookings/$($booking.id)/status" -Headers $trainerHeaders -ContentType 'application/json' -Body (@{ status = 'awaiting_payment'; quotedPrice = 1200 } | ConvertTo-Json)
-        ).data
-        Assert-True ($accepted.status -eq 'awaiting_payment') 'Trainer acceptance must move booking to awaiting_payment'
-        Assert-True ([decimal]$accepted.quotedPrice -eq 1200) 'Trainer acceptance must save quotedPrice 1200'
+        Assert-True ($booking.status -eq 'awaiting_payment') 'Instant booking must move directly to awaiting_payment'
+        Assert-True ([decimal]$booking.quotedPrice -gt 0) 'Instant booking must snapshot the trainer price'
         return [pscustomobject]@{ booking = $booking; slot = $slot }
     }
 
     function Submit-Payment {
         param([string]$BookingId)
-    $paymentJson = & curl.exe --silent --show-error --fail-with-body `
+        $paymentJson = & curl.exe --silent --show-error --fail-with-body `
             --max-time 20 `
             -H "Authorization: Bearer $($member.token)" `
             -F "bookingId=$BookingId" `
-            -F 'amount=1200' `
             -F "slip=@$slipPath;type=image/png" `
             "$ApiUrl/v1/payments"
         Assert-True ($LASTEXITCODE -eq 0) "Payment upload failed: $paymentJson"
@@ -400,8 +395,8 @@ VALUES
     function Assert-PaymentQueueDetails {
         param([object]$QueuePayment, [object]$Case)
         Assert-True ($null -ne $QueuePayment) 'Submitted payment must appear in the admin queue'
-        Assert-True ([decimal]$QueuePayment.amount -eq 1200) 'Admin queue must show the transferred amount'
-        Assert-True ([decimal]$QueuePayment.quotedPrice -eq 1200) 'Admin queue must show the quote'
+        Assert-True ([decimal]$QueuePayment.amount -eq [decimal]$Case.booking.quotedPrice) 'Admin queue must show the server-locked amount'
+        Assert-True ([decimal]$QueuePayment.quotedPrice -eq [decimal]$Case.booking.quotedPrice) 'Admin queue must show the quote'
         Assert-True ([decimal]$QueuePayment.difference -eq 0) 'Admin queue must show the numeric payment difference'
         Assert-True ($QueuePayment.trainerName -eq 'เทรนเนอร์สาธิต ก.') 'Admin queue must show the trainer'
         Assert-True (
@@ -431,8 +426,12 @@ VALUES
     $approvalQueuePayment = Get-QueuePayment $approvalCase.booking.id
     Assert-PaymentQueueDetails $approvalQueuePayment $approvalCase
 
+    Expect-ApiError 422 'BANK_CONFIRMATION_REQUIRED' {
+        Invoke-RestMethod -Method Post -Uri "$ApiUrl/v1/admin/payments/$($approvalQueuePayment.id)/approve" -Headers $adminHeaders -ContentType 'application/json' -Body '{}'
+    }
+
     $approved = (
-        Invoke-RestMethod -Method Post -Uri "$ApiUrl/v1/admin/payments/$($approvalQueuePayment.id)/approve" -Headers $adminHeaders -ContentType 'application/json' -Body ([Text.Encoding]::UTF8.GetBytes((@{ note = 'หลักฐานถูกต้อง' } | ConvertTo-Json)))
+        Invoke-RestMethod -Method Post -Uri "$ApiUrl/v1/admin/payments/$($approvalQueuePayment.id)/approve" -Headers $adminHeaders -ContentType 'application/json' -Body ([Text.Encoding]::UTF8.GetBytes((@{ note = 'หลักฐานถูกต้อง'; bankConfirmed = $true } | ConvertTo-Json)))
     ).data
     Assert-True ($approved.status -eq 'approved') 'Approved payment must become approved'
     Assert-True ($approved.bookingStatus -eq 'confirmed') 'Approved payment must confirm the booking'
@@ -471,7 +470,7 @@ VALUES
     Assert-PaymentQueueDetails $retryQueuePayment $rejectionCase
     Assert-True ($retryQueuePayment.id -ne $rejectionQueuePayment.id) 'Retry must insert a new payment row'
     $retryApproved = (
-        Invoke-RestMethod -Method Post -Uri "$ApiUrl/v1/admin/payments/$($retryQueuePayment.id)/approve" -Headers $adminHeaders -ContentType 'application/json' -Body ([Text.Encoding]::UTF8.GetBytes((@{ note = 'หลักฐานใหม่ถูกต้อง' } | ConvertTo-Json)))
+        Invoke-RestMethod -Method Post -Uri "$ApiUrl/v1/admin/payments/$($retryQueuePayment.id)/approve" -Headers $adminHeaders -ContentType 'application/json' -Body ([Text.Encoding]::UTF8.GetBytes((@{ note = 'หลักฐานใหม่ถูกต้อง'; bankConfirmed = $true } | ConvertTo-Json)))
     ).data
     Assert-True ($retryApproved.bookingStatus -eq 'confirmed') 'Approved retry must confirm the booking'
 }

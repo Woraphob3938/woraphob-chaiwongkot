@@ -4,9 +4,20 @@ import { FormEvent, KeyboardEvent, useCallback, useEffect, useMemo, useState } f
 import { useRouter } from "next/navigation";
 import { Ban, BookOpen, ChevronLeft, ChevronRight, CircleDollarSign, RefreshCw, ShieldCheck, UserCog, UsersRound } from "lucide-react";
 import { AdminReviewQueue } from "@/components/admin-review-queue";
+import { PaymentRoutingSettings } from "@/components/payment-routing-settings";
 import { StatusBadge } from "@/components/status-badge";
 import { Button } from "@/components/ui/button";
+import {
+  Dialog,
+  DialogClose,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
+import { Textarea } from "@/components/ui/textarea";
 import { ApiError, authenticatedRequest } from "@/lib/api";
 import type { AdminOperationsData, AdminPermissions } from "@/lib/types";
 
@@ -94,6 +105,7 @@ function PermissionFields({ value, allowed = { manageUsers: true, reviewTrainers
 }
 
 type ManagedUser = AdminOperationsData["users"][number] | AdminOperationsData["administrators"][number];
+type ManagedBooking = AdminOperationsData["bookings"][number];
 
 function AdministratorEditor({ user, currentUserId, assignablePermissions, busy, onSave, onToggle }: {
   user: AdminOperationsData["administrators"][number];
@@ -101,7 +113,7 @@ function AdministratorEditor({ user, currentUserId, assignablePermissions, busy,
   assignablePermissions: AdminPermissions;
   busy: boolean;
   onSave: (id: number, input: { displayName: string; email: string; permissions?: AdminPermissions }) => Promise<void>;
-  onToggle: (user: ManagedUser) => Promise<void>;
+  onToggle: (user: ManagedUser) => void;
 }) {
   const [displayName, setDisplayName] = useState(user.displayName);
   const [email, setEmail] = useState(user.email);
@@ -122,7 +134,7 @@ function AdministratorEditor({ user, currentUserId, assignablePermissions, busy,
         {!isSelf && Object.values(assignablePermissions).some((allowed) => !allowed) && <p className="admin-inline-note">สิทธิ์ที่บัญชีของคุณไม่มีจะดูได้อย่างเดียวและแก้ไขไม่ได้</p>}
         <div className="admin-row-actions">
           <Button type="submit" disabled={busy || (!isSelf && !hasPermission)}>บันทึกบัญชีผู้ดูแลระบบ</Button>
-          {!isSelf && user.status !== "deleted" && <Button type="button" variant={user.status === "active" ? "destructive" : "outline"} disabled={busy} onClick={() => void onToggle(user)}>{user.status === "active" ? "ระงับบัญชี" : "เปิดใช้งานบัญชี"}</Button>}
+          {!isSelf && user.status !== "deleted" && <Button type="button" variant={user.status === "active" ? "destructive" : "outline"} disabled={busy} onClick={() => onToggle(user)}>{user.status === "active" ? "ระงับบัญชี" : "เปิดใช้งานบัญชี"}</Button>}
         </div>
       </form>
     </details>
@@ -168,7 +180,7 @@ function UserEditor({ user, busy, onSave, onToggle }: {
   user: AdminOperationsData["users"][number];
   busy: boolean;
   onSave: (id: number, input: { displayName: string; email: string }) => Promise<void>;
-  onToggle: (user: ManagedUser) => Promise<void>;
+  onToggle: (user: ManagedUser) => void;
 }) {
   const [displayName, setDisplayName] = useState(user.displayName);
   const [email, setEmail] = useState(user.email);
@@ -186,7 +198,7 @@ function UserEditor({ user, busy, onSave, onToggle }: {
         <p className="admin-inline-note">สมัครเมื่อ {formatDate(user.createdAt)}</p>
         <div className="admin-row-actions">
           <Button type="submit" disabled={busy}>บันทึกข้อมูลบัญชี</Button>
-          {user.status !== "deleted" && <Button type="button" variant={user.status === "active" ? "destructive" : "outline"} disabled={busy} aria-label={`${user.status === "active" ? "ระงับ" : "เปิดใช้งาน"}บัญชี ${user.displayName}`} onClick={() => void onToggle(user)}>
+          {user.status !== "deleted" && <Button type="button" variant={user.status === "active" ? "destructive" : "outline"} disabled={busy} aria-label={`${user.status === "active" ? "ระงับ" : "เปิดใช้งาน"}บัญชี ${user.displayName}`} onClick={() => onToggle(user)}>
             {user.status === "active" ? <><Ban aria-hidden="true" /> ระงับบัญชี</> : "เปิดใช้งานบัญชี"}
           </Button>}
         </div>
@@ -212,6 +224,9 @@ export function AdminOperations() {
   const [paymentPage, setPaymentPage] = useState(0);
   const [administratorPage, setAdministratorPage] = useState(0);
   const [newAdmin, setNewAdmin] = useState({ displayName: "", email: "", password: "", permissions: emptyPermissions });
+  const [accountAction, setAccountAction] = useState<{ user: ManagedUser; status: "active" | "suspended" } | null>(null);
+  const [bookingToCancel, setBookingToCancel] = useState<ManagedBooking | null>(null);
+  const [cancelReason, setCancelReason] = useState("ผู้ดูแลระบบยกเลิกรายการ");
 
   const loadOperations = useCallback(async () => {
     setLoading(true);
@@ -275,12 +290,12 @@ export function AdminOperations() {
 
   async function updateUser(user: ManagedUser, status: "active" | "suspended") {
     const action = status === "suspended" ? "ระงับ" : "เปิดใช้งาน";
-    if (!window.confirm(`${action}บัญชี ${user.displayName} หรือไม่?`)) return;
     setBusy(`user-${user.id}`); setError(""); setNotice("");
     try {
       await authenticatedRequest(`/v1/admin/users/${user.id}`, { method: "PATCH", body: JSON.stringify({ status }) });
       await loadOperations();
       setNotice(`${action}บัญชี “${user.displayName}” แล้ว`);
+      setAccountAction(null);
     } catch (requestError) {
       if (leaveExpiredSession(requestError, navigate)) return;
       setError(requestError instanceof Error ? requestError.message : `${action}บัญชีไม่สำเร็จ`);
@@ -312,6 +327,24 @@ export function AdminOperations() {
     } finally { setBusy(null); }
   }
 
+  async function cancelBookingByAdmin() {
+    if (!bookingToCancel || !cancelReason.trim()) return;
+    const id = bookingToCancel.id;
+    setBusy(`cancel-${id}`); setError(""); setNotice("");
+    try {
+      await authenticatedRequest(`/v1/bookings/${encodeURIComponent(id)}/status`, {
+        method: "PATCH",
+        body: JSON.stringify({ status: "cancelled", note: cancelReason.trim() }),
+      });
+      await loadOperations();
+      setNotice(`ยกเลิกการจอง ${id} และคืนสล็อตสู่ระบบแล้ว`);
+      setBookingToCancel(null);
+    } catch (requestError) {
+      if (leaveExpiredSession(requestError, navigate)) return;
+      setError(requestError instanceof Error ? requestError.message : "ยกเลิกการจองไม่สำเร็จ");
+    } finally { setBusy(null); }
+  }
+
   if (loading && !data) return <section className="queue-loading" aria-live="polite">กำลังโหลดพื้นที่ผู้ดูแลระบบ…</section>;
   if (error && !data) return <section className="queue-retry" role="alert"><strong>ยังเปิดพื้นที่ผู้ดูแลระบบไม่ได้</strong><p>{error}</p><Button onClick={() => void loadOperations()}><RefreshCw aria-hidden="true" /> ลองใหม่</Button></section>;
   if (!data) return null;
@@ -333,13 +366,14 @@ export function AdminOperations() {
 
       <section id="admin-workspace-panel" role="tabpanel" aria-labelledby={`admin-tab-${activeTab}`}>
         {activeTab === "review" && <AdminReviewQueue />}
+        {activeTab === "administrators" && data.permissions.manageUsers && data.permissions.reviewPayments && <PaymentRoutingSettings />}
         {activeTab === "users" && (
           <div className="admin-operation-panel">
             <header>
               <div><h2>บัญชีสมาชิกและเทรนเนอร์</h2><p>กดชื่อบัญชีเมื่อต้องการแก้ข้อมูลหรือระงับการใช้งาน</p></div>
               <label className="admin-search"><span>ค้นหาบัญชี</span><Input type="search" value={query} onChange={(event) => { setQuery(event.target.value); setUserPage(0); }} placeholder="ชื่อหรืออีเมล" /></label>
             </header>
-            <div className="admin-record-list">{visibleUsers.map((user) => <UserEditor key={user.id} user={user} busy={busy === `user-${user.id}`} onSave={saveAccount} onToggle={(target) => updateUser(target, target.status === "active" ? "suspended" : "active")} />)}</div>
+            <div className="admin-record-list">{visibleUsers.map((user) => <UserEditor key={user.id} user={user} busy={busy === `user-${user.id}`} onSave={saveAccount} onToggle={(target) => setAccountAction({ user: target, status: target.status === "active" ? "suspended" : "active" })} />)}</div>
             {visibleUsers.length === 0 ? <div className="empty-state"><strong>ไม่พบบัญชีที่ตรงกับคำค้น</strong><p>ลองค้นหาด้วยชื่อหรืออีเมลอื่น</p></div> : <Pager label="บัญชี" page={userPage} total={data.pagination.users.total} onChange={setUserPage} />}
           </div>
         )}
@@ -356,6 +390,20 @@ export function AdminOperations() {
                   <summary><span><strong>{booking.id}</strong><small>{booking.memberName} กับ {booking.trainerName} · {formatDate(booking.startsAt)}</small></span><StatusBadge status={booking.status} /></summary>
                   <div className="admin-booking-disclosure__content">
                     <dl><div><dt>วันและเวลานัด</dt><dd>{formatDate(booking.startsAt)} ถึง {formatDate(booking.endsAt)}</dd></div><div><dt>ค่าฝึก</dt><dd>{formatMoney(booking.quotedPrice)}</dd></div><div><dt>การชำระเงิน</dt><dd>{paymentCopy[booking.paymentStatus] ?? booking.paymentStatus}</dd></div></dl>
+                    {data.permissions.manageBookings && ["awaiting_payment", "payment_review", "confirmed"].includes(booking.status) && (
+                      <div className="admin-booking-actions my-3 p-3 bg-muted/40 rounded flex items-center justify-between gap-2">
+                        <span className="text-xs text-muted-foreground">ผู้ดูแลระบบสามารถแทรกแซงและยกเลิกคำขอนี้เพื่อคืนสล็อตว่างได้</span>
+                        <Button
+                          type="button"
+                          variant="destructive"
+                          size="sm"
+                          disabled={busy === `cancel-${booking.id}`}
+                          onClick={() => { setCancelReason("ผู้ดูแลระบบยกเลิกรายการ"); setBookingToCancel(booking); }}
+                        >
+                          {busy === `cancel-${booking.id}` ? "กำลังยกเลิก…" : "ยกเลิกคำขอจองนี้"}
+                        </Button>
+                      </div>
+                    )}
                     <section aria-label={`ประวัติสถานะ ${booking.id}`}><h3>ประวัติสถานะ</h3>{booking.history.length > 0 ? <ol>{booking.history.map((item, index) => <li key={`${item.createdAt}-${index}`}><strong>{bookingCopy[item.toStatus] ?? item.toStatus}</strong><span>{formatDate(item.createdAt)} · {item.changedBy ?? "ระบบ"}</span>{item.note && <p>{item.note}</p>}</li>)}</ol> : <p className="admin-inline-note">ยังไม่มีประวัติสถานะเพิ่มเติม</p>}</section>
                   </div>
                 </details>
@@ -381,9 +429,45 @@ export function AdminOperations() {
           </div>
         )}
 
-        {activeTab === "administrators" && <div className="admin-operation-panel admin-administrators"><header><div><h2>บัญชีและสิทธิ์ผู้ดูแลระบบ</h2><p>กำหนดได้เฉพาะสิทธิ์ที่บัญชีของคุณมีอยู่</p></div></header><form aria-label="เพิ่มผู้ดูแลระบบ" className="admin-create-form" onSubmit={createAdministrator}><h3>เพิ่มผู้ดูแลระบบ</h3><div className="admin-editor__fields"><label><span>ชื่อที่แสดง</span><Input required autoComplete="name" value={newAdmin.displayName} onChange={(event) => setNewAdmin({ ...newAdmin, displayName: event.target.value })} /></label><label><span>อีเมล</span><Input required type="email" autoComplete="email" value={newAdmin.email} onChange={(event) => setNewAdmin({ ...newAdmin, email: event.target.value })} /></label><label><span>รหัสผ่านเริ่มต้น อย่างน้อย 8 ตัวอักษร</span><Input required minLength={8} type="password" autoComplete="new-password" value={newAdmin.password} onChange={(event) => setNewAdmin({ ...newAdmin, password: event.target.value })} /></label></div><PermissionFields value={newAdmin.permissions} allowed={data.permissions} onChange={(permissions) => setNewAdmin({ ...newAdmin, permissions })} />{!canCreateAdministrator && <p className="admin-inline-note">เลือกสิทธิ์อย่างน้อย 1 รายการก่อนเพิ่มบัญชี</p>}<Button type="submit" disabled={busy === "create-admin" || !canCreateAdministrator}>{busy === "create-admin" ? "กำลังเพิ่ม…" : "เพิ่มผู้ดูแลระบบ"}</Button></form><section aria-labelledby="administrator-list-title"><h3 id="administrator-list-title">ผู้ดูแลระบบที่มีอยู่</h3>{data.administrators.map((user) => <AdministratorEditor key={user.id} user={user} currentUserId={data.currentUserId} assignablePermissions={data.permissions} busy={busy === `user-${user.id}`} onSave={saveAccount} onToggle={(target) => updateUser(target, target.status === "active" ? "suspended" : "active")} />)}<Pager label="ผู้ดูแลระบบ" page={administratorPage} total={data.pagination.administrators.total} onChange={setAdministratorPage} /></section></div>}
+        {activeTab === "administrators" && <div className="admin-operation-panel admin-administrators"><header><div><h2>บัญชีและสิทธิ์ผู้ดูแลระบบ</h2><p>กำหนดได้เฉพาะสิทธิ์ที่บัญชีของคุณมีอยู่</p></div></header><form aria-label="เพิ่มผู้ดูแลระบบ" className="admin-create-form" onSubmit={createAdministrator}><h3>เพิ่มผู้ดูแลระบบ</h3><div className="admin-editor__fields"><label><span>ชื่อที่แสดง</span><Input required autoComplete="name" value={newAdmin.displayName} onChange={(event) => setNewAdmin({ ...newAdmin, displayName: event.target.value })} /></label><label><span>อีเมล</span><Input required type="email" autoComplete="email" value={newAdmin.email} onChange={(event) => setNewAdmin({ ...newAdmin, email: event.target.value })} /></label><label><span>รหัสผ่านเริ่มต้น อย่างน้อย 8 ตัวอักษร</span><Input required minLength={8} type="password" autoComplete="new-password" value={newAdmin.password} onChange={(event) => setNewAdmin({ ...newAdmin, password: event.target.value })} /></label></div><PermissionFields value={newAdmin.permissions} allowed={data.permissions} onChange={(permissions) => setNewAdmin({ ...newAdmin, permissions })} />{!canCreateAdministrator && <p className="admin-inline-note">เลือกสิทธิ์อย่างน้อย 1 รายการก่อนเพิ่มบัญชี</p>}<Button type="submit" disabled={busy === "create-admin" || !canCreateAdministrator}>{busy === "create-admin" ? "กำลังเพิ่ม…" : "เพิ่มผู้ดูแลระบบ"}</Button></form><section aria-labelledby="administrator-list-title"><h3 id="administrator-list-title">ผู้ดูแลระบบที่มีอยู่</h3>{data.administrators.map((user) => <AdministratorEditor key={user.id} user={user} currentUserId={data.currentUserId} assignablePermissions={data.permissions} busy={busy === `user-${user.id}`} onSave={saveAccount} onToggle={(target) => setAccountAction({ user: target, status: target.status === "active" ? "suspended" : "active" })} />)}<Pager label="ผู้ดูแลระบบ" page={administratorPage} total={data.pagination.administrators.total} onChange={setAdministratorPage} /></section></div>}
         {activeTab === "account" && <div className="admin-operation-panel"><header><div><h2>บัญชีของฉัน</h2><p>เปลี่ยนรหัสผ่านเริ่มต้นและดูแลความปลอดภัยของบัญชีนี้</p></div></header><AdministratorPasswordForm /></div>}
       </section>
+
+      <Dialog open={accountAction !== null} onOpenChange={(open) => { if (!open && !busy) setAccountAction(null); }}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>{accountAction?.status === "suspended" ? "ระงับบัญชี" : "เปิดใช้งานบัญชี"}</DialogTitle>
+            <DialogDescription>ตรวจสอบบัญชีก่อนยืนยันการเปลี่ยนสถานะ</DialogDescription>
+          </DialogHeader>
+          {accountAction && <div className="admin-dialog-target"><strong>{accountAction.user.displayName}</strong><span>{accountAction.user.email}</span></div>}
+          <DialogFooter>
+            <DialogClose asChild><Button type="button" variant="outline" disabled={Boolean(busy)}>ยกเลิก</Button></DialogClose>
+            <Button type="button" variant={accountAction?.status === "suspended" ? "destructive" : "default"} disabled={!accountAction || Boolean(busy)} onClick={() => accountAction && void updateUser(accountAction.user, accountAction.status)}>
+              {busy ? "กำลังบันทึก…" : "ยืนยันการเปลี่ยนสถานะ"}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      <Dialog open={bookingToCancel !== null} onOpenChange={(open) => { if (!open && !busy) setBookingToCancel(null); }}>
+        <DialogContent>
+          <form className="admin-dialog-form" onSubmit={(event) => { event.preventDefault(); void cancelBookingByAdmin(); }}>
+            <DialogHeader>
+              <DialogTitle>ยกเลิกคำขอจอง</DialogTitle>
+              <DialogDescription>{bookingToCancel ? `${bookingToCancel.id} · ${bookingToCancel.memberName} กับ ${bookingToCancel.trainerName} · ${formatDate(bookingToCancel.startsAt)}` : ""}</DialogDescription>
+            </DialogHeader>
+            <label className="field">
+              <span>เหตุผลในการยกเลิก</span>
+              <Textarea required value={cancelReason} onChange={(event) => setCancelReason(event.target.value)} />
+            </label>
+            <p className="admin-inline-note">เมื่อยืนยัน ระบบจะคืนช่วงเวลานี้ให้จองได้อีกครั้ง</p>
+            <DialogFooter>
+              <DialogClose asChild><Button type="button" variant="outline" disabled={Boolean(busy)}>กลับ</Button></DialogClose>
+              <Button type="submit" variant="destructive" disabled={!cancelReason.trim() || Boolean(busy)}>{busy ? "กำลังยกเลิก…" : "ยืนยันการยกเลิก"}</Button>
+            </DialogFooter>
+          </form>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }

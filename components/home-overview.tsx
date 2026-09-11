@@ -1,5 +1,6 @@
 import Link from "next/link";
 import { TrainerPreviewCard } from "@/components/trainer-preview-card";
+import { formatTrainingTypeName } from "@/lib/format";
 import type { Trainer, TrainingType } from "@/lib/types";
 
 type HomeOverviewProps = {
@@ -22,7 +23,7 @@ const journeySteps = [
   },
   {
     title: "ยืนยันการชำระ",
-    description: "อัปโหลดสลิปภายในเวลาที่กำหนด แล้วรอผู้ดูแลระบบตรวจ",
+    description: "อัปโหลดสลิปภายในเวลาที่กำหนด แล้วรอผู้ตรวจตามรูปแบบบริการ",
   },
   {
     title: "ฝึกและรีวิว",
@@ -36,27 +37,22 @@ export function HomeOverview({ trainers, trainingTypes }: HomeOverviewProps) {
 
   return (
     <div className="home-overview">
-      <section className="home-hero" aria-labelledby="home-title">
-        <div className="home-hero__copy">
-          <h1 id="home-title">เริ่มต้นสุขภาพที่ดีกับคนที่เหมาะกับคุณ</h1>
-        </div>
-        <div className="home-hero__action">
-          <p>ดูภาพรวมบริการก่อนเปรียบเทียบเทรนเนอร์ที่ผ่านการตรวจสอบ</p>
-          <Link className="button button--accent" href="/trainers">ค้นหาเทรนเนอร์</Link>
-        </div>
-      </section>
-
       <section className="home-training-types" aria-labelledby="training-goals-title">
         <header className="home-section-heading">
-          <h2 id="training-goals-title">เลือกจากเป้าหมายการฝึก</h2>
+          <h1 id="training-goals-title">เลือกจากเป้าหมายการฝึก</h1>
           <p>เริ่มจากประเภทที่สนใจ แล้วปรับราคาและเวลาในหน้าค้นหา</p>
         </header>
         {trainingTypes.length > 0 ? (
           <ul className="home-training-types__list" aria-label="ประเภทการฝึก">
-            {trainingTypes.map((type) => (
-              <li key={type.id}>
+            {trainingTypes.map((type, index) => (
+              <li
+                className={index === trainingTypes.length - 1 && trainingTypes.length % 2 === 1
+                  ? "home-training-types__item--wide"
+                  : undefined}
+                key={type.id}
+              >
                 <Link href={`/trainers?type=${type.slug}`}>
-                  <span>{type.nameTh}</span>
+                  <span>{formatTrainingTypeName(type.nameTh)}</span>
                   <span aria-hidden="true">→</span>
                 </Link>
               </li>
@@ -110,7 +106,7 @@ export function HomeOverview({ trainers, trainingTypes }: HomeOverviewProps) {
       <section className="home-trust" aria-labelledby="trust-title">
         <h2 id="trust-title">ตรวจโดยคน เห็นสถานะชัดเจน</h2>
         <div>
-          <p>ผู้ดูแลระบบตรวจหลักฐานด้วยตนเอง ทั้งใบรับรองของเทรนเนอร์และหลักฐานการโอนของสมาชิก</p>
+          <p>ผู้ดูแลระบบตรวจใบรับรอง ส่วนสลิปตรวจโดยเทรนเนอร์ฟรีแลนซ์หรือผู้ดูแลระบบสำหรับเทรนเนอร์ประจำยิม</p>
           <p>FitConnect แสดงผลการตรวจตามสถานะจริง ไม่ได้อนุมัติเอกสารหรือการชำระเงินอัตโนมัติ</p>
         </div>
       </section>

@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { API_URL, apiAssetUrl, apiRequest, authHeaders, authenticatedRequest, getLiveTrainerCatalog, getReferenceData, openProtectedFile } from "@/lib/api";
+import { API_URL, apiAssetUrl, apiRequest, authHeaders, authenticatedRequest, getTrainer, getLiveTrainerCatalog, getReferenceData, openProtectedFile } from "@/lib/api";
 import type { Booking } from "@/lib/types";
 
 const expandedBooking: Booking = {
@@ -42,6 +42,18 @@ afterEach(() => {
 });
 
 describe("apiRequest", () => {
+  it("does not substitute a demo trainer when the profile API is offline", async () => {
+    vi.stubGlobal("fetch", vi.fn().mockRejectedValue(new Error("offline")));
+    expect(await getTrainer("demo-trainer-a")).toEqual({
+      data: null, source: "api", error: "โหลดข้อมูลเทรนเนอร์ไม่สำเร็จ กรุณาลองใหม่อีกครั้ง",
+    });
+  });
+
+  it("distinguishes a missing trainer from a failed request", async () => {
+    vi.stubGlobal("fetch", vi.fn().mockResolvedValue({ ok: false, status: 404, json: async () => ({}) }));
+    expect(await getTrainer("demo-trainer-a")).toEqual({ data: null, source: "api" });
+  });
+
   it("keeps the API code and field errors", async () => {
     vi.stubGlobal("fetch", vi.fn().mockResolvedValue({
       ok: false,

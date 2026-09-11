@@ -17,5 +17,8 @@ backend/uploads/*
 !backend/uploads/.htaccess
 .impeccable/questions/
 .claude/settings.local.json
-.cursor/hooks.json
+.agents/
+.cursor/
+graphify-out/
+.superpowers/
 Thumbs.db
