@@ -5,6 +5,7 @@ require_once __DIR__ . '/src/Database.php';
 require_once __DIR__ . '/src/Http.php';
 require_once __DIR__ . '/src/Auth.php';
 require_once __DIR__ . '/src/WorkflowRules.php';
+require_once __DIR__ . '/src/PaymentRouting.php';
 require_once __DIR__ . '/src/ProfileRules.php';
 require_once __DIR__ . '/src/NotificationRules.php';
 require_once __DIR__ . '/src/GmailMailer.php';
@@ -41,6 +42,8 @@ try {
     if ($method === 'PATCH' && $path === '/v1/profile') $handlers->updateProfile();
     if ($method === 'POST' && $path === '/v1/profile/image') $handlers->uploadProfileImage();
     if ($method === 'DELETE' && $path === '/v1/profile/image') $handlers->deleteProfileImage();
+    if ($method === 'POST' && $path === '/v1/profile/payment-qr') $handlers->uploadTrainerPaymentQr();
+    if ($method === 'DELETE' && $path === '/v1/profile/payment-qr') $handlers->deleteTrainerPaymentQr();
     if ($method === 'PATCH' && $path === '/v1/profile/password') $handlers->changeProfilePassword();
     if ($method === 'POST' && $path === '/v1/trainer-applications') $handlers->trainerApplication();
     if ($method === 'GET' && $path === '/v1/trainer/me') $handlers->trainerMe();
@@ -53,13 +56,18 @@ try {
     if ($method === 'GET' && $path === '/v1/notifications') $handlers->notifications();
     if ($method === 'POST' && $path === '/v1/notifications/read-all') $handlers->readAllNotifications();
     if ($method === 'GET' && $path === '/v1/admin/review-queue') $handlers->adminReviewQueue();
+    if ($method === 'GET' && $path === '/v1/trainer/review-queue') $handlers->adminReviewQueue();
+    if ($method === 'GET' && $path === '/v1/admin/payment-routing') $handlers->paymentRouting();
+    if ($method === 'POST' && $path === '/v1/admin/payment-routing') $handlers->savePaymentRouting();
     if ($method === 'GET' && $path === '/v1/admin/operations') $handlers->adminOperations();
     if ($method === 'POST' && $path === '/v1/admin/users') $handlers->createAdminUser();
 
     if ($method === 'GET' && preg_match('#^/v1/trainers/([^/]+)$#', $path, $matches) === 1) $handlers->trainer(urldecode($matches[1]));
     if ($method === 'GET' && preg_match('#^/v1/profile-images/(member|trainer)/(\d+)$#', $path, $matches) === 1) $handlers->profileImage($matches[1], $matches[2]);
+    if ($method === 'GET' && preg_match('#^/v1/trainer-payment-qr/(\d+)$#', $path, $matches) === 1) $handlers->trainerPaymentQr($matches[1]);
     if ($method === 'DELETE' && preg_match('#^/v1/availability-slots/(\d+)$#', $path, $matches) === 1) $handlers->deleteAvailabilitySlot($matches[1]);
     if ($method === 'POST' && preg_match('#^/v1/bookings/([^/]+)/cancel$#', $path, $matches) === 1) $handlers->cancelMemberBooking(urldecode($matches[1]));
+    if ($method === 'POST' && preg_match('#^/v1/bookings/([^/]+)/sessions$#', $path, $matches) === 1) $handlers->addMonthlyBookingSession(urldecode($matches[1]));
     if ($method === 'PATCH' && preg_match('#^/v1/bookings/([^/]+)/status$#', $path, $matches) === 1) $handlers->updateBookingStatus(urldecode($matches[1]));
     if ($method === 'GET' && preg_match('#^/v1/chat-rooms/(\d+)/messages/(\d+)/attachment$#', $path, $matches) === 1) $handlers->chatAttachment($matches[1], $matches[2]);
     if ($method === 'GET' && preg_match('#^/v1/chat-rooms/(\d+)/messages$#', $path, $matches) === 1) $handlers->messages($matches[1]);

@@ -24,11 +24,11 @@ INSERT INTO member_profiles (user_id, goals) VALUES (1, 'ข้อมูลส�
 ON DUPLICATE KEY UPDATE goals = VALUES(goals);
 
 INSERT INTO trainer_profiles
-  (id, user_id, slug, legal_name, phone, headline, bio, years_experience, service_mode, gym_name, price_from, image_path, approval_status, reviewed_by_user_id, reviewed_at, is_demo)
+  (id, user_id, slug, legal_name, phone, headline, bio, years_experience, service_mode, gym_name, price_from, payment_account_name, promptpay_id, image_path, approval_status, reviewed_by_user_id, reviewed_at, is_demo)
 VALUES
-  (1, 2, 'demo-trainer-a', 'เทรนเนอร์สาธิต ก.', '0000000000', 'วางรากฐานความแข็งแรงอย่างเป็นระบบ', 'โปรไฟล์สาธิตสำหรับทดสอบระบบ FitConnect', 6, 'both', 'สถานที่ฝึกสาธิต', 650, '/demo/trainer-a.png', 'approved', 5, UTC_TIMESTAMP(), 1),
-  (2, 3, 'demo-trainer-b', 'เทรนเนอร์สาธิต ข.', '0000000000', 'ขยับดีขึ้นก่อนเพิ่มความหนัก', 'โปรไฟล์สาธิตสำหรับทดสอบระบบ FitConnect', 4, 'freelance', NULL, 550, '/demo/trainer-b.png', 'approved', 5, UTC_TIMESTAMP(), 1),
-  (3, 4, 'demo-trainer-c', 'เทรนเนอร์สาธิต ค.', '0000000000', 'แผนวิ่งและความฟิตที่เข้ากับชีวิตจริง', 'โปรไฟล์สาธิตสำหรับทดสอบคิวอนุมัติ', 5, 'freelance', NULL, NULL, '/demo/trainer-c.png', 'pending', NULL, NULL, 1)
+  (1, 2, 'demo-trainer-a', 'เทรนเนอร์สาธิต ก.', '0000000000', 'วางรากฐานความแข็งแรงอย่างเป็นระบบ', 'โปรไฟล์สาธิตสำหรับทดสอบระบบ FitConnect', 6, 'both', 'สถานที่ฝึกสาธิต', 650, 'บัญชีสาธิต ห้ามโอนเงินจริง', '0000000000', '/demo/trainer-a.png', 'approved', 5, UTC_TIMESTAMP(), 1),
+  (2, 3, 'demo-trainer-b', 'เทรนเนอร์สาธิต ข.', '0000000000', 'ขยับดีขึ้นก่อนเพิ่มความหนัก', 'โปรไฟล์สาธิตสำหรับทดสอบระบบ FitConnect', 4, 'freelance', NULL, 550, 'บัญชีสาธิต ห้ามโอนเงินจริง', '0000000000', '/demo/trainer-b.png', 'approved', 5, UTC_TIMESTAMP(), 1),
+  (3, 4, 'demo-trainer-c', 'เทรนเนอร์สาธิต ค.', '0000000000', 'แผนวิ่งและความฟิตที่เข้ากับชีวิตจริง', 'โปรไฟล์สาธิตสำหรับทดสอบคิวอนุมัติ', 5, 'freelance', NULL, NULL, 'บัญชีสาธิต ห้ามโอนเงินจริง', '0000000000', '/demo/trainer-c.png', 'pending', NULL, NULL, 1)
 ON DUPLICATE KEY UPDATE headline = VALUES(headline), bio = VALUES(bio), approval_status = VALUES(approval_status), is_demo = 1;
 
 INSERT IGNORE INTO trainer_training_types (trainer_profile_id, training_type_id) VALUES
