@@ -18,15 +18,9 @@ import {
 } from "@/components/ui/dialog";
 import { ApiError, authenticatedRequest } from "@/lib/api";
 import { getTrainerNextAction, hasValidBookingPeriod } from "@/lib/dashboard-actions";
-import { formatDateTime } from "@/lib/format";
+import { formatDateTime, formatTime, formatTimeRange } from "@/lib/format";
+import { leaveExpiredSession } from "@/lib/session";
 import type { Booking, SlotState, TrainerAvailabilitySlot, TrainerWorkspace } from "@/lib/types";
-
-function leaveExpiredSession(error: unknown, navigate: (href: string) => void) {
-  if (!(error instanceof ApiError) || error.status !== 401) return false;
-  localStorage.removeItem("fitconnect_token");
-  navigate("/login");
-  return true;
-}
 
 const slotStateCopy: Record<SlotState, string> = {
   available: "พร้อมจอง",
@@ -35,10 +29,12 @@ const slotStateCopy: Record<SlotState, string> = {
   blocked: "ปิดช่วงเวลา",
 };
 
-const dayNameFormatter = new Intl.DateTimeFormat("th-TH", { weekday: "short" });
-const dayDateFormatter = new Intl.DateTimeFormat("th-TH", { day: "numeric", month: "short" });
-const weekDateFormatter = new Intl.DateTimeFormat("th-TH", { day: "numeric", month: "short", year: "numeric" });
-const timeFormatter = new Intl.DateTimeFormat("th-TH", { hour: "2-digit", minute: "2-digit", hour12: false });
+// Every visible date and time is pinned to Bangkok so a trainer's schedule reads
+// the same whatever timezone the machine that rendered it sits in.
+const BANGKOK = "Asia/Bangkok";
+const dayNameFormatter = new Intl.DateTimeFormat("th-TH", { weekday: "short", timeZone: BANGKOK });
+const dayDateFormatter = new Intl.DateTimeFormat("th-TH", { day: "numeric", month: "short", timeZone: BANGKOK });
+const weekDateFormatter = new Intl.DateTimeFormat("th-TH", { day: "numeric", month: "short", year: "numeric", timeZone: BANGKOK });
 
 function startOfWeek(value: Date) {
   const date = new Date(value);
@@ -58,12 +54,8 @@ function localDateKey(value: Date) {
   return `${value.getFullYear()}-${String(value.getMonth() + 1).padStart(2, "0")}-${String(value.getDate()).padStart(2, "0")}`;
 }
 
-function formatTimeRange(startsAt: string, endsAt: string) {
-  return `${timeFormatter.format(new Date(startsAt))}–${timeFormatter.format(new Date(endsAt))} น.`;
-}
-
-const calendarMonthFormatter = new Intl.DateTimeFormat("th-TH", { month: "long", year: "numeric" });
-const calendarDateFormatter = new Intl.DateTimeFormat("th-TH", { day: "numeric", month: "long", year: "numeric" });
+const calendarMonthFormatter = new Intl.DateTimeFormat("th-TH", { month: "long", year: "numeric", timeZone: BANGKOK });
+const calendarDateFormatter = new Intl.DateTimeFormat("th-TH", { day: "numeric", month: "long", year: "numeric", timeZone: BANGKOK });
 const calendarWeekdays = ["จ.", "อ.", "พ.", "พฤ.", "ศ.", "ส.", "อา."];
 const slotHours = Array.from({ length: 16 }, (_, index) => index + 6);
 
@@ -780,7 +772,7 @@ export function TrainerWorkbench({ onIncompleteProfile }: { onIncompleteProfile?
                   </ul>
                 ) : <p>เลือกวันเพื่อดูชั่วโมงที่เปิดได้</p>}
                 {slotsOnSelectedDay.length > 0 && (
-                  <p className="availability-day-slots">วันนี้มีอยู่แล้ว {slotsOnSelectedDay.map((slot) => `${timeFormatter.format(new Date(slot.startsAt))} น. · ${slotStateCopy[slot.state]}`).join(" · ")}</p>
+                  <p className="availability-day-slots">วันนี้มีอยู่แล้ว {slotsOnSelectedDay.map((slot) => `${formatTime(slot.startsAt)} น. · ${slotStateCopy[slot.state]}`).join(" · ")}</p>
                 )}
                 {selectedStarts.length > 0
                   ? <p className="availability-calendar-time__end">จะเพิ่ม {selectedStarts.length} ช่วง · แต่ละช่วงสิ้นสุดใน 1 ชั่วโมง</p>

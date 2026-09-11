@@ -10,6 +10,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { maskPromptPayId, promptPayPayload } from "@/lib/promptpay";
+import { formatAmount, paymentStatusCopy } from "@/lib/payment-copy";
 
 const MAX_SLIP_SIZE = 5 * 1024 * 1024;
 const ACCEPTED_SLIP_TYPES = new Set([
@@ -18,19 +19,6 @@ const ACCEPTED_SLIP_TYPES = new Set([
   "image/webp",
   "application/pdf",
 ]);
-
-const paymentStatusCopy: Record<Booking["paymentStatus"], string> = {
-  not_submitted: "ยังไม่ส่งหลักฐาน",
-  reviewing: "รอตรวจสลิป",
-  approved: "ตรวจสลิปแล้ว",
-  rejected: "กรุณาส่งหลักฐานใหม่",
-};
-
-function formatAmount(amount: number | null): string {
-  return amount === null
-    ? "ไม่มียอดที่บันทึก"
-    : `${new Intl.NumberFormat("th-TH", { minimumFractionDigits: 2, maximumFractionDigits: 2 }).format(amount)} บาท`;
-}
 
 type PaymentPanelProps = {
   booking: Booking;

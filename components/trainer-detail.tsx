@@ -11,21 +11,14 @@ import { StatusBadge } from "@/components/status-badge";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { authenticatedRequest } from "@/lib/api";
-import { formatMoney } from "@/lib/format";
+import { formatMoney, formatShortDay } from "@/lib/format";
 import type { AvailabilitySlot, PublicTrainerReview, Trainer, TrainerWorkspace } from "@/lib/types";
-
-const reviewDate = new Intl.DateTimeFormat("th-TH", {
-  day: "numeric",
-  month: "short",
-  year: "numeric",
-  timeZone: "Asia/Bangkok",
-});
 
 function TrainerReview({ review }: { review: PublicTrainerReview }) {
   return (
     <article className="trainer-review">
       <strong>{review.rating} จาก 5 ดาว</strong>
-      <time dateTime={review.createdAt}>{reviewDate.format(new Date(review.createdAt))}</time>
+      <time dateTime={review.createdAt}>{formatShortDay(review.createdAt)}</time>
       <p>{review.comment}</p>
     </article>
   );

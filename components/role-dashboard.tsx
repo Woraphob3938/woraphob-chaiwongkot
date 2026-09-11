@@ -38,6 +38,7 @@ import { TrainerWorkbench } from "@/components/trainer-workbench";
 import { authenticatedRequest } from "@/lib/api";
 import { getMemberNextAction } from "@/lib/dashboard-actions";
 import { formatDateTime } from "@/lib/format";
+import { formatAmount, paymentStatusCopy } from "@/lib/payment-copy";
 import type { Booking, UserRole } from "@/lib/types";
 
 const roleCopy = {
@@ -46,18 +47,7 @@ const roleCopy = {
   admin: { index: "ผู้ดูแลระบบ", title: "พื้นที่ผู้ดูแลระบบ", lead: "จัดการบัญชี ตรวจเทรนเนอร์ ติดตามการจอง การชำระเงิน และสิทธิ์ของผู้ดูแลระบบ" },
 };
 
-const paymentCopy: Record<Booking["paymentStatus"], string> = {
-  not_submitted: "ยังไม่ส่งหลักฐาน",
-  reviewing: "รอตรวจสลิป",
-  approved: "ตรวจสลิปแล้ว",
-  rejected: "กรุณาส่งหลักฐานใหม่",
-};
-
-function formatAmount(amount: number | null): string {
-  return amount === null
-    ? "ไม่มียอดที่บันทึก"
-    : `${new Intl.NumberFormat("th-TH", { minimumFractionDigits: 2, maximumFractionDigits: 2 }).format(amount)} บาท`;
-}
+const paymentCopy = paymentStatusCopy;
 
 function nextStepCopy(booking: Booking): string {
   if (booking.review) return "รีวิวนี้เผยแพร่แล้ว";

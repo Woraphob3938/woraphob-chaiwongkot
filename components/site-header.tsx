@@ -22,14 +22,15 @@ import {
 } from "lucide-react";
 import { MobileRoleNav } from "@/components/mobile-role-nav";
 import { ApiError, apiAssetUrl, apiRequest, authenticatedRequest } from "@/lib/api";
+import { initials } from "@/lib/format";
 import { navigationFor, type NavigationIcon } from "@/lib/role-navigation";
-import type { AuthenticatedUser, NotificationListResponse, UserRole } from "@/lib/types";
-
-const validRoles: Record<UserRole, true> = {
-  member: true,
-  trainer: true,
-  admin: true,
-};
+import {
+  TOKEN_STORAGE_KEY,
+  USER_STORAGE_KEY,
+  profileImageStorageKey as profileImageKey,
+  readStoredUser,
+} from "@/lib/session";
+import type { AuthenticatedUser, NotificationListResponse } from "@/lib/types";
 
 const sidebarIcons: Partial<Record<NavigationIcon, LucideIcon>> = {
   home: Home,
@@ -45,37 +46,6 @@ function isCurrentDestination(pathname: string, href: string) {
   return href === "/" ? pathname === href : pathname === href || pathname.startsWith(`${href}/`);
 }
 
-function userInitials(displayName: string) {
-  const parts = displayName.trim().split(/\s+/).filter(Boolean);
-  if (parts.length === 0) return "FC";
-  return parts.slice(0, 2).map((part) => Array.from(part)[0]).join("").toLocaleUpperCase("th-TH");
-}
-
-function readStoredUser() {
-  const stored = localStorage.getItem("fitconnect_user");
-  if (!stored) return null;
-  try {
-    const user = JSON.parse(stored) as Partial<AuthenticatedUser>;
-    if (
-      typeof user.id !== "number"
-      || typeof user.email !== "string"
-      || typeof user.displayName !== "string"
-      || !user.role
-      || !(user.role in validRoles)
-    ) {
-      throw new Error("Invalid stored user");
-    }
-    return user as AuthenticatedUser;
-  } catch {
-    localStorage.removeItem("fitconnect_user");
-    return null;
-  }
-}
-
-function profileImageKey(userId: number) {
-  return `fitconnect_profile_image_${userId}`;
-}
-
 function AccountAvatar({ user }: { user: AuthenticatedUser }) {
   const [failed, setFailed] = useState(false);
   const source = apiAssetUrl(user.imageUrl ?? null);
@@ -83,7 +53,7 @@ function AccountAvatar({ user }: { user: AuthenticatedUser }) {
     <span className="profile-avatar" aria-hidden="true">
       {source && !failed
         ? <Image src={source} alt="" width={36} height={36} unoptimized onError={() => setFailed(true)} />
-        : userInitials(user.displayName)}
+        : initials(user.displayName)}
     </span>
   );
 }
@@ -102,7 +72,7 @@ export function SiteHeader() {
 
   useLayoutEffect(() => {
     const hasStoredSession = Boolean(
-      localStorage.getItem("fitconnect_token") && localStorage.getItem("fitconnect_user"),
+      localStorage.getItem(TOKEN_STORAGE_KEY) && localStorage.getItem(USER_STORAGE_KEY),
     );
     document.documentElement.dataset.fitconnectSession = hasStoredSession ? "authenticated" : "guest";
   }, []);
@@ -112,7 +82,7 @@ export function SiteHeader() {
 
     async function syncSession(event?: Event) {
       const eventUser = event instanceof CustomEvent ? event.detail as AuthenticatedUser | null : null;
-      const token = localStorage.getItem("fitconnect_token");
+      const token = localStorage.getItem(TOKEN_STORAGE_KEY);
       const storedUser = eventUser ?? readStoredUser();
 
       if (!token) {
@@ -143,13 +113,13 @@ export function SiteHeader() {
             : updatedStoredUser?.displayName ?? currentUser.displayName,
           imageUrl,
         };
-        localStorage.setItem("fitconnect_user", JSON.stringify(synchronizedUser));
+        localStorage.setItem(USER_STORAGE_KEY, JSON.stringify(synchronizedUser));
         setUser(synchronizedUser);
       } catch (error) {
         if (!active) return;
         if (error instanceof ApiError && (error.status === 401 || error.status === 403)) {
-          localStorage.removeItem("fitconnect_token");
-          localStorage.removeItem("fitconnect_user");
+          localStorage.removeItem(TOKEN_STORAGE_KEY);
+          localStorage.removeItem(USER_STORAGE_KEY);
           setUser(null);
         } else {
           setUser(storedUser);
@@ -179,7 +149,7 @@ export function SiteHeader() {
         if (!currentUser) return currentUser;
         const imageUrl = typeof detail.imageUrl === "string" ? detail.imageUrl : null;
         const nextUser = { ...currentUser, displayName, imageUrl };
-        localStorage.setItem("fitconnect_user", JSON.stringify(nextUser));
+        localStorage.setItem(USER_STORAGE_KEY, JSON.stringify(nextUser));
         if (imageUrl) localStorage.setItem(profileImageKey(currentUser.id), imageUrl);
         else localStorage.removeItem(profileImageKey(currentUser.id));
         return nextUser;
@@ -256,7 +226,7 @@ export function SiteHeader() {
   }, [pathname, user?.role]);
 
   async function signOut() {
-    const token = localStorage.getItem("fitconnect_token");
+    const token = localStorage.getItem(TOKEN_STORAGE_KEY);
     try {
       if (token) {
         await apiRequest("/v1/auth/logout", {
@@ -267,8 +237,8 @@ export function SiteHeader() {
     } catch {
       // Local sign-out must still work when the API is temporarily unavailable.
     } finally {
-      localStorage.removeItem("fitconnect_token");
-      localStorage.removeItem("fitconnect_user");
+      localStorage.removeItem(TOKEN_STORAGE_KEY);
+      localStorage.removeItem(USER_STORAGE_KEY);
       if (user) localStorage.removeItem(profileImageKey(user.id));
       document.documentElement.dataset.fitconnectSession = "guest";
       setUser(null);

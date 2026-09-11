@@ -37,11 +37,11 @@ describe("ProfileBookingPanel", () => {
       screen.getByRole("button", { name: /ดูตารางว่างทั้งหมด.*4 ช่วงพร้อมจอง/ }),
     );
     const dialog = screen.getByRole("dialog", { name: "เลือกวันและเวลาฝึก" });
-    fireEvent.click(within(dialog).getByRole("button", { name: "09:00 ถึง 10:00" }));
+    fireEvent.click(within(dialog).getByRole("button", { name: "09:00–10:00" }));
     fireEvent.click(within(dialog).getByRole("button", { name: "ยืนยันเวลานี้" }));
 
     expect(screen.getByText("เลือกเวลาแล้ว")).toBeInTheDocument();
-    expect(screen.getByText(/09:00 ถึง 10:00 น./)).toBeInTheDocument();
+    expect(screen.getByText(/09:00–10:00 น./)).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "เปลี่ยนเวลา" })).toBeInTheDocument();
     await waitFor(() => {
       expect(screen.getByRole("button", { name: "เปลี่ยนเวลา" })).toHaveFocus();
@@ -95,7 +95,7 @@ describe("ProfileBookingPanel", () => {
     expect(screen.getByText("เลือกนัดแรกก่อน อีก 1 นัดจัดเวลาได้หลังชำระเงินผ่าน")).toBeInTheDocument();
     fireEvent.click(screen.getByRole("button", { name: "เลือกเวลานัดแรก", expanded: false }));
     const dialog = screen.getByRole("dialog", { name: "เลือกวันและเวลานัดแรก" });
-    fireEvent.click(within(dialog).getByRole("button", { name: "09:00 ถึง 10:00" }));
+    fireEvent.click(within(dialog).getByRole("button", { name: "09:00–10:00" }));
     fireEvent.click(within(dialog).getByRole("button", { name: "ยืนยันเวลานัดแรก" }));
 
     expect(screen.getByRole("link", { name: "จองแพ็กเกจนี้" })).toHaveAttribute(

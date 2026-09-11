@@ -37,6 +37,7 @@ export function TrainerMarketplaceCard({
         ) : (
           <span aria-hidden="true">{initials(trainer.displayName)}</span>
         )}
+        {trainer.demo && <span className="trainer-demo-label">ภาพสาธิต</span>}
       </Link>
 
       <div className="trainer-marketplace-card__body">

@@ -83,9 +83,19 @@ try {
 } catch (HttpException $error) {
     Http::error($error);
 } catch (Throwable $error) {
-    error_log($error->getMessage());
-    $message = ($config['environment'] ?? 'production') === 'local'
-        ? 'บริการขัดข้อง: ' . $error->getMessage()
-        : 'บริการขัดข้อง กรุณาลองใหม่';
-    Http::error(new HttpException(500, $message, 'SERVER_ERROR'));
+    $trace = bin2hex(random_bytes(6));
+    error_log(sprintf(
+        '[fitconnect:%s] %s in %s:%d%s%s',
+        $trace,
+        $error->getMessage(),
+        $error->getFile(),
+        $error->getLine(),
+        PHP_EOL,
+        $error->getTraceAsString()
+    ));
+    Http::error(new HttpException(
+        500,
+        'บริการขัดข้อง กรุณาลองใหม่ (รหัสอ้างอิง ' . $trace . ')',
+        'SERVER_ERROR'
+    ));
 }

@@ -21,6 +21,7 @@ import {
   Search,
 } from "lucide-react";
 import { ApiError, authenticatedRequest } from "@/lib/api";
+import { formatDateTime, formatDay } from "@/lib/format";
 import type {
   NotificationCategory,
   NotificationDetail,
@@ -59,14 +60,6 @@ const bookingStatus: Record<string, string> = {
   expired: "หมดเวลา",
 };
 
-function formatDateTime(value: string) {
-  return new Intl.DateTimeFormat("th-TH", {
-    dateStyle: "medium",
-    timeStyle: "short",
-    timeZone: "Asia/Bangkok",
-  }).format(new Date(value));
-}
-
 function formatRelativeTime(value: string) {
   try {
     const date = new Date(value);
@@ -84,11 +77,7 @@ function formatRelativeTime(value: string) {
     if (diffDays === 1) return "เมื่อวานนี้";
     if (diffDays < 7) return `${diffDays} วันที่แล้ว`;
 
-    return new Intl.DateTimeFormat("th-TH", {
-      day: "numeric",
-      month: "short",
-      timeZone: "Asia/Bangkok",
-    }).format(date);
+    return formatDay(value);
   } catch {
     return value;
   }

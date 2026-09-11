@@ -36,6 +36,7 @@ export function TrainerPreviewCard({ trainer, priority = false }: TrainerPreview
             <UserRound aria-hidden="true" />
           </span>
         )}
+        {trainer.demo && <span className="trainer-demo-label">ภาพสาธิต</span>}
       </div>
 
       <div className="trainer-preview-card__body">

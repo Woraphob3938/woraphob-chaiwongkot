@@ -169,12 +169,12 @@ describe("AdminReviewQueue", () => {
     expect(within(row).getByText("คำขอจอง BK-000777")).toBeInTheDocument();
     expect(within(row).getByText("สมาชิกทดสอบ")).toBeInTheDocument();
     expect(within(row).getByText("เทรนเนอร์ทดสอบ")).toBeInTheDocument();
-    expect(within(row).getByText("เสาร์ 1 ส.ค. · 10:00 น. ถึง เสาร์ 1 ส.ค. · 11:00 น.")).toBeInTheDocument();
+    expect(within(row).getByText("เสาร์ 1 ส.ค. 2569 · 10:00 น. ถึง เสาร์ 1 ส.ค. 2569 · 11:00 น.")).toBeInTheDocument();
     expect(within(row).queryByText("สถานที่")).not.toBeInTheDocument();
     expect(within(row).getByText("฿1,200.00")).toBeInTheDocument();
     expect(within(row).getByText("฿1,000.00")).toBeInTheDocument();
     expect(within(row).getByText("-฿200.00")).toBeInTheDocument();
-    expect(within(row).getByText("เสาร์ 1 ส.ค. · 09:00 น.")).toBeInTheDocument();
+    expect(within(row).getByText("เสาร์ 1 ส.ค. 2569 · 09:00 น.")).toBeInTheDocument();
     expect(within(row).getByText("ตรวจหลักฐานของยิมที่คุณดูแล")).toBeInTheDocument();
   });
 

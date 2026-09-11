@@ -58,7 +58,7 @@ describe("TrainerDetail", () => {
 
     fireEvent.click(screen.getByRole("button", { name: /ดูตารางว่างทั้งหมด/ }));
     const schedule = screen.getByRole("dialog", { name: "เลือกวันและเวลาฝึก" });
-    fireEvent.click(within(schedule).getByRole("button", { name: "09:00 ถึง 10:00" }));
+    fireEvent.click(within(schedule).getByRole("button", { name: "09:00–10:00" }));
     fireEvent.click(within(schedule).getByRole("button", { name: "ยืนยันเวลานี้" }));
 
     expect(screen.getAllByRole("link", { name: "จองเวลานี้" })).toHaveLength(1);

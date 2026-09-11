@@ -16,6 +16,7 @@ import {
 } from "lucide-react";
 import { apiRequest, authenticatedRequest } from "@/lib/api";
 import { resolvePostAuthDestination } from "@/lib/post-auth-destination";
+import { TOKEN_STORAGE_KEY, USER_STORAGE_KEY, readStoredUser } from "@/lib/session";
 import type { AuthenticatedUser, TrainerWorkspace } from "@/lib/types";
 
 type AuthFormProps = {
@@ -24,16 +25,6 @@ type AuthFormProps = {
 };
 
 const defaultNavigate = (href: string) => window.location.assign(href);
-
-function readStoredUser(): AuthenticatedUser | null {
-  if (typeof window === "undefined" || !localStorage.getItem("fitconnect_token")) return null;
-  try {
-    const user = JSON.parse(localStorage.getItem("fitconnect_user") ?? "null") as AuthenticatedUser | null;
-    return user && ["member", "trainer", "admin"].includes(user.role) ? user : null;
-  } catch {
-    return null;
-  }
-}
 
 function getSafeRedirectUrl(): string | null {
   if (typeof window === "undefined") return null;
@@ -118,8 +109,8 @@ export function AuthForm({ mode, navigate = defaultNavigate }: AuthFormProps) {
         method: "POST",
         body: JSON.stringify(payload),
       });
-      localStorage.setItem("fitconnect_token", result.token);
-      localStorage.setItem("fitconnect_user", JSON.stringify(result.user));
+      localStorage.setItem(TOKEN_STORAGE_KEY, result.token);
+      localStorage.setItem(USER_STORAGE_KEY, JSON.stringify(result.user));
       window.dispatchEvent(new CustomEvent("fitconnect:auth", { detail: result.user }));
       setAuthenticatedUser(result.user);
     } catch (error) {

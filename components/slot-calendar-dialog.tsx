@@ -229,18 +229,19 @@ export function SlotCalendarDialog(props: Props) {
                 (() => {
                   const selected = draftSlot?.id === slot.id;
                   const crossesDay = crossesBangkokDay(slot.startsAt, slot.endsAt);
+                  const label = `${formatTime(slot.startsAt)}–${formatTime(slot.endsAt)}${crossesDay ? ` สิ้นสุดวันถัดไป ${formatDay(slot.endsAt)}` : ""}`;
                   return (
                     <button
                       key={slot.id}
                       type="button"
                       className={`slot-calendar-time${selected ? " is-selected" : ""}`}
                       aria-pressed={selected}
-                      aria-label={`${formatTime(slot.startsAt)} ถึง ${formatTime(slot.endsAt)}${crossesDay ? ` สิ้นสุดวันถัดไป ${formatDay(slot.endsAt)}` : ""}`}
+                      aria-label={label}
                       onClick={() => {
                         setDraftSlot(slot);
                       }}
                     >
-                      {formatTime(slot.startsAt)} ถึง {formatTime(slot.endsAt)} น.
+                      {formatTime(slot.startsAt)}–{formatTime(slot.endsAt)} น.
                       {crossesDay && <small>สิ้นสุดวันถัดไป · {formatDay(slot.endsAt)}</small>}
                     </button>
                   );

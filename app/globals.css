@@ -6978,9 +6978,13 @@ body {
 .slot-calendar-dialog {
   width: min(58rem, calc(100% - 2rem));
   max-width: 58rem;
+  height: min(46rem, calc(100svh - 2rem));
   max-height: calc(100svh - 2rem);
   gap: 0;
-  grid-template-rows: auto minmax(0, 1fr);
+  /* header · scrolling body · footer. The third row is declared so a long time
+     list scrolls inside the body instead of pushing the submit buttons off the
+     clipped dialog. */
+  grid-template-rows: auto minmax(0, 1fr) auto;
   padding: 0;
   overflow: hidden;
   background: var(--color-paper);
@@ -8128,7 +8132,7 @@ a.trainer-week-event:hover {
 
 .trainer-marketplace-card__media img {
   object-fit: cover;
-  transition: transform var(--dur-standard) var(--ease-out);
+  transition: transform var(--dur-short) var(--ease-out);
 }
 
 .trainer-marketplace-card:hover .trainer-marketplace-card__media img {
@@ -9522,7 +9526,7 @@ body:has(.app-sidebar) .page-footer {
     font-size: var(--text-sm);
     box-shadow: 0 4px 14px var(--color-shadow);
     text-decoration: none;
-    transition: transform var(--transition-fast), background var(--transition-fast);
+    transition: transform var(--dur-micro) var(--ease-out), background var(--dur-micro) var(--ease-out);
   }
 
   .trainer-mobile-booking-action:hover,

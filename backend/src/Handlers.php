@@ -38,7 +38,6 @@ final class Handlers
 
     public function trainers(): never
     {
-        $this->expireAwaitingPayments();
         $rows = $this->database->fetchAll(
             'SELECT tp.id, tp.user_id, tp.slug, tp.headline, tp.bio, tp.years_experience, tp.service_mode,
                     tp.gym_name, tp.price_from, tp.monthly_price, tp.monthly_session_count, tp.approval_status, tp.image_path, tp.is_demo,
@@ -58,7 +57,6 @@ final class Handlers
 
     public function trainer(string $slug): never
     {
-        $this->expireAwaitingPayments();
         $row = $this->trainerRow('tp.slug = ? AND u.status = "active"', [$slug]);
         $currentUser = $this->auth->currentUser();
         $isOwner = $currentUser !== null && $row && (int) $currentUser['id'] === (int) ($row['user_id'] ?? 0);
@@ -96,7 +94,6 @@ final class Handlers
     public function trainerMe(): never
     {
         $user = $this->auth->requireUser(['trainer']);
-        $this->expireAwaitingPayments();
         $profile = $this->database->fetchOne(
             'SELECT id, slug, approval_status, approval_note FROM trainer_profiles WHERE user_id = ?',
             [$user['id']]
@@ -538,16 +535,23 @@ final class Handlers
         }
         $certificate = $this->saveUpload('certificate', ['application/pdf'], 8 * 1024 * 1024, 'certificates');
 
+        $replacedCertificatePaths = [];
         try {
-            $profileId = $this->database->transaction(function (PDO $pdo) use ($user, $input, $certificate): int {
-                $existing = $this->database->fetchOne('SELECT id FROM trainer_profiles WHERE user_id = ?', [$user['id']]);
-                if ($existing) {
-                    $profileId = (int) $existing['id'];
+            $profileId = $this->database->transaction(function (PDO $pdo) use ($user, $input, $certificate, &$replacedCertificatePaths): int {
+                $existing = $pdo->prepare('SELECT id, approval_status FROM trainer_profiles WHERE user_id = ? FOR UPDATE');
+                $existing->execute([$user['id']]);
+                $profile = $existing->fetch();
+                if ($profile) {
+                    $profileId = (int) $profile['id'];
+                    // A rejected application goes back into the queue, but an
+                    // approved trainer editing their own details stays approved
+                    // and only clears the note that belonged to the old decision.
+                    $approvalStatus = $profile['approval_status'] === 'approved' ? 'approved' : 'pending';
                     $pdo->prepare(
-                        'UPDATE trainer_profiles SET legal_name = ?, phone = ?, service_mode = ?, bio = ?, approval_status = "pending", approval_note = NULL, updated_at = UTC_TIMESTAMP() WHERE id = ?'
+                        'UPDATE trainer_profiles SET legal_name = ?, phone = ?, service_mode = ?, bio = ?, approval_status = ?, approval_note = NULL, updated_at = UTC_TIMESTAMP() WHERE id = ?'
                     )->execute([
                         trim((string) $input['legalName']), trim((string) $input['phone']),
-                        $input['serviceMode'], trim((string) $input['experience']), $profileId,
+                        $input['serviceMode'], trim((string) $input['experience']), $approvalStatus, $profileId,
                     ]);
                 } else {
                     $pdo->prepare(
@@ -563,6 +567,15 @@ final class Handlers
                 $pdo->prepare('DELETE FROM trainer_training_types WHERE trainer_profile_id = ?')->execute([$profileId]);
                 $pdo->prepare('INSERT INTO trainer_training_types (trainer_profile_id, training_type_id) VALUES (?, ?)')
                     ->execute([$profileId, (int) $input['trainingTypeId']]);
+
+                // The application owns exactly one certificate. Replacing the set
+                // keeps a resubmission from stacking identical rows, and the files
+                // that leave the record are deleted once the transaction commits.
+                $previousFiles = $pdo->prepare('SELECT file_path FROM trainer_certificates WHERE trainer_profile_id = ?');
+                $previousFiles->execute([$profileId]);
+                $replacedCertificatePaths = array_column($previousFiles->fetchAll(), 'file_path');
+                $pdo->prepare('DELETE FROM trainer_certificates WHERE trainer_profile_id = ?')->execute([$profileId]);
+
                 $pdo->prepare(
                     'INSERT INTO trainer_certificates (trainer_profile_id, name, issuer, file_path, mime_type, status)
                      VALUES (?, "เอกสารใบรับรองจากผู้สมัคร", "รอระบุ", ?, ?, "pending")'
@@ -572,6 +585,10 @@ final class Handlers
         } catch (Throwable $error) {
             $this->removeUpload($certificate['path']);
             throw $error;
+        }
+
+        foreach ($replacedCertificatePaths as $previousPath) {
+            $this->removeUpload((string) $previousPath);
         }
 
         Http::json(['trainerProfileId' => $profileId, 'status' => 'pending', 'message' => 'ส่งใบสมัครให้ผู้ดูแลระบบตรวจแล้ว'], 201);
@@ -973,6 +990,20 @@ final class Handlers
                 $this->setBookingSlotsState($pdo, (int) $booking['id'], $booking['availability_slot_id'], $slotState);
             }
             if ($newStatus === 'cancelled') {
+                $cancelNote = trim((string) ($input['note'] ?? ''));
+                // An administrator can cancel while a slip is still queued. Close
+                // that payment out too, otherwise it stays "reviewing" forever and
+                // decidePayment answers PAYMENT_ALREADY_REVIEWED with no way back.
+                $closedPayments = $pdo->prepare(
+                    'UPDATE payments
+                     SET status = "rejected", review_note = ?, reviewed_by_user_id = ?, reviewed_at = UTC_TIMESTAMP()
+                     WHERE booking_id = ? AND status = "reviewing"'
+                );
+                $closedPayments->execute([
+                    $cancelNote === '' ? 'คำขอจองถูกยกเลิกโดยผู้ดูแลระบบ' : $cancelNote,
+                    $user['id'],
+                    $booking['id'],
+                ]);
                 $notificationIds = array_merge($notificationIds, $this->notifications->recordEvent(
                     $pdo,
                     NotificationRules::BOOKING_CANCELLED,
@@ -981,7 +1012,7 @@ final class Handlers
                         (int) $booking['id'],
                         (string) $booking['status'],
                         'cancelled',
-                        trim((string) ($input['note'] ?? ''))
+                        $cancelNote
                     )
                 ));
             }
@@ -1070,7 +1101,6 @@ final class Handlers
     public function messages(string $roomId): never
     {
         $user = $this->auth->requireUser();
-        $this->expireAwaitingPayments();
         $room = $this->requireChatParticipant((int) $roomId, $user);
         $rawAfterId = $_GET['afterId'] ?? '0';
         if (is_array($rawAfterId) || preg_match('/^\d+$/', (string) $rawAfterId) !== 1) {
@@ -1128,7 +1158,6 @@ final class Handlers
     public function sendMessage(string $roomId): never
     {
         $user = $this->auth->requireUser();
-        $this->expireAwaitingPayments();
         $room = $this->requireChatParticipant((int) $roomId, $user);
         WorkflowRules::assertChatWritable((string) $room['booking_status']);
         $input = Http::body();
@@ -1307,7 +1336,6 @@ final class Handlers
     public function adminOperations(): never
     {
         $admin = $this->auth->requireUser(['admin']);
-        $this->expireAwaitingPayments();
         $permissions = $this->adminPermissions((int) $admin['id']);
         $pageSize = 10;
         $userPage = $this->adminPage('userPage');
@@ -1749,13 +1777,13 @@ final class Handlers
     public function adminReviewQueue(): never
     {
         $admin = $this->auth->requireUser(['admin', 'trainer']);
-        $permissions = $admin['role'] === 'admin' ? $this->adminPermissions((int) $admin['id'])
-            : ['reviewTrainers' => false, 'reviewPayments' => true];
+        $permissions = $admin['role'] === 'admin'
+            ? $this->adminPermissions((int) $admin['id'])
+            : array_merge($this->adminPermissionsFromRow([]), ['reviewPayments' => true]);
         [$paymentScope, $paymentParams] = PaymentRouting::scope($admin);
         if (!$permissions['reviewTrainers'] && !$permissions['reviewPayments']) {
             throw new HttpException(403, 'บัญชีนี้ไม่มีสิทธิ์เปิดคิวตรวจสอบ', 'ADMIN_PERMISSION_REQUIRED');
         }
-        $this->expireAwaitingPayments();
         $trainers = $permissions['reviewTrainers'] ? $this->database->fetchAll(
             'SELECT tp.id, tp.slug, tp.created_at, tp.is_demo, u.display_name, COUNT(tc.id) AS certificate_count
              FROM trainer_profiles tp
@@ -2300,6 +2328,13 @@ final class Handlers
         $isTrainer = $role === 'trainer';
         $hasReview = $row['review_id'] !== null;
         $appointmentEnded = strtotime($row['ends_at'] . ' UTC') <= time();
+        $periodExpired = ($row['period_end'] ?? null) !== null && strtotime($row['period_end'] . ' UTC') < time();
+        // Reads never expire rows: the scheduler and the write paths own that.
+        // A hold whose deadline has passed is reported as expired here so the
+        // member, trainer and administrator surfaces stay truthful in between.
+        $deadlinePassed = $row['payment_deadline_at'] !== null
+            && strtotime($row['payment_deadline_at'] . ' UTC') <= time();
+        $status = $row['status'] === 'awaiting_payment' && $deadlinePassed ? 'expired' : $row['status'];
 
         return [
             'id' => $row['public_id'],
@@ -2329,7 +2364,7 @@ final class Handlers
                 'endsAt' => $this->iso($row['ends_at']),
             ]],
             'note' => $row['member_note'] ?? '',
-            'status' => $row['status'], 'paymentStatus' => $row['payment_status'], 'createdAt' => $this->iso($row['created_at']),
+            'status' => $status, 'paymentStatus' => $row['payment_status'], 'createdAt' => $this->iso($row['created_at']),
             'paymentDeadlineAt' => $row['payment_deadline_at'] === null ? null : $this->iso($row['payment_deadline_at']),
             'paymentServiceMode' => $row['payment_service_mode'] ?? null,
             'paymentRecipient' => $isMember && !empty($row['payment_account_name']) && !empty($row['promptpay_id']) ? [
@@ -2353,20 +2388,23 @@ final class Handlers
             ],
             'actions' => [
                 'canPay' => $isMember
-                    && $row['status'] === 'awaiting_payment'
+                    && $status === 'awaiting_payment'
                     && $row['payment_deadline_at'] !== null
                     && strtotime($row['payment_deadline_at'] . ' UTC') > time(),
                 'canReadChat' => $role !== 'admin',
-                'canSendChat' => $role !== 'admin' && in_array($row['status'], $acceptedStatuses, true),
-                'canComplete' => $isTrainer && $row['status'] === 'confirmed' && $row['payment_status'] === 'approved'
-                    && $appointmentEnded && (($row['booking_type'] ?? 'single') !== 'monthly' || count($sessions) >= (int) ($row['session_count'] ?? 1)),
-                'canReview' => $isMember && $row['status'] === 'completed' && !$hasReview,
+                'canSendChat' => $role !== 'admin' && in_array($status, $acceptedStatuses, true),
+                'canComplete' => $isTrainer && $status === 'confirmed' && $row['payment_status'] === 'approved'
+                    && $appointmentEnded
+                    && (($row['booking_type'] ?? 'single') !== 'monthly'
+                        || count($sessions) >= (int) ($row['session_count'] ?? 1)
+                        || $periodExpired),
+                'canReview' => $isMember && $status === 'completed' && !$hasReview,
                 'canScheduleSession' => $isMember && ($row['booking_type'] ?? 'single') === 'monthly'
-                    && $row['status'] === 'confirmed' && $row['payment_status'] === 'approved'
+                    && $status === 'confirmed' && $row['payment_status'] === 'approved'
                     && count($sessions) < (int) ($row['session_count'] ?? 1)
                     && ($row['period_end'] ?? null) !== null && strtotime($row['period_end'] . ' UTC') > time(),
                 'canCancel' => $isMember
-                    && $row['status'] === 'awaiting_payment'
+                    && $status === 'awaiting_payment'
                     && in_array($row['payment_status'], ['not_submitted', 'rejected'], true)
                     && $row['payment_deadline_at'] !== null
                     && strtotime($row['payment_deadline_at'] . ' UTC') > time(),

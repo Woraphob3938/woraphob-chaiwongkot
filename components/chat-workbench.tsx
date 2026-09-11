@@ -32,7 +32,9 @@ import {
   DialogTrigger,
 } from "@/components/ui/dialog";
 import { ApiError, apiAssetUrl, authenticatedRequest, openProtectedFile } from "@/lib/api";
-import { formatDateTime, initials } from "@/lib/format";
+import { formatDateTime, formatShortDay, initials } from "@/lib/format";
+import { formatAmount, paymentStatusCopy } from "@/lib/payment-copy";
+import { readStoredUser } from "@/lib/session";
 import type { Booking, ChatMessage, UserRole } from "@/lib/types";
 
 const MAX_ATTACHMENT_SIZE = 5 * 1024 * 1024;
@@ -43,13 +45,6 @@ const ACCEPTED_ATTACHMENT_TYPES = new Set([
   "image/webp",
   "application/pdf",
 ]);
-
-const paymentStatusCopy: Record<Booking["paymentStatus"], string> = {
-  not_submitted: "ยังไม่ส่งหลักฐาน",
-  reviewing: "รอตรวจสลิป",
-  approved: "ตรวจสลิปแล้ว",
-  rejected: "กรุณาส่งหลักฐานใหม่",
-};
 
 function mergeMessages(current: ChatMessage[], incoming: ChatMessage[]): ChatMessage[] {
   const byId = new Map<number, ChatMessage>();
@@ -74,11 +69,6 @@ function readableMime(mime: string): string {
   return known[mime] ?? mime;
 }
 
-function formatAmount(amount: number | null): string {
-  if (amount === null) return "ไม่มียอดที่บันทึก";
-  return `${new Intl.NumberFormat("th-TH", { minimumFractionDigits: 2, maximumFractionDigits: 2 }).format(amount)} บาท`;
-}
-
 function formatDateDivider(value: string) {
   try {
     const date = new Date(value);
@@ -98,12 +88,7 @@ function formatDateDivider(value: string) {
     if (isToday) return "วันนี้";
     if (isYesterday) return "เมื่อวานนี้";
 
-    return new Intl.DateTimeFormat("th-TH", {
-      day: "numeric",
-      month: "short",
-      year: "numeric",
-      timeZone: "Asia/Bangkok",
-    }).format(date);
+    return formatShortDay(value);
   } catch {
     return value;
   }
@@ -123,21 +108,11 @@ function isSameDay(a: string, b: string) {
   }
 }
 
-function readStoredUser(): { id: number | null; role: UserRole | null } {
-  if (typeof window === "undefined") return { id: null, role: null };
-  try {
-    const stored = JSON.parse(localStorage.getItem("fitconnect_user") ?? "null") as {
-      id?: unknown;
-      role?: unknown;
-    } | null;
-    const role = stored?.role;
-    return {
-      id: typeof stored?.id === "number" ? stored.id : null,
-      role: role === "member" || role === "trainer" || role === "admin" ? role : null,
-    };
-  } catch {
-    return { id: null, role: null };
-  }
+function readChatIdentity(): { id: number | null; role: UserRole | null } {
+  // This surface only needs identity, not a guaranteed live token, so it reads
+  // the cached user without the token gate the shell applies.
+  const user = readStoredUser({ requireToken: false });
+  return { id: user?.id ?? null, role: user?.role ?? null };
 }
 
 function chatPeer(booking: Booking, role: UserRole | null) {
@@ -254,7 +229,7 @@ export function ChatWorkbench({ initialBookingId }: ChatWorkbenchProps) {
   const [retrying, setRetrying] = useState(false);
   const [openingAttachment, setOpeningAttachment] = useState<number | null>(null);
   const [factsOpen, setFactsOpen] = useState(false);
-  const [{ id: currentUserId, role: currentUserRole }] = useState(readStoredUser);
+  const [{ id: currentUserId, role: currentUserRole }] = useState(readChatIdentity);
 
   const mountedRef = useRef(true);
   const generationRef = useRef(0);

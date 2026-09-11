@@ -27,7 +27,7 @@ npm run dev
 1. เปิด Apache และ MySQL ใน XAMPP Control Panel
 2. คัดลอก `backend/.env.example` เป็น `backend/.env` หากต้องเปลี่ยนค่าฐานข้อมูล
 3. รัน `npm run xampp:connect`
-4. หากเป็นฐานข้อมูลเดิม รัน `npm run migrate:admin-permissions` และ `npm run migrate:monthly-bookings` คำสั่งแรกให้สิทธิ์ผู้ดูแลระบบเดิมที่ยังไม่มีรายการสิทธิ์ครบทั้ง 4 ด้าน จึงต้องเข้าเมนู **ผู้ดูแลระบบ** เพื่อตรวจและลดสิทธิ์ให้เหลือเท่าที่จำเป็น
+4. หากเป็นฐานข้อมูลเดิม รัน `npm run migrate:admin-permissions`, `npm run migrate:monthly-bookings`, `npm run migrate:payment-proof` และ `npm run migrate:payment-routing` คำสั่งแรกให้สิทธิ์ผู้ดูแลระบบเดิมที่ยังไม่มีรายการสิทธิ์ครบทั้ง 4 ด้าน จึงต้องเข้าเมนู **ผู้ดูแลระบบ** เพื่อตรวจและลดสิทธิ์ให้เหลือเท่าที่จำเป็น คำสั่งที่สามเพิ่มข้อมูลพร้อมเพย์และ QR รับเงิน ส่วนคำสั่งสุดท้ายระบุผู้ตรวจสลิปของการจองเดิม โดยทุกคำสั่งสำรองฐานข้อมูลก่อนแก้โครงสร้าง
 5. เปิด `http://localhost/fitconnect-api/v1/health`
 
 สคริปต์ตรวจสอบตำแหน่งทั้งหมดก่อนทำงานและจะไม่เขียนทับ `C:\xampp\htdocs\fitconnect-api` หากมีของเดิมอยู่แล้ว

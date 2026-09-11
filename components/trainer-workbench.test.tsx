@@ -477,7 +477,7 @@ describe("TrainerWorkbench", () => {
     fireEvent.click(await screen.findByRole("button", { name: "ดูรายละเอียด" }));
     expect(await screen.findByRole("button", { name: "รอสิ้นสุดการฝึก BK-WAIT" })).toBeDisabled();
     expect(screen.queryByRole("button", { name: "บันทึกว่าฝึกเสร็จ BK-WAIT" })).not.toBeInTheDocument();
-    expect(screen.getByText("บันทึกผลได้หลัง จันทร์ 10 ส.ค. · 10:00 น.")).toBeInTheDocument();
+    expect(screen.getByText("บันทึกผลได้หลัง จันทร์ 10 ส.ค. 2569 · 10:00 น.")).toBeInTheDocument();
   });
 
   it("prevents duplicate completion and reports a failed refresh beside confirmed bookings", async () => {

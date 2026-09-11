@@ -133,7 +133,7 @@ describe("member role dashboard", () => {
     const paymentDialog = screen.getByRole("dialog", { name: "เทรนเนอร์ ค." });
 
     expect(within(paymentDialog).getByText("รอชำระเงิน")).toBeInTheDocument();
-    expect(within(paymentDialog).getAllByText("จันทร์ 10 ส.ค. · 09:00 น.").length).toBeGreaterThan(0);
+    expect(within(paymentDialog).getAllByText("จันทร์ 10 ส.ค. 2569 · 09:00 น.").length).toBeGreaterThan(0);
     expect(within(paymentDialog).queryByText("สถานที่")).not.toBeInTheDocument();
     expect(within(paymentDialog).getAllByText("1,200.00 บาท").length).toBeGreaterThan(0);
     expect(within(paymentDialog).getByRole("button", { name: "ส่งสลิปให้ตรวจ" })).toBeInTheDocument();
@@ -214,8 +214,8 @@ describe("member role dashboard", () => {
     const dialog = screen.getByRole("dialog", { name: "เทรนเนอร์ ค." });
 
     expect(within(dialog).getByText("แพ็กเกจ 30 วัน · 2 ครั้ง")).toBeInTheDocument();
-    expect(within(dialog).getAllByText("จันทร์ 10 ส.ค. · 09:00 น.").length).toBeGreaterThan(0);
-    expect(within(dialog).getByText("จันทร์ 17 ส.ค. · 09:00 น.")).toBeInTheDocument();
+    expect(within(dialog).getAllByText("จันทร์ 10 ส.ค. 2569 · 09:00 น.").length).toBeGreaterThan(0);
+    expect(within(dialog).getByText("จันทร์ 17 ส.ค. 2569 · 09:00 น.")).toBeInTheDocument();
     expect(within(dialog).getByText("ราคาแพ็กเกจ")).toBeInTheDocument();
   });
 
@@ -249,7 +249,7 @@ describe("member role dashboard", () => {
     const dialog = screen.getByRole("dialog", { name: "เทรนเนอร์ ค." });
     const schedule = await within(dialog).findByRole("button", { name: "จัดเวลานัดที่ 2" });
     fireEvent.click(schedule);
-    fireEvent.click(screen.getByRole("button", { name: "09:00 ถึง 10:00" }));
+    fireEvent.click(screen.getByRole("button", { name: "09:00–10:00" }));
     fireEvent.click(screen.getByRole("button", { name: "ยืนยันเวลานี้" }));
     fireEvent.click(within(dialog).getByRole("button", { name: "ยืนยันเพิ่มนัดนี้" }));
 

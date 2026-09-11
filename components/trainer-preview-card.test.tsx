@@ -23,17 +23,17 @@ describe("TrainerPreviewCard", () => {
     expect(screen.queryByText(/฿0/)).not.toBeInTheDocument();
   });
 
-  it("keeps portrait copy neutral for every trainer", () => {
+  it("marks a demonstration portrait and leaves a live profile unmarked", () => {
     const demoTrainer = trainers[0];
     const liveTrainer = { ...trainers[1], demo: false };
 
     const { rerender } = render(<TrainerPreviewCard trainer={demoTrainer} />);
     expect(screen.getByRole("img", { name: `รูปโปรไฟล์ของ${demoTrainer.displayName}` })).toBeInTheDocument();
-    expect(screen.queryByText("ภาพสังเคราะห์ · สาธิต")).not.toBeInTheDocument();
+    expect(screen.getByText("ภาพสาธิต")).toBeInTheDocument();
 
     rerender(<TrainerPreviewCard trainer={liveTrainer} />);
     expect(screen.getByRole("img", { name: `รูปโปรไฟล์ของ${liveTrainer.displayName}` })).toBeInTheDocument();
-    expect(screen.queryByText("ภาพสังเคราะห์ · สาธิต")).not.toBeInTheDocument();
+    expect(screen.queryByText("ภาพสาธิต")).not.toBeInTheDocument();
   });
 
   it("uses one accessible profile placeholder when a trainer has no portrait", () => {

@@ -18,7 +18,10 @@ import {
 } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
-import { ApiError, authenticatedRequest } from "@/lib/api";
+import { authenticatedRequest } from "@/lib/api";
+import { formatDateTime } from "@/lib/format";
+import { bookingStatusCopy, bookingStatusLabel, paymentStatusLabel } from "@/lib/payment-copy";
+import { leaveExpiredSession } from "@/lib/session";
 import type { AdminOperationsData, AdminPermissions } from "@/lib/types";
 
 type AdminTab = "review" | "users" | "bookings" | "finance" | "administrators" | "account";
@@ -39,27 +42,6 @@ const permissionLabels: Array<[keyof AdminPermissions, string]> = [
 ];
 
 const roleCopy = { member: "สมาชิก", trainer: "เทรนเนอร์", admin: "ผู้ดูแลระบบ" } as const;
-const bookingCopy: Record<string, string> = {
-  awaiting_payment: "รอชำระเงิน", payment_review: "รอตรวจหลักฐาน", confirmed: "ยืนยันแล้ว",
-  completed: "เสร็จสิ้น", cancelled: "ยกเลิก", expired: "หมดเวลา",
-};
-const paymentCopy: Record<string, string> = {
-  not_submitted: "ยังไม่ส่งหลักฐาน",
-  reviewing: "รอตรวจหลักฐาน",
-  approved: "อนุมัติแล้ว",
-  rejected: "ต้องส่งหลักฐานใหม่",
-};
-
-function leaveExpiredSession(error: unknown, navigate: (href: string) => void) {
-  if (!(error instanceof ApiError) || error.status !== 401) return false;
-  localStorage.removeItem("fitconnect_token");
-  navigate("/login");
-  return true;
-}
-
-function formatDate(value: string) {
-  return new Intl.DateTimeFormat("th-TH", { dateStyle: "medium", timeStyle: "short" }).format(new Date(value));
-}
 
 function formatMoney(value: number | null) {
   return value === null ? "ไม่ระบุ" : new Intl.NumberFormat("th-TH", { style: "currency", currency: "THB", maximumFractionDigits: 0 }).format(value);
@@ -195,7 +177,7 @@ function UserEditor({ user, busy, onSave, onToggle }: {
           <label><span>ชื่อที่แสดง</span><Input required value={displayName} onChange={(event) => setDisplayName(event.target.value)} /></label>
           <label><span>อีเมล</span><Input required type="email" value={email} onChange={(event) => setEmail(event.target.value)} /></label>
         </div>
-        <p className="admin-inline-note">สมัครเมื่อ {formatDate(user.createdAt)}</p>
+        <p className="admin-inline-note">สมัครเมื่อ {formatDateTime(user.createdAt)}</p>
         <div className="admin-row-actions">
           <Button type="submit" disabled={busy}>บันทึกข้อมูลบัญชี</Button>
           {user.status !== "deleted" && <Button type="button" variant={user.status === "active" ? "destructive" : "outline"} disabled={busy} aria-label={`${user.status === "active" ? "ระงับ" : "เปิดใช้งาน"}บัญชี ${user.displayName}`} onClick={() => onToggle(user)}>
@@ -382,14 +364,14 @@ export function AdminOperations() {
           <div className="admin-operation-panel">
             <header>
               <div><h2>การจองและประวัติสถานะ</h2><p>กดรายการเพื่อดูเวลานัด การชำระเงิน และประวัติย้อนหลัง</p></div>
-              <label><span>สถานะการจอง</span><select value={bookingStatus} onChange={(event) => { setBookingStatus(event.target.value); setBookingPage(0); }}><option value="all">ทุกสถานะ</option>{Object.entries(bookingCopy).map(([value, label]) => <option key={value} value={value}>{label}</option>)}</select></label>
+              <label><span>สถานะการจอง</span><select value={bookingStatus} onChange={(event) => { setBookingStatus(event.target.value); setBookingPage(0); }}><option value="all">ทุกสถานะ</option>{Object.entries(bookingStatusCopy).map(([value, label]) => <option key={value} value={value}>{label}</option>)}</select></label>
             </header>
             <div className="admin-booking-list">
               {visibleBookings.map((booking) => (
                 <details key={booking.id} className="admin-record-disclosure admin-booking-disclosure">
-                  <summary><span><strong>{booking.id}</strong><small>{booking.memberName} กับ {booking.trainerName} · {formatDate(booking.startsAt)}</small></span><StatusBadge status={booking.status} /></summary>
+                  <summary><span><strong>{booking.id}</strong><small>{booking.memberName} กับ {booking.trainerName} · {formatDateTime(booking.startsAt)}</small></span><StatusBadge status={booking.status} /></summary>
                   <div className="admin-booking-disclosure__content">
-                    <dl><div><dt>วันและเวลานัด</dt><dd>{formatDate(booking.startsAt)} ถึง {formatDate(booking.endsAt)}</dd></div><div><dt>ค่าฝึก</dt><dd>{formatMoney(booking.quotedPrice)}</dd></div><div><dt>การชำระเงิน</dt><dd>{paymentCopy[booking.paymentStatus] ?? booking.paymentStatus}</dd></div></dl>
+                    <dl><div><dt>วันและเวลานัด</dt><dd>{formatDateTime(booking.startsAt)} ถึง {formatDateTime(booking.endsAt)}</dd></div><div><dt>ค่าฝึก</dt><dd>{formatMoney(booking.quotedPrice)}</dd></div><div><dt>การชำระเงิน</dt><dd>{paymentStatusLabel(booking.paymentStatus)}</dd></div></dl>
                     {data.permissions.manageBookings && ["awaiting_payment", "payment_review", "confirmed"].includes(booking.status) && (
                       <div className="admin-booking-actions my-3 p-3 bg-muted/40 rounded flex items-center justify-between gap-2">
                         <span className="text-xs text-muted-foreground">ผู้ดูแลระบบสามารถแทรกแซงและยกเลิกคำขอนี้เพื่อคืนสล็อตว่างได้</span>
@@ -404,7 +386,7 @@ export function AdminOperations() {
                         </Button>
                       </div>
                     )}
-                    <section aria-label={`ประวัติสถานะ ${booking.id}`}><h3>ประวัติสถานะ</h3>{booking.history.length > 0 ? <ol>{booking.history.map((item, index) => <li key={`${item.createdAt}-${index}`}><strong>{bookingCopy[item.toStatus] ?? item.toStatus}</strong><span>{formatDate(item.createdAt)} · {item.changedBy ?? "ระบบ"}</span>{item.note && <p>{item.note}</p>}</li>)}</ol> : <p className="admin-inline-note">ยังไม่มีประวัติสถานะเพิ่มเติม</p>}</section>
+                    <section aria-label={`ประวัติสถานะ ${booking.id}`}><h3>ประวัติสถานะ</h3>{booking.history.length > 0 ? <ol>{booking.history.map((item, index) => <li key={`${item.createdAt}-${index}`}><strong>{bookingStatusLabel(item.toStatus)}</strong><span>{formatDateTime(item.createdAt)} · {item.changedBy ?? "ระบบ"}</span>{item.note && <p>{item.note}</p>}</li>)}</ol> : <p className="admin-inline-note">ยังไม่มีประวัติสถานะเพิ่มเติม</p>}</section>
                   </div>
                 </details>
               ))}
@@ -423,7 +405,7 @@ export function AdminOperations() {
             </section>
             <section aria-labelledby="transaction-history-title">
               <h3 id="transaction-history-title">ประวัติธุรกรรมย้อนหลัง</h3>
-              <div className="admin-transaction-list">{visiblePayments.map((payment) => <article key={payment.id}><div><strong>PAY-{String(payment.id).padStart(6, "0")}</strong><span>{payment.bookingId} · {payment.memberName} → {payment.trainerName}</span></div><div><strong>{formatMoney(payment.amount)}</strong><StatusBadge status={payment.status} /></div><small>ส่ง {formatDate(payment.submittedAt)}{payment.reviewedAt ? ` · ตรวจ ${formatDate(payment.reviewedAt)} โดย ${payment.reviewedBy ?? "ผู้ดูแลระบบ"}` : ""}</small></article>)}</div>
+              <div className="admin-transaction-list">{visiblePayments.map((payment) => <article key={payment.id}><div><strong>PAY-{String(payment.id).padStart(6, "0")}</strong><span>{payment.bookingId} · {payment.memberName} → {payment.trainerName}</span></div><div><strong>{formatMoney(payment.amount)}</strong><StatusBadge status={payment.status} /></div><small>ส่ง {formatDateTime(payment.submittedAt)}{payment.reviewedAt ? ` · ตรวจ ${formatDateTime(payment.reviewedAt)} โดย ${payment.reviewedBy ?? "ผู้ดูแลระบบ"}` : ""}</small></article>)}</div>
               {data.payments.length === 0 ? <p className="admin-inline-note">ยังไม่มีธุรกรรม</p> : <Pager label="ธุรกรรม" page={paymentPage} total={data.pagination.payments.total} onChange={setPaymentPage} />}
             </section>
           </div>
@@ -454,7 +436,7 @@ export function AdminOperations() {
           <form className="admin-dialog-form" onSubmit={(event) => { event.preventDefault(); void cancelBookingByAdmin(); }}>
             <DialogHeader>
               <DialogTitle>ยกเลิกคำขอจอง</DialogTitle>
-              <DialogDescription>{bookingToCancel ? `${bookingToCancel.id} · ${bookingToCancel.memberName} กับ ${bookingToCancel.trainerName} · ${formatDate(bookingToCancel.startsAt)}` : ""}</DialogDescription>
+              <DialogDescription>{bookingToCancel ? `${bookingToCancel.id} · ${bookingToCancel.memberName} กับ ${bookingToCancel.trainerName} · ${formatDateTime(bookingToCancel.startsAt)}` : ""}</DialogDescription>
             </DialogHeader>
             <label className="field">
               <span>เหตุผลในการยกเลิก</span>

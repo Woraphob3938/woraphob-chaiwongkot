@@ -55,7 +55,7 @@ describe("SlotCalendarDialog", () => {
       }),
     );
     fireEvent.click(
-      within(dialog).getByRole("button", { name: "17:00 ถึง 18:00" }),
+      within(dialog).getByRole("button", { name: "17:00–18:00" }),
     );
     fireEvent.click(
       within(dialog).getByRole("button", { name: "ยืนยันเวลานี้" }),
@@ -71,7 +71,7 @@ describe("SlotCalendarDialog", () => {
     const onConfirm = renderDialog(vi.fn(), slots[0]);
     const trigger = screen.getByRole("button", { name: "ดูตารางว่างทั้งหมด" });
     fireEvent.click(trigger);
-    fireEvent.click(screen.getByRole("button", { name: "17:00 ถึง 18:00" }));
+    fireEvent.click(screen.getByRole("button", { name: "17:00–18:00" }));
     fireEvent.keyDown(document, { key: "Escape" });
 
     await waitFor(() => expect(screen.queryByRole("dialog")).not.toBeInTheDocument());
@@ -126,7 +126,7 @@ describe("SlotCalendarDialog", () => {
     const confirm = within(dialog).getByRole("button", { name: "ยืนยันเวลานัดแรก" });
     expect(confirm).toBeDisabled();
 
-    fireEvent.click(within(dialog).getByRole("button", { name: "09:00 ถึง 10:00" }));
+    fireEvent.click(within(dialog).getByRole("button", { name: "09:00–10:00" }));
     expect(confirm).toBeEnabled();
     fireEvent.click(confirm);
 
@@ -148,7 +148,7 @@ describe("SlotCalendarDialog", () => {
 
     fireEvent.click(screen.getByRole("button", { name: "เลือกเวลา" }));
 
-    expect(screen.getByRole("button", { name: /23:59 ถึง 00:59.*สิ้นสุดวันถัดไป/ })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: /23:59–00:59.*สิ้นสุดวันถัดไป/ })).toBeInTheDocument();
     expect(screen.getByText(/สิ้นสุดวันถัดไป/)).toBeInTheDocument();
     expect(screen.getByRole("dialog")).toHaveAttribute("aria-modal", "true");
   });

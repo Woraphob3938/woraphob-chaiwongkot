@@ -8,6 +8,7 @@ import { StatusBadge } from "@/components/status-badge";
 import { ApiError, authenticatedRequest, openProtectedFile } from "@/lib/api";
 import { getAdminNextAction } from "@/lib/dashboard-actions";
 import { formatDateTime } from "@/lib/format";
+import { leaveExpiredSession } from "@/lib/session";
 import type { AdminQueue } from "@/lib/types";
 
 const paymentCurrency = new Intl.NumberFormat("th-TH", {
@@ -29,13 +30,6 @@ function formatPaymentAmount(value: number | null) {
 function formatPaymentDifference(value: number | null) {
   if (value === null) return "คำนวณส่วนต่างไม่ได้";
   return value > 0 ? `+${paymentCurrency.format(value)}` : paymentCurrency.format(value);
-}
-
-function leaveExpiredSession(error: unknown, navigate: (href: string) => void) {
-  if (!(error instanceof ApiError) || error.status !== 401) return false;
-  localStorage.removeItem("fitconnect_token");
-  navigate("/login");
-  return true;
 }
 
 type PaymentDecisionResponse = {

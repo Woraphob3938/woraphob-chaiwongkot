@@ -15,17 +15,11 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog";
 import { apiAssetUrl, authenticatedRequest } from "@/lib/api";
+import { initials } from "@/lib/format";
 import type { AccountProfile } from "@/lib/types";
 
 const acceptedImageTypes = new Set(["image/jpeg", "image/png", "image/webp"]);
 const maxImageBytes = 5 * 1024 * 1024;
-
-function initials(name: string) {
-  const parts = name.trim().split(/\s+/).filter(Boolean);
-  return parts.length === 0
-    ? "FC"
-    : parts.slice(0, 2).map((part) => Array.from(part)[0]).join("").toLocaleUpperCase("th-TH");
-}
 
 type ProfileIdentityProps = {
   profile: AccountProfile;
