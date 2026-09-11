@@ -19,14 +19,26 @@ const profile: MemberAccountProfile = {
 beforeEach(() => vi.mocked(authenticatedRequest).mockReset());
 
 describe("MemberProfileForm", () => {
+  it("shows the sticky save bar only after profile data changes", () => {
+    render(<MemberProfileForm profile={profile} onSaved={vi.fn()} />);
+
+    expect(screen.queryByRole("region", { name: "การเปลี่ยนแปลงที่ยังไม่บันทึก" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "บันทึกข้อมูลสมาชิก" })).not.toBeInTheDocument();
+
+    fireEvent.change(screen.getByLabelText("เบอร์โทรศัพท์"), { target: { value: "0812345678" } });
+
+    expect(screen.getByRole("region", { name: "การเปลี่ยนแปลงที่ยังไม่บันทึก" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "บันทึกข้อมูลสมาชิก" })).toBeInTheDocument();
+  });
+
   it("shows only the approved member fields and sends the exact profile body", async () => {
     const saved = { ...profile, member: { ...profile.member, phone: "0812345678" } };
     vi.mocked(authenticatedRequest).mockResolvedValue(saved);
     const onSaved = vi.fn();
     render(<MemberProfileForm profile={profile} onSaved={onSaved} />);
 
-    expect(screen.getByText("member@example.com")).toBeInTheDocument();
-    expect(screen.getByText("ใช้อีเมลนี้เข้าสู่ระบบ เปลี่ยนไม่ได้จากหน้านี้")).toBeInTheDocument();
+    expect(screen.queryByText("member@example.com")).not.toBeInTheDocument();
+    expect(screen.queryByText("ใช้อีเมลนี้เข้าสู่ระบบ เปลี่ยนไม่ได้จากหน้านี้")).not.toBeInTheDocument();
     expect(screen.queryByRole("textbox", { name: "อีเมล" })).not.toBeInTheDocument();
     for (const label of ["ชื่อ", "นามสกุล", "เบอร์โทรศัพท์", "เป้าหมายการออกกำลังกาย", "ระดับประสบการณ์", "น้ำหนัก (กก.)", "ส่วนสูง (ซม.)"]) {
       expect(screen.getByLabelText(label)).toBeInTheDocument();
@@ -34,6 +46,9 @@ describe("MemberProfileForm", () => {
     for (const absent of ["ข้อมูลสุขภาพ", "เพศ", "วันเกิด", "จังหวัด", "สถานที่นัดฝึก"]) {
       expect(screen.queryByText(absent)).not.toBeInTheDocument();
     }
+    const height = screen.getByLabelText("ส่วนสูง (ซม.)");
+    const goal = screen.getByLabelText("เป้าหมายการออกกำลังกาย");
+    expect(height.compareDocumentPosition(goal) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
 
     fireEvent.change(screen.getByLabelText("เบอร์โทรศัพท์"), { target: { value: "0812345678" } });
     fireEvent.change(screen.getByLabelText("เป้าหมายการออกกำลังกาย"), { target: { value: "เพิ่มความแข็งแรง" } });

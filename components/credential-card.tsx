@@ -37,7 +37,7 @@ export function CredentialCard({ trainer }: { trainer: Trainer }) {
         </div>
         <div>
           <dt><Building2 aria-hidden="true" size={17} /> รูปแบบ</dt>
-          <dd>{trainer.serviceMode === "gym" ? "ประจำฟิตเนส" : trainer.serviceMode === "freelance" ? "ฟรีแลนซ์" : "ฟรีแลนซ์ / ฟิตเนส"}</dd>
+          <dd>{trainer.serviceMode === "freelance" ? "ฟรีแลนซ์" : "ฟิตเนสประจำยิม"}</dd>
         </div>
       </dl>
 

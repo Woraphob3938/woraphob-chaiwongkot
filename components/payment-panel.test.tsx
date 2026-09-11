@@ -16,6 +16,10 @@ vi.mock("@/lib/api", () => ({
 vi.mock("@/components/admin-review-queue", () => ({ AdminReviewQueue: () => null }));
 vi.mock("@/components/trainer-workbench", () => ({ TrainerWorkbench: () => null }));
 
+function openBooking(summary: HTMLElement) {
+  fireEvent.click(summary);
+}
+
 function bookingFixture(overrides: Partial<Booking> = {}): Booking {
   return {
     id: "BK-PAY-001",
@@ -26,6 +30,7 @@ function bookingFixture(overrides: Partial<Booking> = {}): Booking {
     paymentStatus: "not_submitted",
     paymentDeadlineAt: "2026-08-10T02:10:00.000Z",
     quotedPrice: 1_200,
+    paymentRecipient: { accountName: "สมชาย ใจดี", promptPayId: "0812345678" },
     chatRoomId: 7,
     payment: null,
     review: null,
@@ -95,12 +100,13 @@ describe("PaymentPanel", () => {
     expect(screen.getByText("ยังส่งสลิปไม่ได้ตามสถานะการจองนี้")).toBeVisible();
   });
 
-  it("sends the exact booking, raw amount, and selected file before awaiting refresh", async () => {
+  it("shows a fixed-amount QR and sends the slip without a transaction reference", async () => {
     const onUpdated = vi.fn().mockResolvedValue(undefined);
     vi.mocked(authenticatedRequest).mockResolvedValue({ paymentId: 8, status: "reviewing" });
     render(<PaymentPanel booking={bookingFixture()} onUpdated={onUpdated} />);
 
-    fireEvent.change(screen.getByLabelText("ยอดที่โอน"), { target: { value: "1200.00" } });
+    expect(screen.getAllByText("1,200.00 บาท")).toHaveLength(2);
+    expect(screen.getByText("สมชาย ใจดี")).toBeInTheDocument();
     const slip = chooseValidSlip();
     expect(screen.getByText("slip.png")).toBeInTheDocument();
     fireEvent.click(screen.getByRole("button", { name: "ส่งสลิปให้ตรวจ" }));
@@ -111,25 +117,15 @@ describe("PaymentPanel", () => {
     expect(init).toEqual(expect.objectContaining({ method: "POST", body: expect.any(FormData) }));
     const body = init?.body as FormData;
     expect(body.get("bookingId")).toBe("BK-PAY-001");
-    expect(body.get("amount")).toBe("1200.00");
+    expect(body.get("amount")).toBeNull();
+    expect(body.get("transactionRef")).toBeNull();
     expect(body.get("slip")).toBe(slip);
     await waitFor(() => expect(onUpdated).toHaveBeenCalledTimes(1));
-    expect(screen.getByRole("status")).toHaveTextContent("ส่งสลิปให้ผู้ดูแลระบบตรวจแล้ว");
-  });
-
-  it.each(["", "0", "-10", "abc"])("blocks invalid amount %j", async (amount) => {
-    render(<PaymentPanel booking={bookingFixture()} onUpdated={vi.fn()} />);
-    fireEvent.change(screen.getByLabelText("ยอดที่โอน"), { target: { value: amount } });
-    chooseValidSlip();
-    fireEvent.click(screen.getByRole("button", { name: "ส่งสลิปให้ตรวจ" }));
-    expect(await screen.findByText("กรุณาระบุยอดที่โอนเป็นจำนวนมากกว่า 0 บาท")).toBeInTheDocument();
-    expect(screen.getByLabelText("ยอดที่โอน")).toHaveAttribute("aria-invalid", "true");
-    expect(authenticatedRequest).not.toHaveBeenCalled();
+    expect(screen.getByRole("status")).toHaveTextContent("ส่งสลิปให้ผู้รับผิดชอบตรวจแล้ว");
   });
 
   it("requires a transfer file", async () => {
     render(<PaymentPanel booking={bookingFixture()} onUpdated={vi.fn()} />);
-    fireEvent.change(screen.getByLabelText("ยอดที่โอน"), { target: { value: "1200" } });
     fireEvent.click(screen.getByRole("button", { name: "ส่งสลิปให้ตรวจ" }));
     expect(await screen.findByText("กรุณาเลือกไฟล์หลักฐานการโอน")).toBeInTheDocument();
     expect(screen.getByLabelText("หลักฐานการโอน")).toHaveAttribute("aria-invalid", "true");
@@ -169,7 +165,6 @@ describe("PaymentPanel", () => {
     vi.mocked(authenticatedRequest).mockImplementation(() => new Promise((resolve) => { resolveUpload = resolve; }));
     const onUpdated = vi.fn().mockResolvedValue(undefined);
     render(<PaymentPanel booking={bookingFixture()} onUpdated={onUpdated} />);
-    fireEvent.change(screen.getByLabelText("ยอดที่โอน"), { target: { value: "1200" } });
     chooseValidSlip();
 
     const submit = screen.getByRole("button", { name: "ส่งสลิปให้ตรวจ" });
@@ -182,18 +177,16 @@ describe("PaymentPanel", () => {
     await waitFor(() => expect(onUpdated).toHaveBeenCalledTimes(1));
   });
 
-  it("retries a failed upload without losing the entered amount or filename", async () => {
+  it("retries a failed upload without losing the filename", async () => {
     vi.mocked(authenticatedRequest)
       .mockRejectedValueOnce(new Error("เครือข่ายขัดข้อง"))
       .mockResolvedValueOnce({ paymentId: 8, status: "reviewing" });
     const onUpdated = vi.fn().mockResolvedValue(undefined);
     render(<PaymentPanel booking={bookingFixture()} onUpdated={onUpdated} />);
-    fireEvent.change(screen.getByLabelText("ยอดที่โอน"), { target: { value: "1200" } });
     chooseValidSlip();
     fireEvent.click(screen.getByRole("button", { name: "ส่งสลิปให้ตรวจ" }));
 
     expect(await screen.findByRole("alert")).toHaveTextContent("เครือข่ายขัดข้อง");
-    expect(screen.getByLabelText("ยอดที่โอน")).toHaveValue(1200);
     expect(screen.getByText("slip.png")).toBeInTheDocument();
     fireEvent.click(screen.getByRole("button", { name: "ลองส่งอีกครั้ง" }));
     await waitFor(() => expect(authenticatedRequest).toHaveBeenCalledTimes(2));
@@ -206,7 +199,6 @@ describe("PaymentPanel", () => {
       .mockRejectedValueOnce(new Error("โหลดรายการไม่สำเร็จ"))
       .mockResolvedValueOnce(undefined);
     render(<PaymentPanel booking={bookingFixture()} onUpdated={onUpdated} />);
-    fireEvent.change(screen.getByLabelText("ยอดที่โอน"), { target: { value: "1200" } });
     chooseValidSlip();
     fireEvent.click(screen.getByRole("button", { name: "ส่งสลิปให้ตรวจ" }));
 
@@ -260,7 +252,7 @@ describe("member booking ledger", () => {
 
     const summaries = await screen.findAllByTestId("booking-summary");
     expect(summaries.map((summary) => summary.id)).toEqual(["booking-BK-SECOND", "booking-BK-FIRST"]);
-    summaries.forEach((summary) => fireEvent.click(within(summary).getByText("ดูรายละเอียด")));
+    summaries.forEach((summary) => openBooking(summary));
     const chatLinks = screen.getAllByRole("link", { name: "เปิดการสนทนา" });
     expect(chatLinks).toHaveLength(1);
     expect(chatLinks[0]).toHaveAttribute("href", "/chat?booking=BK-FIRST");

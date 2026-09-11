@@ -17,6 +17,16 @@ function fillPasswords(current: string, next: string, confirm: string) {
 }
 
 describe("PasswordForm", () => {
+  it("shows the sticky save bar only after a password field changes", () => {
+    render(<PasswordForm />);
+
+    expect(screen.queryByRole("region", { name: "การเปลี่ยนแปลงที่ยังไม่บันทึก" })).not.toBeInTheDocument();
+    fireEvent.change(screen.getByLabelText("รหัสผ่านปัจจุบัน"), { target: { value: "old-password" } });
+
+    expect(screen.getByRole("region", { name: "การเปลี่ยนแปลงที่ยังไม่บันทึก" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "เปลี่ยนรหัสผ่าน" })).toBeInTheDocument();
+  });
+
   it("uses the correct password autocomplete fields", () => {
     render(<PasswordForm />);
     expect(screen.getByLabelText("รหัสผ่านปัจจุบัน")).toHaveAttribute("autocomplete", "current-password");

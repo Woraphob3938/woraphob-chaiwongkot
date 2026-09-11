@@ -34,6 +34,7 @@ type ProfileIdentityProps = {
 
 export function ProfileIdentity({ profile, onProfileChange }: ProfileIdentityProps) {
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const [managerOpen, setManagerOpen] = useState(false);
   const [file, setFile] = useState<File | null>(null);
   const [previewUrl, setPreviewUrl] = useState<string | null>(null);
   const [pending, setPending] = useState(false);
@@ -64,12 +65,27 @@ export function ProfileIdentity({ profile, onProfileChange }: ProfileIdentityPro
     setPreviewUrl(URL.createObjectURL(nextFile));
   }
 
-  function cancelImageSelection() {
+  function clearImageSelection() {
     setFile(null);
     setPreviewUrl(null);
+    if (fileInputRef.current) fileInputRef.current.value = "";
+  }
+
+  function cancelImageSelection() {
+    clearImageSelection();
     setError("");
     setMessage("");
-    if (fileInputRef.current) fileInputRef.current.value = "";
+  }
+
+  function changeManagerOpen(open: boolean) {
+    if (pending) return;
+    setManagerOpen(open);
+    if (open) {
+      setError("");
+      setMessage("");
+      return;
+    }
+    clearImageSelection();
   }
 
   async function uploadImage(event: FormEvent<HTMLFormElement>) {
@@ -86,8 +102,8 @@ export function ProfileIdentity({ profile, onProfileChange }: ProfileIdentityPro
         body,
       });
       onProfileChange({ ...profile, imageUrl: result.imageUrl });
-      setFile(null);
-      setPreviewUrl(null);
+      clearImageSelection();
+      setManagerOpen(false);
       setMessage("เปลี่ยนรูปโปรไฟล์แล้ว");
     } catch (uploadError) {
       setPreviewUrl(null);
@@ -105,8 +121,9 @@ export function ProfileIdentity({ profile, onProfileChange }: ProfileIdentityPro
     try {
       await authenticatedRequest<{ imageUrl: null }>("/v1/profile/image", { method: "DELETE" });
       onProfileChange({ ...profile, imageUrl: null });
-      cancelImageSelection();
+      clearImageSelection();
       setConfirmDelete(false);
+      setManagerOpen(false);
       setMessage("ลบรูปโปรไฟล์แล้ว");
     } catch (deleteError) {
       setError(deleteError instanceof Error ? deleteError.message : "ลบรูปโปรไฟล์ไม่สำเร็จ");
@@ -127,18 +144,26 @@ export function ProfileIdentity({ profile, onProfileChange }: ProfileIdentityPro
         <span aria-current="page">โปรไฟล์</span>
       </nav>
       <div className="profile-identity__main">
-        <Avatar className="profile-identity__avatar">
-          {imageSource
-            ? <Image
-                className="profile-identity__image"
-                src={imageSource}
-                alt={`รูปโปรไฟล์ของ ${displayName}`}
-                width={112}
-                height={112}
-                unoptimized
-              />
-            : <AvatarFallback>{initials(displayName)}</AvatarFallback>}
-        </Avatar>
+        <button
+          className="profile-identity__avatar-trigger"
+          type="button"
+          aria-label="จัดการรูปโปรไฟล์"
+          onClick={() => changeManagerOpen(true)}
+        >
+          <Avatar className="profile-identity__avatar">
+            {imageSource
+              ? <Image
+                  className="profile-identity__image"
+                  src={imageSource}
+                  alt={`รูปโปรไฟล์ของ ${displayName}`}
+                  width={112}
+                  height={112}
+                  unoptimized
+                />
+              : <AvatarFallback>{initials(displayName)}</AvatarFallback>}
+          </Avatar>
+          <span className="profile-identity__camera" aria-hidden="true"><Camera size={16} /></span>
+        </button>
         <div className="profile-identity__copy">
           <div className="profile-identity__heading">
             <h1 id="profile-title">{displayName}</h1>
@@ -147,36 +172,59 @@ export function ProfileIdentity({ profile, onProfileChange }: ProfileIdentityPro
           <span>{profile.user.email}</span>
         </div>
       </div>
-      <form className="profile-identity__upload" onSubmit={uploadImage}>
-        <label className="button" htmlFor="profile-image">
-          <Camera aria-hidden="true" size={17} /> เลือกรูป
-        </label>
-        <input
-          ref={fileInputRef}
-          className="sr-only"
-          id="profile-image"
-          type="file"
-          accept="image/jpeg,image/png,image/webp"
-          aria-label="เลือกรูปโปรไฟล์"
-          onChange={chooseImage}
-        />
-        <button className="button button--accent" type="submit" disabled={!file || pending}>
-          {pending && file ? <><LoaderCircle className="spin" aria-hidden="true" /> กำลังอัปโหลด</> : "บันทึกรูปใหม่"}
-        </button>
-        {file && (
-          <button className="button" type="button" disabled={pending} onClick={cancelImageSelection}>
-            <X aria-hidden="true" /> ยกเลิกรูปที่เลือก
-          </button>
-        )}
-        {profile.imageUrl && !file && (
-          <button className="button button--danger" type="button" disabled={pending} onClick={() => setConfirmDelete(true)}>
-            <Trash2 aria-hidden="true" /> ลบรูปโปรไฟล์
-          </button>
-        )}
-        <small>{file ? file.name : "JPG, PNG หรือ WebP · ไม่เกิน 5 MB · บันทึกรูปแยกจากข้อมูลด้านล่าง"}</small>
-      </form>
-      {error && <p className="profile-field-error" role="alert">{error}</p>}
+      {error && !managerOpen && <p className="profile-field-error" role="alert">{error}</p>}
       {message && <p className="profile-success" role="status">{message}</p>}
+      <Dialog open={managerOpen} onOpenChange={changeManagerOpen}>
+        <DialogContent className="profile-photo-dialog">
+          <DialogHeader>
+            <DialogTitle>จัดการรูปโปรไฟล์</DialogTitle>
+            <DialogDescription>เลือกรูปใหม่ ตรวจตัวอย่าง แล้วบันทึกเมื่อพร้อม</DialogDescription>
+          </DialogHeader>
+          <form className="profile-photo-dialog__form" onSubmit={uploadImage}>
+            <Avatar className="profile-photo-dialog__avatar">
+              {imageSource
+                ? <Image
+                    className="profile-identity__image"
+                    src={imageSource}
+                    alt={`ตัวอย่างรูปโปรไฟล์ของ ${displayName}`}
+                    width={160}
+                    height={160}
+                    unoptimized
+                  />
+                : <AvatarFallback>{initials(displayName)}</AvatarFallback>}
+            </Avatar>
+            <div className="profile-photo-dialog__actions">
+              <label className="button" htmlFor="profile-image">
+                <Camera aria-hidden="true" size={17} /> เลือกรูปใหม่
+              </label>
+              <input
+                ref={fileInputRef}
+                className="sr-only"
+                id="profile-image"
+                type="file"
+                accept="image/jpeg,image/png,image/webp"
+                aria-label="เลือกรูปโปรไฟล์"
+                onChange={chooseImage}
+              />
+              <button className="button button--accent" type="submit" disabled={!file || pending}>
+                {pending && file ? <><LoaderCircle className="spin" aria-hidden="true" /> กำลังอัปโหลด</> : "บันทึกรูปใหม่"}
+              </button>
+              {file && (
+                <button className="button" type="button" disabled={pending} onClick={cancelImageSelection}>
+                  <X aria-hidden="true" /> ยกเลิกรูปที่เลือก
+                </button>
+              )}
+              {profile.imageUrl && !file && (
+                <button className="button button--danger" type="button" disabled={pending} onClick={() => setConfirmDelete(true)}>
+                  <Trash2 aria-hidden="true" /> ลบรูปโปรไฟล์
+                </button>
+              )}
+            </div>
+            <small>{file ? file.name : "JPG, PNG หรือ WebP · ไม่เกิน 5 MB"}</small>
+            {error && <p className="profile-field-error" role="alert">{error}</p>}
+          </form>
+        </DialogContent>
+      </Dialog>
       <Dialog open={confirmDelete} onOpenChange={(open) => { if (!pending) setConfirmDelete(open); }}>
         <DialogContent>
           <DialogHeader>

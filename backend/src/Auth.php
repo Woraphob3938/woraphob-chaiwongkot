@@ -71,6 +71,23 @@ final class Auth
             throw new HttpException(401, 'กรุณาเข้าสู่ระบบ', 'AUTH_REQUIRED');
         }
 
+        $user = $this->currentUser();
+        if ($user === null) {
+            throw new HttpException(401, 'เซสชันหมดอายุ กรุณาเข้าสู่ระบบอีกครั้ง', 'INVALID_TOKEN');
+        }
+        if ($roles !== null && !in_array($user['role'], $roles, true)) {
+            throw new HttpException(403, 'บัญชีนี้ไม่มีสิทธิ์ทำรายการ', 'FORBIDDEN');
+        }
+        return $user;
+    }
+
+    public function currentUser(): ?array
+    {
+        $token = Http::bearerToken();
+        if ($token === null) {
+            return null;
+        }
+
         $user = $this->database->fetchOne(
             'SELECT u.id, u.email, u.display_name, u.role, u.status
              FROM auth_tokens t JOIN users u ON u.id = t.user_id
@@ -78,10 +95,7 @@ final class Auth
             [hash('sha256', $token)]
         );
         if (!$user || $user['status'] !== 'active') {
-            throw new HttpException(401, 'เซสชันหมดอายุ กรุณาเข้าสู่ระบบอีกครั้ง', 'INVALID_TOKEN');
-        }
-        if ($roles !== null && !in_array($user['role'], $roles, true)) {
-            throw new HttpException(403, 'บัญชีนี้ไม่มีสิทธิ์ทำรายการ', 'FORBIDDEN');
+            return null;
         }
         return $this->publicUser($user);
     }

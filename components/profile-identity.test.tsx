@@ -31,7 +31,22 @@ beforeEach(() => {
   });
 });
 
+function openImageManager() {
+  fireEvent.click(screen.getByRole("button", { name: "จัดการรูปโปรไฟล์" }));
+}
+
 describe("ProfileIdentity", () => {
+  it("opens profile photo management from the avatar instead of showing every action inline", () => {
+    render(<ProfileIdentity profile={profile} onProfileChange={vi.fn()} />);
+
+    expect(screen.queryByLabelText("เลือกรูปโปรไฟล์")).not.toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "จัดการรูปโปรไฟล์" }));
+
+    expect(screen.getByRole("dialog", { name: "จัดการรูปโปรไฟล์" })).toBeInTheDocument();
+    expect(screen.getByLabelText("เลือกรูปโปรไฟล์")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "ลบรูปโปรไฟล์" })).toBeInTheDocument();
+  });
+
   it("shows the account identity and accepts only supported image formats", () => {
     render(<ProfileIdentity profile={profile} onProfileChange={vi.fn()} />);
 
@@ -43,6 +58,7 @@ describe("ProfileIdentity", () => {
     );
     expect(screen.getByText("member@example.com")).toBeInTheDocument();
     expect(screen.getByText("สมาชิก")).toBeInTheDocument();
+    openImageManager();
     expect(screen.getByLabelText("เลือกรูปโปรไฟล์")).toHaveAttribute(
       "accept", "image/jpeg,image/png,image/webp",
     );
@@ -50,6 +66,7 @@ describe("ProfileIdentity", () => {
 
   it("rejects files above 5 MB before making a request", () => {
     render(<ProfileIdentity profile={profile} onProfileChange={vi.fn()} />);
+    openImageManager();
     const oversized = new File([new Uint8Array((5 * 1024 * 1024) + 1)], "large.png", { type: "image/png" });
 
     fireEvent.change(screen.getByLabelText("เลือกรูปโปรไฟล์"), { target: { files: [oversized] } });
@@ -63,6 +80,7 @@ describe("ProfileIdentity", () => {
     vi.mocked(authenticatedRequest).mockReturnValue(new Promise((resolve) => { resolveUpload = resolve; }));
     const onProfileChange = vi.fn();
     render(<ProfileIdentity profile={profile} onProfileChange={onProfileChange} />);
+    openImageManager();
     const image = new File(["image"], "new.webp", { type: "image/webp" });
 
     fireEvent.change(screen.getByLabelText("เลือกรูปโปรไฟล์"), { target: { files: [image] } });
@@ -82,16 +100,17 @@ describe("ProfileIdentity", () => {
 
   it("cancels a selected image and returns to the saved profile image", async () => {
     render(<ProfileIdentity profile={profile} onProfileChange={vi.fn()} />);
+    openImageManager();
     const image = new File(["image"], "new.webp", { type: "image/webp" });
 
     fireEvent.change(screen.getByLabelText("เลือกรูปโปรไฟล์"), { target: { files: [image] } });
-    expect(screen.getByRole("img", { name: "รูปโปรไฟล์ของ สมชาย ใจดี" })).toHaveAttribute(
+    expect(screen.getByRole("img", { name: "ตัวอย่างรูปโปรไฟล์ของ สมชาย ใจดี" })).toHaveAttribute(
       "src", expect.stringContaining("blob:profile-preview"),
     );
 
     fireEvent.click(screen.getByRole("button", { name: "ยกเลิกรูปที่เลือก" }));
 
-    expect(screen.getByRole("img", { name: "รูปโปรไฟล์ของ สมชาย ใจดี" })).toHaveAttribute(
+    expect(screen.getByRole("img", { name: "ตัวอย่างรูปโปรไฟล์ของ สมชาย ใจดี" })).toHaveAttribute(
       "src", expect.stringContaining("/v1/profile-images/member/7"),
     );
     expect(screen.getByRole("button", { name: "บันทึกรูปใหม่" })).toBeDisabled();
@@ -103,6 +122,7 @@ describe("ProfileIdentity", () => {
     vi.mocked(authenticatedRequest).mockResolvedValue({ imageUrl: null });
     const onProfileChange = vi.fn();
     render(<ProfileIdentity profile={profile} onProfileChange={onProfileChange} />);
+    openImageManager();
 
     fireEvent.click(screen.getByRole("button", { name: "ลบรูปโปรไฟล์" }));
     fireEvent.click(screen.getByRole("button", { name: "ยืนยันลบรูป" }));
@@ -117,6 +137,7 @@ describe("ProfileIdentity", () => {
   it("returns to the saved image when uploading fails", async () => {
     vi.mocked(authenticatedRequest).mockRejectedValue(new Error("อัปโหลดไม่สำเร็จ"));
     render(<ProfileIdentity profile={profile} onProfileChange={vi.fn()} />);
+    openImageManager();
 
     fireEvent.change(screen.getByLabelText("เลือกรูปโปรไฟล์"), {
       target: { files: [new File(["image"], "new.png", { type: "image/png" })] },
@@ -124,7 +145,7 @@ describe("ProfileIdentity", () => {
     fireEvent.click(screen.getByRole("button", { name: "บันทึกรูปใหม่" }));
 
     expect(await screen.findByRole("alert")).toHaveTextContent("อัปโหลดไม่สำเร็จ");
-    await waitFor(() => expect(screen.getByRole("img", { name: "รูปโปรไฟล์ของ สมชาย ใจดี" }))
+    await waitFor(() => expect(screen.getByRole("img", { name: "ตัวอย่างรูปโปรไฟล์ของ สมชาย ใจดี" }))
       .toHaveAttribute("src", expect.stringContaining("/v1/profile-images/member/7")));
   });
 });

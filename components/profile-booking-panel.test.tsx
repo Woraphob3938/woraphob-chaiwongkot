@@ -17,6 +17,12 @@ function BookingPanelHarness({ trainer }: { trainer: Trainer }) {
 }
 
 describe("ProfileBookingPanel", () => {
+  it.each(["freelance", "gym", "both"] as const)("names the correct slip reviewer for %s", (serviceMode) => {
+    render(<BookingPanelHarness trainer={{ ...trainers[0], serviceMode }} />);
+    expect(screen.getByText(serviceMode === "freelance" ? /ส่งสลิปให้เทรนเนอร์ฟรีแลนซ์ตรวจอนุมัติ/ : /ส่งสลิปให้ผู้ดูแลระบบตรวจอนุมัติ/)).toBeInTheDocument();
+    if (serviceMode === "freelance") expect(screen.queryByText(/ผู้ดูแลระบบตรวจอนุมัติ/)).not.toBeInTheDocument();
+  });
+
   it("chooses a calendar slot, shows its summary, and exposes the existing booking URL", async () => {
     const trainer = { ...trainers[0], demo: false };
     render(<BookingPanelHarness trainer={trainer} />);
@@ -75,7 +81,7 @@ describe("ProfileBookingPanel", () => {
     expect(screen.queryByRole("link", { name: "จองเวลานี้" })).not.toBeInTheDocument();
   });
 
-  it("builds one monthly booking from the trainer package and selected sessions", () => {
+  it("starts a monthly package with one appointment and explains that the rest are scheduled later", () => {
     const trainer = {
       ...trainers[0],
       demo: false,
@@ -86,15 +92,16 @@ describe("ProfileBookingPanel", () => {
 
     fireEvent.click(screen.getByRole("button", { name: "แพ็กเกจ 30 วัน" }));
     expect(screen.getByText("2 ครั้ง ภายใน 30 วัน")).toBeInTheDocument();
-    fireEvent.click(screen.getByRole("button", { name: /เลือกเวลาในแพ็กเกจ/ }));
-    const dialog = screen.getByRole("dialog", { name: "เลือกวันและเวลาฝึกในแพ็กเกจ" });
+    expect(screen.getByText("เลือกนัดแรกก่อน อีก 1 นัดจัดเวลาได้หลังชำระเงินผ่าน")).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "เลือกเวลานัดแรก", expanded: false }));
+    const dialog = screen.getByRole("dialog", { name: "เลือกวันและเวลานัดแรก" });
     fireEvent.click(within(dialog).getByRole("button", { name: "09:00 ถึง 10:00" }));
-    fireEvent.click(within(dialog).getByRole("button", { name: "17:00 ถึง 18:00" }));
-    fireEvent.click(within(dialog).getByRole("button", { name: "ยืนยัน 2 ช่วงเวลา" }));
+    fireEvent.click(within(dialog).getByRole("button", { name: "ยืนยันเวลานัดแรก" }));
 
     expect(screen.getByRole("link", { name: "จองแพ็กเกจนี้" })).toHaveAttribute(
       "href",
-      `/booking?trainer=${trainer.slug}&type=monthly&slots=${trainer.slots[0].id}%2C${trainer.slots[1].id}`,
+      `/booking?trainer=${trainer.slug}&type=monthly&slots=${trainer.slots[0].id}`,
     );
+    expect(screen.getByText(/ผู้ดูแลระบบตรวจอนุมัติ/)).toBeInTheDocument();
   });
 });

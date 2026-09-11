@@ -12,7 +12,7 @@ import {
   DialogTrigger,
 } from "@/components/ui/dialog";
 import { Button } from "@/components/ui/button";
-import { formatTime } from "@/lib/format";
+import { crossesBangkokDay, formatDay, formatTime } from "@/lib/format";
 import type { AvailabilitySlot } from "@/lib/types";
 
 type BaseProps = {
@@ -21,14 +21,11 @@ type BaseProps = {
   children: ReactElement;
 };
 
-type Props = BaseProps & ({
+type Props = BaseProps & {
   selectedSlot: AvailabilitySlot | null;
   onConfirm: (slot: AvailabilitySlot) => void;
-} | {
-  selectedSlots: AvailabilitySlot[];
-  selectionLimit: number;
-  onConfirm: (slots: AvailabilitySlot[]) => void;
-});
+  monthlyFirstSession?: boolean;
+};
 
 type CalendarDate = {
   key: string;
@@ -89,9 +86,7 @@ function monthDays(key: string) {
 
 export function SlotCalendarDialog(props: Props) {
   const { trainerName, slots, children } = props;
-  const multiple = "selectedSlots" in props;
-  const confirmedSlots = multiple ? props.selectedSlots : [];
-  const selectedSlot = multiple ? null : props.selectedSlot;
+  const selectedSlot = props.selectedSlot;
   const availableSlots = useMemo(
     () => slots
       .filter((slot) => slot.available)
@@ -122,8 +117,6 @@ export function SlotCalendarDialog(props: Props) {
     seed ? calendarDate(seed.startsAt).key : "",
   );
   const [draftSlot, setDraftSlot] = useState<AvailabilitySlot | null>(selectedSlot);
-  const [draftSlots, setDraftSlots] = useState<AvailabilitySlot[]>(confirmedSlots);
-  const [selectionMessage, setSelectionMessage] = useState("");
   const selectedDayRef = useRef<HTMLButtonElement>(null);
   const monthIndex = months.indexOf(visibleMonth);
 
@@ -131,8 +124,6 @@ export function SlotCalendarDialog(props: Props) {
     if (nextOpen) {
       const nextSeed = selectedSlot ?? availableSlots[0] ?? null;
       setDraftSlot(selectedSlot);
-      setDraftSlots(confirmedSlots);
-      setSelectionMessage("");
       setSelectedDay(nextSeed ? calendarDate(nextSeed.startsAt).key : "");
       setVisibleMonth(
         nextSeed ? monthKey(calendarDate(nextSeed.startsAt)) : (months[0] ?? ""),
@@ -147,7 +138,7 @@ export function SlotCalendarDialog(props: Props) {
     ) ?? null;
     setVisibleMonth(nextMonth);
     setSelectedDay(firstSlot ? calendarDate(firstSlot.startsAt).key : "");
-    if (!multiple) setDraftSlot(null);
+    setDraftSlot(null);
   }
 
   return (
@@ -155,16 +146,17 @@ export function SlotCalendarDialog(props: Props) {
       <DialogTrigger asChild>{children}</DialogTrigger>
       <DialogContent
         className="slot-calendar-dialog"
+        aria-modal="true"
         onOpenAutoFocus={(event) => {
           event.preventDefault();
           selectedDayRef.current?.focus();
         }}
       >
         <DialogHeader className="slot-calendar-dialog__header">
-          <DialogTitle>{multiple ? "เลือกวันและเวลาฝึกในแพ็กเกจ" : "เลือกวันและเวลาฝึก"}</DialogTitle>
+          <DialogTitle>{props.monthlyFirstSession ? "เลือกวันและเวลานัดแรก" : "เลือกวันและเวลาฝึก"}</DialogTitle>
           <DialogDescription>
-            {multiple
-              ? `เลือกให้ครบ ${props.selectionLimit} ครั้งภายใน 30 วันกับ ${trainerName} · เวลาประเทศไทย`
+            {props.monthlyFirstSession
+              ? `เลือกนัดแรกกับ ${trainerName} ก่อน นัดที่เหลือจัดเวลาได้หลังชำระเงินผ่าน · เวลาประเทศไทย`
               : `เลือกวันที่ก่อน แล้วเลือกช่วงเวลาที่สะดวกกับ ${trainerName} · เวลาประเทศไทย`}
           </DialogDescription>
         </DialogHeader>
@@ -235,55 +227,26 @@ export function SlotCalendarDialog(props: Props) {
             <div className="slot-calendar-times__list">
               {(slotsByDay.get(selectedDay) ?? []).map((slot) => (
                 (() => {
-                  const selected = multiple
-                    ? draftSlots.some((item) => item.id === slot.id)
-                    : draftSlot?.id === slot.id;
+                  const selected = draftSlot?.id === slot.id;
+                  const crossesDay = crossesBangkokDay(slot.startsAt, slot.endsAt);
                   return (
                     <button
                       key={slot.id}
                       type="button"
                       className={`slot-calendar-time${selected ? " is-selected" : ""}`}
                       aria-pressed={selected}
-                      aria-label={`${formatTime(slot.startsAt)} ถึง ${formatTime(slot.endsAt)}`}
+                      aria-label={`${formatTime(slot.startsAt)} ถึง ${formatTime(slot.endsAt)}${crossesDay ? ` สิ้นสุดวันถัดไป ${formatDay(slot.endsAt)}` : ""}`}
                       onClick={() => {
-                        if (!multiple) {
-                          setDraftSlot(slot);
-                          return;
-                        }
-                        setDraftSlots((current) => {
-                          if (selected) {
-                            setSelectionMessage("");
-                            return current.filter((item) => item.id !== slot.id);
-                          }
-                          if (current.length >= props.selectionLimit) return current;
-
-                          const next = [...current, slot].sort((left, right) => left.startsAt.localeCompare(right.startsAt));
-                          const firstStart = new Date(next[0].startsAt).getTime();
-                          const lastEnd = Math.max(...next.map((item) => new Date(item.endsAt).getTime()));
-                          if (lastEnd > firstStart + 30 * 24 * 60 * 60 * 1000) {
-                            setSelectionMessage("เลือกช่วงเวลาภายใน 30 วันนับจากครั้งแรก");
-                            return current;
-                          }
-
-                          setSelectionMessage("");
-                          return next;
-                        });
+                        setDraftSlot(slot);
                       }}
                     >
                       {formatTime(slot.startsAt)} ถึง {formatTime(slot.endsAt)} น.
+                      {crossesDay && <small>สิ้นสุดวันถัดไป · {formatDay(slot.endsAt)}</small>}
                     </button>
                   );
                 })()
               ))}
             </div>
-            {multiple && (
-              <>
-                <p className="slot-calendar-times__count" aria-live="polite">
-                  เลือกแล้ว {draftSlots.length} จาก {props.selectionLimit} ครั้ง
-                </p>
-                {selectionMessage && <p className="field-error" role="alert">{selectionMessage}</p>}
-              </>
-            )}
           </section>
         </div>
 
@@ -294,19 +257,14 @@ export function SlotCalendarDialog(props: Props) {
           <Button
             type="button"
             className="button--accent"
-            disabled={multiple ? draftSlots.length !== props.selectionLimit : !draftSlot}
+            disabled={!draftSlot}
             onClick={() => {
-              if (multiple) {
-                if (draftSlots.length !== props.selectionLimit) return;
-                props.onConfirm(draftSlots);
-              } else {
-                if (!draftSlot) return;
-                props.onConfirm(draftSlot);
-              }
+              if (!draftSlot) return;
+              props.onConfirm(draftSlot);
               setOpen(false);
             }}
           >
-            {multiple ? `ยืนยัน ${props.selectionLimit} ช่วงเวลา` : "ยืนยันเวลานี้"}
+            {props.monthlyFirstSession ? "ยืนยันเวลานัดแรก" : "ยืนยันเวลานี้"}
           </Button>
         </DialogFooter>
       </DialogContent>

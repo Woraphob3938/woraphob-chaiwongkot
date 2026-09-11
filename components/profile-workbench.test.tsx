@@ -90,6 +90,21 @@ describe("ProfileWorkbench", () => {
     expect(screen.getByLabelText("ชื่อ")).toHaveValue("ทดลอง");
   });
 
+  it("warns before leaving the page with unsaved changes", async () => {
+    localStorage.setItem("fitconnect_token", "token");
+    localStorage.setItem("fitconnect_user", JSON.stringify({ role: "member" }));
+    vi.mocked(authenticatedRequest).mockResolvedValue(memberProfile);
+    render(<ProfileWorkbench />);
+
+    fireEvent.change(await screen.findByLabelText("ชื่อ"), { target: { value: "ยังไม่บันทึก" } });
+    fireEvent.click(screen.getByRole("link", { name: "บัญชีของฉัน" }));
+
+    expect(screen.getByRole("dialog", { name: "ออกจากหน้าโดยยังไม่บันทึก?" })).toBeInTheDocument();
+    expect(push).not.toHaveBeenCalled();
+    fireEvent.click(screen.getByRole("button", { name: "ออกโดยไม่บันทึก" }));
+    expect(push).toHaveBeenCalledWith("/member");
+  });
+
   it("shows an alert and retries a failed profile request", async () => {
     localStorage.setItem("fitconnect_token", "token");
     localStorage.setItem("fitconnect_user", JSON.stringify({ role: "member" }));

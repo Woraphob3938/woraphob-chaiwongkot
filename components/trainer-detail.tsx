@@ -1,8 +1,9 @@
 "use client";
 
 import Image from "next/image";
+import Link from "next/link";
 import { useEffect, useState } from "react";
-import { MessageSquareText, Pencil } from "lucide-react";
+import { ArrowLeft, CalendarClock, MessageSquareText, Pencil } from "lucide-react";
 import { CredentialCard } from "@/components/credential-card";
 import { DisclosureSection } from "@/components/disclosure-section";
 import { ProfileBookingPanel } from "@/components/profile-booking-panel";
@@ -30,7 +31,8 @@ function TrainerReview({ review }: { review: PublicTrainerReview }) {
   );
 }
 
-export function TrainerDetail({ trainer }: { trainer: Trainer }) {
+export function TrainerDetail({ trainer, returnTo = "/trainers" }: { trainer: Trainer; returnTo?: string }) {
+  const backHref = returnTo === "/trainers" || returnTo.startsWith("/trainers?") ? returnTo : "/trainers";
   const [slot, setSlot] = useState<AvailabilitySlot | null>(null);
   const [priceOverride, setPriceOverride] = useState<{ trainerId: number; value: number } | null>(null);
   const [editingPrice, setEditingPrice] = useState(false);
@@ -39,14 +41,17 @@ export function TrainerDetail({ trainer }: { trainer: Trainer }) {
   const [editableTrainerId, setEditableTrainerId] = useState<number | null>(null);
   const [priceMessage, setPriceMessage] = useState("");
   const [priceError, setPriceError] = useState(false);
+  const [reviewPage, setReviewPage] = useState(1);
   const headingId = `trainer-profile-heading-${trainer.id}`;
   const currentPrice = priceOverride?.trainerId === trainer.id
     ? priceOverride.value
     : (trainer.priceFrom ?? null);
   const canEditPrice = editableTrainerId === trainer.id;
   const reviews = trainer.reviews ?? [];
-  const visibleReviews = reviews.slice(0, 3);
-  const additionalReviews = reviews.slice(3);
+  const reviewsPerPage = 3;
+  const reviewPageCount = Math.max(1, Math.ceil(reviews.length / reviewsPerPage));
+  const currentReviewPage = Math.min(reviewPage, reviewPageCount);
+  const visibleReviews = reviews.slice((currentReviewPage - 1) * reviewsPerPage, currentReviewPage * reviewsPerPage);
   const reviewSummary = trainer.reviewCount > 0 && trainer.rating != null
     ? `${trainer.rating} จาก 5 · ${trainer.reviewCount} รีวิว`
     : "ยังไม่มีรีวิวจากการฝึกที่เสร็จแล้ว";
@@ -105,6 +110,11 @@ export function TrainerDetail({ trainer }: { trainer: Trainer }) {
 
   return (
     <>
+      <div className="trainer-detail-toolbar">
+        <Button asChild variant="outline">
+          <Link href={backHref}><ArrowLeft aria-hidden="true" size={17} /> ย้อนกลับ</Link>
+        </Button>
+      </div>
       <div className="trainer-detail-layout trainer-commerce-layout">
         <section className="trainer-detail-media" aria-label={`ภาพโปรไฟล์ของ ${trainer.displayName}`}>
           <div className="trainer-detail-photo">
@@ -129,7 +139,9 @@ export function TrainerDetail({ trainer }: { trainer: Trainer }) {
           <p>{trainer.bio}</p>
           <div className="trainer-detail-status"><StatusBadge status={trainer.verification} /></div>
           <div className="detail-meta">
-            <span><MessageSquareText aria-hidden="true" size={17} /> {reviewSummary}</span>
+            {reviews.length > 0
+              ? <a className="trainer-review-jump" href="#trainer-reviews"><MessageSquareText aria-hidden="true" size={17} /> {reviewSummary}</a>
+              : <span><MessageSquareText aria-hidden="true" size={17} /> {reviewSummary}</span>}
             <div className="price-session">
               <span className="label">ค่าฝึกต่อครั้ง</span>
               <div className="price-editor-inline">
@@ -190,8 +202,10 @@ export function TrainerDetail({ trainer }: { trainer: Trainer }) {
 
         <ProfileBookingPanel trainer={currentTrainer} selectedSlot={slot} onSelectSlot={setSlot} />
       </div>
-      {reviews.length > 0 && (
-        <section className="trainer-reviews" aria-labelledby="trainer-reviews-heading">
+      <a className="trainer-mobile-booking-action" href="#booking-panel">
+        <CalendarClock aria-hidden="true" /> เลือกเวลาฝึก
+      </a>
+      <section id="trainer-reviews" className="trainer-reviews" aria-labelledby="trainer-reviews-heading">
           <header className="trainer-reviews__heading">
             <div>
               <h2 id="trainer-reviews-heading">รีวิวจากสมาชิก</h2>
@@ -200,26 +214,36 @@ export function TrainerDetail({ trainer }: { trainer: Trainer }) {
             <strong>{reviewSummary}</strong>
           </header>
 
-          <div className="trainer-review-list">
-            {visibleReviews.map((review) => (
-              <TrainerReview key={`${review.createdAt}-${review.comment}`} review={review} />
-            ))}
-          </div>
-
-          {additionalReviews.length > 0 && (
-            <details className="trainer-reviews__more">
-              <summary>ดูรีวิวเพิ่มเติม ({additionalReviews.length})</summary>
+          {reviews.length > 0 ? (
+            <>
               <div className="trainer-review-list">
-                {additionalReviews.map((review) => (
+                {visibleReviews.map((review) => (
                   <TrainerReview key={`${review.createdAt}-${review.comment}`} review={review} />
                 ))}
               </div>
-            </details>
+              {reviewPageCount > 1 && (
+                <nav className="trainer-review-pagination" aria-label="หน้ารายการรีวิว">
+                  {Array.from({ length: reviewPageCount }, (_, index) => index + 1).map((page) => (
+                    <button
+                      key={page}
+                      type="button"
+                      className={page === currentReviewPage ? "is-current" : undefined}
+                      aria-label={`หน้ารีวิว ${page}`}
+                      aria-current={page === currentReviewPage ? "page" : undefined}
+                      onClick={() => setReviewPage(page)}
+                    >
+                      {page}
+                    </button>
+                  ))}
+                </nav>
+              )}
+            </>
+          ) : (
+            <p className="trainer-reviews__empty">ยังไม่มีรีวิวจากการฝึกที่เสร็จแล้ว</p>
           )}
 
           <a className="trainer-reviews__booking-link" href="#booking-panel">กลับไปเลือกเวลา</a>
-        </section>
-      )}
+      </section>
     </>
   );
 }

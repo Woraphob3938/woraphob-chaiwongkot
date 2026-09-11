@@ -112,35 +112,36 @@ final class WorkflowRules
         return $startsAt->modify('+1 hour');
     }
 
-    public static function assertMonthlyBookingSlots(array $slots, int $expectedCount): void
+    public static function assertMonthlyBookingStart(array $slots, int $packageSessionCount): void
     {
-        if ($expectedCount < 2 || $expectedCount > 30 || count($slots) !== $expectedCount) {
+        if ($packageSessionCount < 2 || $packageSessionCount > 30 || count($slots) !== 1) {
             throw new HttpException(
                 422,
-                'จำนวนครั้งในแพ็กเกจไม่ถูกต้อง',
+                'กรุณาเลือกเวลานัดแรกหนึ่งช่วง',
                 'VALIDATION_FAILED',
-                ['slotIds' => "เลือกเวลาให้ครบ {$expectedCount} ครั้ง"]
+                ['slotIds' => 'เลือกเวลานัดแรกเพียงหนึ่งช่วง นัดที่เหลือจัดภายหลัง']
             );
         }
+    }
 
-        $ids = array_map(fn(array $slot): int => (int) $slot['id'], $slots);
-        if (count(array_unique($ids)) !== count($ids)) {
-            throw new HttpException(422, 'เลือกช่วงเวลาซ้ำกัน', 'VALIDATION_FAILED', ['slotIds' => 'เลือกแต่ละช่วงเวลาได้หนึ่งครั้ง']);
+    public static function assertMonthlySessionScheduling(
+        string $bookingStatus,
+        string $paymentStatus,
+        int $scheduledCount,
+        int $packageSessionCount,
+        DateTimeImmutable $periodStart,
+        DateTimeImmutable $periodEnd,
+        DateTimeImmutable $startsAt,
+        DateTimeImmutable $endsAt
+    ): void {
+        if ($bookingStatus !== 'confirmed' || $paymentStatus !== 'approved') {
+            throw new HttpException(409, 'จัดเวลาที่เหลือได้หลังการชำระเงินผ่าน', 'MONTHLY_SCHEDULING_NOT_READY');
         }
-
-        usort($slots, fn(array $left, array $right): int => strcmp((string) $left['starts_at'], (string) $right['starts_at']));
-        $periodStart = new DateTimeImmutable((string) $slots[0]['starts_at'], new DateTimeZone('UTC'));
-        $periodEnd = $periodStart->modify('+30 days');
-        foreach ($slots as $slot) {
-            $endsAt = new DateTimeImmutable((string) $slot['ends_at'], new DateTimeZone('UTC'));
-            if ($endsAt > $periodEnd) {
-                throw new HttpException(
-                    422,
-                    'เวลาฝึกต้องอยู่ภายใน 30 วัน',
-                    'VALIDATION_FAILED',
-                    ['slotIds' => 'เลือกช่วงเวลาภายใน 30 วันนับจากครั้งแรก']
-                );
-            }
+        if ($scheduledCount >= $packageSessionCount) {
+            throw new HttpException(409, 'จัดเวลาครบตามแพ็กเกจแล้ว', 'MONTHLY_PACKAGE_FULL');
+        }
+        if ($startsAt < $periodStart || $endsAt > $periodEnd) {
+            throw new HttpException(422, 'เวลาฝึกต้องอยู่ภายใน 30 วัน', 'VALIDATION_FAILED', ['slotId' => 'เลือกช่วงเวลาภายใน 30 วันนับจากนัดแรก']);
         }
     }
 
@@ -160,7 +161,7 @@ final class WorkflowRules
 
     public static function assertChatWritable(string $bookingStatus): void
     {
-        if (!in_array($bookingStatus, ['awaiting_payment', 'payment_review', 'confirmed', 'completed'], true)) {
+        if (!in_array($bookingStatus, ['awaiting_payment', 'payment_review', 'confirmed'], true)) {
             throw new HttpException(409, 'ห้องสนทนานี้ส่งข้อความเพิ่มไม่ได้', 'CHAT_READ_ONLY');
         }
     }
@@ -176,17 +177,25 @@ final class WorkflowRules
         }
     }
 
+
     public static function assertTrainerCompletion(
         string $bookingStatus,
         string $paymentStatus,
         DateTimeImmutable $endsAt,
-        DateTimeImmutable $now
+        DateTimeImmutable $now,
+        int $scheduledCount = 1,
+        int $requiredCount = 1,
+        ?DateTimeImmutable $periodEnd = null
     ): void {
         if ($bookingStatus !== 'confirmed' || $paymentStatus !== 'approved') {
             throw new HttpException(409, 'การจองนี้ยังปิดงานไม่ได้', 'BOOKING_NOT_COMPLETABLE');
         }
         if ($now <= $endsAt) {
             throw new HttpException(409, 'ปิดงานได้หลังเวลานัดสิ้นสุด', 'BOOKING_END_NOT_REACHED');
+        }
+        $isPeriodExpired = $periodEnd !== null && $now > $periodEnd;
+        if ($scheduledCount < $requiredCount && !$isPeriodExpired) {
+            throw new HttpException(409, 'ยังจัดเวลาไม่ครบตามแพ็กเกจ', 'MONTHLY_SESSIONS_INCOMPLETE');
         }
     }
 

@@ -151,27 +151,30 @@ test('sets every availability slot to one hour', function (): void {
     assertSameValue('2026-08-10 03:00:00', WorkflowRules::availabilityEnd($startsAt)->format('Y-m-d H:i:s'));
 });
 
-test('accepts the agreed monthly sessions inside thirty days', function (): void {
-    WorkflowRules::assertMonthlyBookingSlots([
+test('starts a monthly package with exactly one appointment', function (): void {
+    WorkflowRules::assertMonthlyBookingStart([
         ['id' => 11, 'starts_at' => '2026-08-03 02:00:00', 'ends_at' => '2026-08-03 03:00:00'],
-        ['id' => 12, 'starts_at' => '2026-08-10 02:00:00', 'ends_at' => '2026-08-10 03:00:00'],
-        ['id' => 13, 'starts_at' => '2026-08-17 02:00:00', 'ends_at' => '2026-08-17 03:00:00'],
-        ['id' => 14, 'starts_at' => '2026-08-24 02:00:00', 'ends_at' => '2026-08-24 03:00:00'],
     ], 4);
 });
 
-test('rejects a monthly booking with the wrong session count', function (): void {
-    expectHttp(422, 'VALIDATION_FAILED', fn() => WorkflowRules::assertMonthlyBookingSlots([
+test('rejects selecting every monthly appointment before payment', function (): void {
+    expectHttp(422, 'VALIDATION_FAILED', fn() => WorkflowRules::assertMonthlyBookingStart([
         ['id' => 11, 'starts_at' => '2026-08-03 02:00:00', 'ends_at' => '2026-08-03 03:00:00'],
         ['id' => 12, 'starts_at' => '2026-08-10 02:00:00', 'ends_at' => '2026-08-10 03:00:00'],
     ], 4));
 });
 
-test('rejects monthly sessions outside the thirty day period', function (): void {
-    expectHttp(422, 'VALIDATION_FAILED', fn() => WorkflowRules::assertMonthlyBookingSlots([
-        ['id' => 11, 'starts_at' => '2026-08-03 02:00:00', 'ends_at' => '2026-08-03 03:00:00'],
-        ['id' => 12, 'starts_at' => '2026-09-02 03:00:00', 'ends_at' => '2026-09-02 04:00:01'],
-    ], 2));
+test('accepts a remaining monthly appointment only after approved payment and inside the package period', function (): void {
+    WorkflowRules::assertMonthlySessionScheduling(
+        'confirmed',
+        'approved',
+        1,
+        4,
+        new DateTimeImmutable('2026-08-03 02:00:00', new DateTimeZone('UTC')),
+        new DateTimeImmutable('2026-09-02 02:00:00', new DateTimeZone('UTC')),
+        new DateTimeImmutable('2026-08-10 02:00:00', new DateTimeZone('UTC')),
+        new DateTimeImmutable('2026-08-10 03:00:00', new DateTimeZone('UTC')),
+    );
 });
 
 test('requires a payment rejection note', function (): void {
@@ -184,6 +187,11 @@ test('payment decisions require a reviewing payment and payment review booking',
 
 test('blocks chat after an unpaid booking expires', function (): void {
     expectHttp(409, 'CHAT_READ_ONLY', fn() => WorkflowRules::assertChatWritable('expired'));
+});
+
+test('completed bookings close chat while ongoing bookings remain writable', function (): void {
+    expectHttp(409, 'CHAT_READ_ONLY', fn() => WorkflowRules::assertChatWritable('completed'));
+    WorkflowRules::assertChatWritable('confirmed');
 });
 
 test('allows a member to cancel before submitting payment evidence', function (): void {
@@ -210,6 +218,34 @@ test('allows completion after a paid appointment ends', function (): void {
         'approved',
         new DateTimeImmutable('2026-08-01T01:00:00.000Z'),
         new DateTimeImmutable('2026-08-01T01:01:00.000Z')
+    );
+});
+
+test('blocks monthly completion until every package session is scheduled', function (): void {
+    expectHttp(
+        409,
+        'MONTHLY_SESSIONS_INCOMPLETE',
+        fn() => WorkflowRules::assertTrainerCompletion(
+            'confirmed',
+            'approved',
+            new DateTimeImmutable('2026-08-01T01:00:00.000Z'),
+            new DateTimeImmutable('2026-08-01T02:00:00.000Z'),
+            1,
+            4,
+            new DateTimeImmutable('2026-08-31T01:00:00.000Z')
+        )
+    );
+});
+
+test('allows monthly completion after package period ends even if not all sessions scheduled', function (): void {
+    WorkflowRules::assertTrainerCompletion(
+        'confirmed',
+        'approved',
+        new DateTimeImmutable('2026-08-01T01:00:00.000Z'),
+        new DateTimeImmutable('2026-09-02T00:00:00.000Z'),
+        2,
+        10,
+        new DateTimeImmutable('2026-09-01T00:00:00.000Z')
     );
 });
 

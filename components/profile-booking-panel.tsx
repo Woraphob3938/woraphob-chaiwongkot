@@ -1,11 +1,13 @@
 "use client";
 
 import Link from "next/link";
+import Image from "next/image";
 import { useEffect, useRef, useState } from "react";
 import { ArrowRight, CalendarDays, Clock3, ShieldCheck } from "lucide-react";
 import { SlotCalendarDialog } from "@/components/slot-calendar-dialog";
 import { Button } from "@/components/ui/button";
-import { formatDay, formatMoney, formatTime } from "@/lib/format";
+import { formatMoney, formatTimeRange } from "@/lib/format";
+import { apiAssetUrl } from "@/lib/api";
 import type { AvailabilitySlot, Trainer } from "@/lib/types";
 
 type Props = {
@@ -16,7 +18,7 @@ type Props = {
 
 export function ProfileBookingPanel({ trainer, selectedSlot, onSelectSlot }: Props) {
   const [bookingType, setBookingType] = useState<"single" | "monthly">("single");
-  const [monthlySlots, setMonthlySlots] = useState<AvailabilitySlot[]>([]);
+  const [monthlyFirstSlot, setMonthlyFirstSlot] = useState<AvailabilitySlot | null>(null);
   const availableSlots = trainer.slots.filter((slot) => slot.available);
   const hasPrice = typeof trainer.priceFrom === "number" && trainer.priceFrom > 0;
   const monthlyAvailable = typeof trainer.monthlyPrice === "number"
@@ -25,7 +27,7 @@ export function ProfileBookingPanel({ trainer, selectedSlot, onSelectSlot }: Pro
     && trainer.monthlySessionCount >= 2;
   const isMonthly = bookingType === "monthly";
   const hasSelectedTimes = isMonthly
-    ? monthlySlots.length === trainer.monthlySessionCount
+    ? Boolean(monthlyFirstSlot)
     : Boolean(selectedSlot);
   const canBook = trainer.verification === "verified"
     && (isMonthly ? monthlyAvailable : hasPrice)
@@ -49,8 +51,8 @@ export function ProfileBookingPanel({ trainer, selectedSlot, onSelectSlot }: Pro
       </div>
 
       <div className="profile-booking-types" role="group" aria-label="รูปแบบการจอง">
-        <Button type="button" variant={isMonthly ? "outline" : "default"} onClick={() => setBookingType("single")}>รายครั้ง</Button>
-        <Button type="button" variant={isMonthly ? "default" : "outline"} disabled={!monthlyAvailable} onClick={() => setBookingType("monthly")}>แพ็กเกจ 30 วัน</Button>
+        <Button type="button" aria-pressed={!isMonthly} variant={isMonthly ? "outline" : "default"} onClick={() => setBookingType("single")}>รายครั้ง</Button>
+        <Button type="button" aria-pressed={isMonthly} variant={isMonthly ? "default" : "outline"} disabled={!monthlyAvailable} onClick={() => setBookingType("monthly")}>แพ็กเกจ 30 วัน</Button>
       </div>
 
       <dl className="profile-booking-price">
@@ -62,10 +64,21 @@ export function ProfileBookingPanel({ trainer, selectedSlot, onSelectSlot }: Pro
         </div>
       </dl>
 
+      {trainer.paymentQrUrl && (
+        <details className="profile-payment-qr">
+          <summary>ดู QR รับเงินของเทรนเนอร์</summary>
+          <div>
+            <Image src={apiAssetUrl(trainer.paymentQrUrl) as string} alt={`QR รับเงินของ ${trainer.displayName}`} width={180} height={180} unoptimized />
+            <p>ใช้หลังระบบแสดงยอดชำระแล้ว และตรวจชื่อผู้รับในแอปธนาคารก่อนโอนทุกครั้ง</p>
+          </div>
+        </details>
+      )}
+
       {isMonthly && monthlyAvailable && (
-        <p className="profile-booking-package-facts">
-          {trainer.monthlySessionCount} ครั้ง ภายใน 30 วัน
-        </p>
+        <div className="profile-booking-package-facts">
+          <strong>{trainer.monthlySessionCount} ครั้ง ภายใน 30 วัน</strong>
+          <span>เลือกนัดแรกก่อน อีก {(trainer.monthlySessionCount as number) - 1} นัดจัดเวลาได้หลังชำระเงินผ่าน</span>
+        </div>
       )}
 
       {!isMonthly && !hasPrice && (
@@ -78,18 +91,18 @@ export function ProfileBookingPanel({ trainer, selectedSlot, onSelectSlot }: Pro
         <div className="profile-booking-selection" aria-live="polite">
           <CalendarDays aria-hidden="true" size={18} />
           <span>
-            <strong>{monthlySlots.length === trainer.monthlySessionCount ? "เลือกเวลาครบแล้ว" : "เลือกเวลาในแพ็กเกจ"}</strong>
-            {monthlySlots.length} จาก {trainer.monthlySessionCount ?? 0} ครั้ง
+            <strong>{monthlyFirstSlot ? "เลือกเวลานัดแรกแล้ว" : "เลือกเวลานัดแรก"}</strong>
+            {monthlyFirstSlot ? formatTimeRange(monthlyFirstSlot.startsAt, monthlyFirstSlot.endsAt) : `นัดแรก 1 จาก ${trainer.monthlySessionCount ?? 0} ครั้ง`}
           </span>
           {monthlyAvailable && (
             <SlotCalendarDialog
               trainerName={trainer.displayName}
               slots={availableSlots}
-              selectedSlots={monthlySlots}
-              selectionLimit={trainer.monthlySessionCount as number}
-              onConfirm={setMonthlySlots}
+              selectedSlot={monthlyFirstSlot}
+              monthlyFirstSession
+              onConfirm={setMonthlyFirstSlot}
             >
-              <Button type="button" variant="outline">{monthlySlots.length > 0 ? "เปลี่ยนเวลา" : "เลือกเวลาในแพ็กเกจ"}</Button>
+              <Button type="button" variant="outline">{monthlyFirstSlot ? "เปลี่ยนเวลานัดแรก" : "เลือกเวลานัดแรก"}</Button>
             </SlotCalendarDialog>
           )}
         </div>
@@ -98,8 +111,7 @@ export function ProfileBookingPanel({ trainer, selectedSlot, onSelectSlot }: Pro
           <Clock3 aria-hidden="true" size={18} />
           <span>
             <strong>เลือกเวลาแล้ว</strong>
-            {formatDay(selectedSlot.startsAt)} · {formatTime(selectedSlot.startsAt)} ถึง{" "}
-            {formatTime(selectedSlot.endsAt)} น.
+            {formatTimeRange(selectedSlot.startsAt, selectedSlot.endsAt)}
           </span>
           <SlotCalendarDialog
             trainerName={trainer.displayName}
@@ -140,13 +152,13 @@ export function ProfileBookingPanel({ trainer, selectedSlot, onSelectSlot }: Pro
 
       <div className="profile-booking-policy">
         <ShieldCheck aria-hidden="true" size={18} />
-        <p>เวลา 10 นาทีเริ่มหลังยืนยันการจองในขั้นตอนถัดไป</p>
+        <p>ยืนยันแล้วระบบกันเวลานัดแรกไว้ 10 นาที ต้องส่งสลิปให้{trainer.serviceMode === "freelance" ? "เทรนเนอร์ฟรีแลนซ์" : "ผู้ดูแลระบบ"}ตรวจอนุมัติ หากไม่ส่งทันเวลาการจองจะหมดอายุและคืนเวลาอัตโนมัติ</p>
       </div>
 
       {canBook ? (
         <Button className="button button--accent button--wide" asChild>
           <Link href={isMonthly
-            ? `/booking?trainer=${trainer.slug}&type=monthly&slots=${encodeURIComponent(monthlySlots.map((slot) => slot.id).join(","))}`
+            ? `/booking?trainer=${trainer.slug}&type=monthly&slots=${monthlyFirstSlot?.id}`
             : `/booking?trainer=${trainer.slug}&slot=${selectedSlot?.id}`}>
             {isMonthly ? "จองแพ็กเกจนี้" : "จองเวลานี้"} <ArrowRight aria-hidden="true" size={18} />
           </Link>
@@ -160,7 +172,7 @@ export function ProfileBookingPanel({ trainer, selectedSlot, onSelectSlot }: Pro
             : trainer.verification !== "verified"
               ? "รอตรวจคุณสมบัติ"
               : isMonthly
-                ? "เลือกเวลาให้ครบ"
+                ? "เลือกเวลานัดแรก"
                 : "เลือกเวลาก่อน"}
         </Button>
       )}

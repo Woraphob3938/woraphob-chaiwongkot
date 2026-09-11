@@ -102,11 +102,15 @@ test('normalizes a trainer profile', function (): void {
         'priceFrom' => 650.0,
         'monthlyPrice' => 2400.0,
         'monthlySessionCount' => 4,
+        'paymentAccountName' => 'เมย์ ใจดี',
+        'promptPayId' => '0899999999',
         'trainingTypeIds' => [1, 3],
     ], ProfileRules::trainer([
         'displayName' => ' ครูเมย์ ',
         'legalName' => ' เมย์ ใจดี ',
         'phone' => '0899999999',
+        'paymentAccountName' => ' เมย์ ใจดี ',
+        'promptPayId' => '089-999-9999',
         'headline' => ' สร้างความแข็งแรงอย่างเป็นระบบ ',
         'bio' => ' วางแผนตามเป้าหมาย ',
         'yearsExperience' => '6',
@@ -123,6 +127,8 @@ test('requires monthly price and session count together', function (): void {
     expectHttp(422, 'VALIDATION_FAILED', fn() => ProfileRules::trainer([
         'displayName' => 'ครูเมย์',
         'legalName' => 'เมย์ ใจดี',
+        'paymentAccountName' => 'เมย์ ใจดี',
+        'promptPayId' => '0899999999',
         'serviceMode' => 'freelance',
         'yearsExperience' => 3,
         'monthlyPrice' => 2400,
@@ -134,6 +140,8 @@ test('limits a monthly package to thirty sessions', function (): void {
     expectHttp(422, 'VALIDATION_FAILED', fn() => ProfileRules::trainer([
         'displayName' => 'ครูเมย์',
         'legalName' => 'เมย์ ใจดี',
+        'paymentAccountName' => 'เมย์ ใจดี',
+        'promptPayId' => '0899999999',
         'serviceMode' => 'freelance',
         'yearsExperience' => 3,
         'monthlyPrice' => 2400,
@@ -142,21 +150,25 @@ test('limits a monthly package to thirty sessions', function (): void {
     ]), 'monthlySessionCount');
 });
 
-test('requires a gym name for gym service', function (): void {
-    expectHttp(422, 'VALIDATION_FAILED', fn() => ProfileRules::trainer([
+test('allows gym service without a gym name for the single-gym workspace', function (): void {
+    assertSameValue('', ProfileRules::trainer([
         'displayName' => 'ครูเมย์',
         'legalName' => 'เมย์ ใจดี',
+        'paymentAccountName' => 'เมย์ ใจดี',
+        'promptPayId' => '0899999999',
         'serviceMode' => 'gym',
         'gymName' => '',
         'yearsExperience' => 3,
         'trainingTypeIds' => [1],
-    ]), 'gymName');
+    ])['gymName']);
 });
 
 test('requires at least one training type', function (): void {
     expectHttp(422, 'VALIDATION_FAILED', fn() => ProfileRules::trainer([
         'displayName' => 'ครูเมย์',
         'legalName' => 'เมย์ ใจดี',
+        'paymentAccountName' => 'เมย์ ใจดี',
+        'promptPayId' => '0899999999',
         'serviceMode' => 'freelance',
         'yearsExperience' => 3,
         'trainingTypeIds' => [],
@@ -167,6 +179,8 @@ test('rejects an unsupported trainer service mode', function (): void {
     expectHttp(422, 'VALIDATION_FAILED', fn() => ProfileRules::trainer([
         'displayName' => 'ครูเมย์',
         'legalName' => 'เมย์ ใจดี',
+        'paymentAccountName' => 'เมย์ ใจดี',
+        'promptPayId' => '0899999999',
         'serviceMode' => 'online',
         'yearsExperience' => 3,
         'trainingTypeIds' => [1],
@@ -177,6 +191,8 @@ test('rejects a negative trainer experience', function (): void {
     expectHttp(422, 'VALIDATION_FAILED', fn() => ProfileRules::trainer([
         'displayName' => 'ครูเมย์',
         'legalName' => 'เมย์ ใจดี',
+        'paymentAccountName' => 'เมย์ ใจดี',
+        'promptPayId' => '0899999999',
         'serviceMode' => 'freelance',
         'yearsExperience' => -1,
         'trainingTypeIds' => [1],
@@ -187,6 +203,8 @@ test('rejects a non-positive trainer price', function (): void {
     expectHttp(422, 'VALIDATION_FAILED', fn() => ProfileRules::trainer([
         'displayName' => 'ครูเมย์',
         'legalName' => 'เมย์ ใจดี',
+        'paymentAccountName' => 'เมย์ ใจดี',
+        'promptPayId' => '0899999999',
         'serviceMode' => 'freelance',
         'yearsExperience' => 3,
         'priceFrom' => 0,

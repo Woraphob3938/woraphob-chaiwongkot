@@ -2,7 +2,7 @@ import Link from "next/link";
 import { TrainerDiscovery } from "@/components/trainer-discovery";
 import { getLiveTrainerCatalog } from "@/lib/api";
 
-type Props = { searchParams: Promise<{ q?: string; type?: string }> };
+type Props = { searchParams: Promise<Record<string, string | string[] | undefined>> };
 
 export const metadata = { title: "ค้นหาเทรนเนอร์" };
 
@@ -20,10 +20,12 @@ export default async function TrainersPage({ searchParams }: Props) {
     return (
       <main className="page-shell home-shell">
         <TrainerDiscovery
+          key={JSON.stringify(params)}
           initialTrainers={catalog.trainers}
           trainingTypes={catalog.trainingTypes}
-          initialQuery={params.q}
-          initialType={params.type}
+          initialQuery={typeof params.q === "string" ? params.q : ""}
+          initialType={typeof params.type === "string" ? params.type : ""}
+          initialFilters={params}
         />
       </main>
     );

@@ -35,6 +35,8 @@ export function PasswordForm({ onDirtyChange }: PasswordFormProps) {
     onDirtyChange?.(Boolean(currentPassword || newPassword || confirmPassword));
   }, [confirmPassword, currentPassword, newPassword, onDirtyChange]);
 
+  const dirty = Boolean(currentPassword || newPassword || confirmPassword);
+
   function submit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     if (pending) return;
@@ -100,11 +102,19 @@ export function PasswordForm({ onDirtyChange }: PasswordFormProps) {
         </div>
         {error && <p className="profile-form-error" role="alert">{error}</p>}
         {message && <p className="profile-success" role="status">{message}</p>}
-        <div className="profile-form-actions">
-          <button className="button button--accent" type="submit" disabled={pending}>
-            {pending ? <><LoaderCircle className="spin" aria-hidden="true" /> กำลังเปลี่ยนรหัสผ่าน</> : <><KeyRound aria-hidden="true" /> เปลี่ยนรหัสผ่าน</>}
-          </button>
-        </div>
+        {dirty && (
+          <div className="profile-save-bar" role="region" aria-label="การเปลี่ยนแปลงที่ยังไม่บันทึก">
+            <div className="profile-save-bar__copy">
+              <strong>มีการเปลี่ยนแปลงที่ยังไม่บันทึก</strong>
+              <small>ตรวจรหัสผ่านใหม่ให้ครบก่อนบันทึก</small>
+            </div>
+            <div className="profile-save-bar__actions">
+              <button className="button button--accent" type="submit" disabled={pending}>
+                {pending ? <><LoaderCircle className="spin" aria-hidden="true" /> กำลังเปลี่ยนรหัสผ่าน</> : <><KeyRound aria-hidden="true" /> เปลี่ยนรหัสผ่าน</>}
+              </button>
+            </div>
+          </div>
+        )}
       </form>
     </section>
   );

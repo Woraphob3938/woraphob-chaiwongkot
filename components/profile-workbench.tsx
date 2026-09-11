@@ -1,6 +1,6 @@
 "use client";
 
-import { KeyboardEvent, useCallback, useEffect, useState } from "react";
+import { type KeyboardEvent, useCallback, useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import { CircleAlert, LoaderCircle, RefreshCw } from "lucide-react";
 import { ProfileIdentity } from "@/components/profile-identity";
@@ -38,6 +38,7 @@ export function ProfileWorkbench() {
   const [personalDirty, setPersonalDirty] = useState(false);
   const [securityDirty, setSecurityDirty] = useState(false);
   const [pendingTab, setPendingTab] = useState<ProfileTab | null>(null);
+  const [pendingNavigation, setPendingNavigation] = useState<string | null>(null);
 
   const loadProfile = useCallback(async () => {
     try {
@@ -72,6 +73,32 @@ export function ProfileWorkbench() {
     const timeoutId = window.setTimeout(() => void loadProfile(), 0);
     return () => window.clearTimeout(timeoutId);
   }, [loadProfile, router]);
+
+  useEffect(() => {
+    if (!personalDirty && !securityDirty) return;
+
+    const warnBeforeLeaving = (event: BeforeUnloadEvent) => {
+      event.preventDefault();
+      event.returnValue = "";
+    };
+    const confirmInternalNavigation = (event: MouseEvent) => {
+      if (event.defaultPrevented || event.button !== 0 || event.metaKey || event.ctrlKey || event.shiftKey || event.altKey) return;
+      const target = event.target instanceof Element ? event.target.closest<HTMLAnchorElement>("a[href]") : null;
+      if (!target || target.target === "_blank" || target.hasAttribute("download")) return;
+      const url = new URL(target.href, window.location.href);
+      if (url.origin !== window.location.origin || url.href === window.location.href) return;
+      event.preventDefault();
+      event.stopPropagation();
+      setPendingNavigation(`${url.pathname}${url.search}${url.hash}`);
+    };
+
+    window.addEventListener("beforeunload", warnBeforeLeaving);
+    document.addEventListener("click", confirmInternalNavigation, true);
+    return () => {
+      window.removeEventListener("beforeunload", warnBeforeLeaving);
+      document.removeEventListener("click", confirmInternalNavigation, true);
+    };
+  }, [personalDirty, securityDirty]);
 
   function requestTab(next: ProfileTab) {
     if (next === activeTab) return;
@@ -199,6 +226,32 @@ export function ProfileWorkbench() {
               }}
             >
               สลับแท็บ
+            </button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+      <Dialog open={pendingNavigation !== null} onOpenChange={(open) => { if (!open) setPendingNavigation(null); }}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>ออกจากหน้าโดยยังไม่บันทึก?</DialogTitle>
+            <DialogDescription>การแก้ไขล่าสุดจะหายไปหากออกจากหน้าโปรไฟล์ตอนนี้</DialogDescription>
+          </DialogHeader>
+          <DialogFooter>
+            <DialogClose asChild>
+              <button className="button" type="button">กลับไปบันทึก</button>
+            </DialogClose>
+            <button
+              className="button button--danger"
+              type="button"
+              onClick={() => {
+                const href = pendingNavigation;
+                setPersonalDirty(false);
+                setSecurityDirty(false);
+                setPendingNavigation(null);
+                if (href) router.push(href);
+              }}
+            >
+              ออกโดยไม่บันทึก
             </button>
           </DialogFooter>
         </DialogContent>

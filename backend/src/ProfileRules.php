@@ -44,17 +44,19 @@ final class ProfileRules
         $bio = trim((string) ($input['bio'] ?? ''));
         $serviceMode = trim((string) ($input['serviceMode'] ?? ''));
         $gymName = trim((string) ($input['gymName'] ?? ''));
+        $paymentAccountName = trim((string) ($input['paymentAccountName'] ?? ''));
+        $promptPayId = preg_replace('/\D/', '', (string) ($input['promptPayId'] ?? '')) ?? '';
 
         if ($displayName === '') $fields['displayName'] = 'กรุณากรอกชื่อที่แสดง';
         if ($legalName === '') $fields['legalName'] = 'กรุณากรอกชื่อจริง';
+        if ($paymentAccountName === '') $fields['paymentAccountName'] = 'กรอกชื่อบัญชีผู้รับเงิน';
+        if (preg_match('/^(?:0\d{9}|\d{13})$/', $promptPayId) !== 1) {
+            $fields['promptPayId'] = 'กรอกเบอร์พร้อมเพย์ 10 หลักหรือเลขประจำตัว 13 หลัก';
+        }
         self::validatePhone($phone, $fields);
         if (!in_array($serviceMode, ['freelance', 'gym', 'both'], true)) {
             $fields['serviceMode'] = 'เลือกรูปแบบการให้บริการที่กำหนด';
         }
-        if (in_array($serviceMode, ['gym', 'both'], true) && $gymName === '') {
-            $fields['gymName'] = 'กรุณากรอกชื่อยิม';
-        }
-
         $yearsValue = $input['yearsExperience'] ?? null;
         $yearsExperience = filter_var($yearsValue, FILTER_VALIDATE_INT);
         if ($yearsExperience === false || $yearsExperience < 0 || $yearsExperience > 65535) {
@@ -105,6 +107,8 @@ final class ProfileRules
             'priceFrom' => $priceFrom,
             'monthlyPrice' => $monthlyPrice,
             'monthlySessionCount' => $monthlySessionCount,
+            'paymentAccountName' => $paymentAccountName,
+            'promptPayId' => $promptPayId,
             'trainingTypeIds' => $trainingTypeIds,
         ];
     }

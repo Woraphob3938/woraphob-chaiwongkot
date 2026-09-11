@@ -1,6 +1,6 @@
 "use client";
 
-import { FormEvent, useEffect, useRef, useState } from "react";
+import { FormEvent, useEffect, useState } from "react";
 import { LoaderCircle, Save } from "lucide-react";
 import { Input } from "@/components/ui/input";
 import { NativeSelect, NativeSelectOption } from "@/components/ui/native-select";
@@ -44,16 +44,16 @@ const fieldIds: Record<string, string> = {
 };
 
 export function MemberProfileForm({ profile, onSaved, onDirtyChange }: MemberProfileFormProps) {
-  const saved = useRef(snapshot(profile));
-  const [values, setValues] = useState(saved.current);
+  const [saved, setSaved] = useState(() => snapshot(profile));
+  const [values, setValues] = useState(saved);
   const [fields, setFields] = useState<Record<string, string>>({});
   const [pending, setPending] = useState(false);
   const [message, setMessage] = useState("");
   const [error, setError] = useState("");
 
   useEffect(() => {
-    onDirtyChange?.(JSON.stringify(values) !== JSON.stringify(saved.current));
-  }, [values, onDirtyChange]);
+    onDirtyChange?.(JSON.stringify(values) !== JSON.stringify(saved));
+  }, [values, saved, onDirtyChange]);
 
   function change(name: keyof typeof values, value: string) {
     setValues((current) => ({ ...current, [name]: value }));
@@ -61,7 +61,7 @@ export function MemberProfileForm({ profile, onSaved, onDirtyChange }: MemberPro
   }
 
   function resetSaved() {
-    setValues(saved.current);
+    setValues(saved);
     setFields({});
     setError("");
     setMessage("");
@@ -98,8 +98,9 @@ export function MemberProfileForm({ profile, onSaved, onDirtyChange }: MemberPro
         }),
       })
       .then((result) => {
-        saved.current = snapshot(result);
-        setValues(saved.current);
+        const nextSaved = snapshot(result);
+        setSaved(nextSaved);
+        setValues(nextSaved);
         onSaved(result);
         setMessage("บันทึกข้อมูลสมาชิกแล้ว");
       })
@@ -115,7 +116,7 @@ export function MemberProfileForm({ profile, onSaved, onDirtyChange }: MemberPro
       .finally(() => setPending(false));
   }
 
-  const dirty = JSON.stringify(values) !== JSON.stringify(saved.current);
+  const dirty = JSON.stringify(values) !== JSON.stringify(saved);
 
   return (
     <section className="profile-section" aria-labelledby="member-details-title">
@@ -136,18 +137,9 @@ export function MemberProfileForm({ profile, onSaved, onDirtyChange }: MemberPro
             {fields.lastName && <small className="profile-field-error" id="member-last-name-error">{fields.lastName}</small>}
           </div>
           <div className="field">
-            <span id="member-email-label">อีเมล</span>
-            <p className="profile-static-value" aria-labelledby="member-email-label">{profile.user.email}</p>
-            <small>ใช้อีเมลนี้เข้าสู่ระบบ เปลี่ยนไม่ได้จากหน้านี้</small>
-          </div>
-          <div className="field">
             <label htmlFor="member-phone">เบอร์โทรศัพท์</label>
             <Input id="member-phone" inputMode="tel" value={values.phone} aria-invalid={Boolean(fields.phone)} aria-describedby={fieldDescribedBy("member-phone", fields.phone)} onChange={(event) => change("phone", event.target.value)} />
             {fields.phone && <small className="profile-field-error" id="member-phone-error">{fields.phone}</small>}
-          </div>
-          <div className="field field--full">
-            <label htmlFor="member-goal">เป้าหมายการออกกำลังกาย</label>
-            <Textarea id="member-goal" rows={3} value={values.fitnessGoal} onChange={(event) => change("fitnessGoal", event.target.value)} />
           </div>
           <div className="field">
             <label htmlFor="member-experience">ระดับประสบการณ์</label>
@@ -170,15 +162,27 @@ export function MemberProfileForm({ profile, onSaved, onDirtyChange }: MemberPro
             <small id="member-height-hint">ไม่บังคับ</small>
             {fields.height && <small className="profile-field-error" id="member-height-error">{fields.height}</small>}
           </div>
+          <div className="field field--full">
+            <label htmlFor="member-goal">เป้าหมายการออกกำลังกาย</label>
+            <Textarea id="member-goal" rows={3} value={values.fitnessGoal} onChange={(event) => change("fitnessGoal", event.target.value)} />
+          </div>
         </div>
         {error && <p className="profile-form-error" role="alert">{error}</p>}
         {message && <p className="profile-success" role="status">{message}</p>}
-        <div className="profile-form-actions">
-          {dirty && <button className="button" type="button" disabled={pending} onClick={resetSaved}>คืนค่าที่บันทึกไว้</button>}
-          <button className="button button--accent" type="submit" disabled={pending}>
-            {pending ? <><LoaderCircle className="spin" aria-hidden="true" /> กำลังบันทึก</> : <><Save aria-hidden="true" /> บันทึกข้อมูลสมาชิก</>}
-          </button>
-        </div>
+        {dirty && (
+          <div className="profile-save-bar" role="region" aria-label="การเปลี่ยนแปลงที่ยังไม่บันทึก">
+            <div className="profile-save-bar__copy">
+              <strong>มีการเปลี่ยนแปลงที่ยังไม่บันทึก</strong>
+              <small>บันทึกก่อนออกจากหน้านี้</small>
+            </div>
+            <div className="profile-save-bar__actions">
+              <button className="button" type="button" disabled={pending} onClick={resetSaved}>คืนค่าที่บันทึกไว้</button>
+              <button className="button button--accent" type="submit" disabled={pending}>
+                {pending ? <><LoaderCircle className="spin" aria-hidden="true" /> กำลังบันทึก</> : <><Save aria-hidden="true" /> บันทึกข้อมูลสมาชิก</>}
+              </button>
+            </div>
+          </div>
+        )}
       </form>
     </section>
   );
