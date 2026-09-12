@@ -136,11 +136,25 @@ function isTrainerWorkspacePath(path: string) {
   return path === "/trainer" || path.startsWith("/trainer/") || path.startsWith("/trainer#");
 }
 
+/**
+ * A slip notification is only a task while the slip is still waiting. The detail
+ * carries the booking's current state, not the state when the notification was
+ * written, so a reviewed slip keeps asking for a review that already happened —
+ * the administrator's inbox showed seven "มีสลิปรอตรวจ" rows whose payments had
+ * all been approved the day before. Live data cannot be changed, so the wording
+ * has to tell the truth about it.
+ */
+export function isSettledReview(detail: NotificationDetail) {
+  if (!detail.type.startsWith("payment_review_")) return false;
+  return detail.booking.paymentStatus !== "reviewing" || detail.booking.status !== "payment_review";
+}
+
 // Exported so the label logic can be tested directly: it is decided from the
 // booking status and the action path, and one prefix slip sent an expired
 // notification to the trainer list under the wrong label.
 export function actionLabel(detail: NotificationDetail) {
   if (detail.actionPath === "/admin" || detail.actionPath.startsWith("/admin#")) {
+    if (isSettledReview(detail)) return "ดูการจองที่ตรวจแล้ว";
     return detail.booking.status === "payment_review" ? "ตรวจสอบการชำระเงิน" : "ดูการจองในหน้าผู้ดูแลระบบ";
   }
   if (detail.booking.status === "completed") return "เขียนรีวิว";
@@ -148,6 +162,7 @@ export function actionLabel(detail: NotificationDetail) {
     detail.booking.status === "awaiting_payment"
     && ["not_submitted", "rejected"].includes(detail.booking.paymentStatus)
   ) return "ส่งหลักฐานการชำระเงิน";
+  if (isSettledReview(detail)) return "ดูสถานะการชำระเงิน";
   if (detail.booking.status === "payment_review") return "ดูสถานะการชำระเงิน";
   // `/trainers` also starts with `/trainer`, so the closed-booking case is
   // decided first; otherwise an expired notification offered "ดูตารางนัดหมาย"
@@ -202,7 +217,7 @@ function LoadError({ kind, onRetry }: { kind: LoadErrorKind; onRetry: () => void
       <AlertTitle>{kind === "connection" ? "เชื่อมต่อ FitConnect ไม่ได้" : "โหลดการแจ้งเตือนไม่สำเร็จ"}</AlertTitle>
       <AlertDescription>
         {kind === "connection"
-          ? "บริการยังไม่พร้อม โปรดตรวจการเชื่อมต่อหรือเปิด Apache แล้วลองอีกครั้ง"
+          ? "บริการยังไม่พร้อมใช้งานในขณะนี้ กรุณาลองใหม่อีกครั้ง อีเมลและการแจ้งเตือนทางอื่นยังทำงานตามปกติ"
           : "ระบบมีปัญหาชั่วคราว กรุณาลองโหลดรายการอีกครั้ง"}
       </AlertDescription>
       <Button type="button" variant="outline" onClick={onRetry}>ลองใหม่</Button>
@@ -622,6 +637,18 @@ export function NotificationCenter() {
                   </div>
                   <h2>{detail.title}</h2>
                   <p>{detail.message}</p>
+                  {/* The message is written when the event happens; the facts
+                      below are the booking's state now. When the two disagree,
+                      say so instead of leaving the reader to reconcile them. */}
+                  {isSettledReview(detail) && (
+                    <p className="notification-detail__settled" role="status">
+                      {detail.booking.paymentStatus === "approved"
+                        ? "หลักฐานนี้ได้รับการตรวจและยืนยันแล้ว ไม่มีรายการที่ต้องดำเนินการ"
+                        : detail.booking.paymentStatus === "rejected"
+                          ? "หลักฐานนี้ไม่ผ่านการตรวจแล้ว การจองปิดไปแล้ว"
+                          : "การจองนี้พ้นขั้นตอนตรวจหลักฐานแล้ว"}
+                    </p>
+                  )}
                 </header>
 
                 <dl className="notification-booking-facts">

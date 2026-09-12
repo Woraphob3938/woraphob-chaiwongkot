@@ -8398,6 +8398,17 @@ body:has(.app-sidebar) .page-footer {
   color: var(--color-ink-2);
 }
 
+/* The event message is written in the present tense when it happens; this line
+   reconciles it with what the booking shows now. */
+.notification-detail__settled {
+  margin-top: var(--space-xs);
+  padding: var(--space-xs) var(--space-sm);
+  color: var(--color-success);
+  background: var(--color-success-soft);
+  border-left: 3px solid var(--color-success);
+  font-size: var(--text-sm);
+}
+
 .notification-booking-facts {
   display: grid;
   min-width: 0;

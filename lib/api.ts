@@ -3,6 +3,16 @@ import type { ApiEnvelope, ApiErrorEnvelope, Trainer, TrainingType } from "@/lib
 
 export const API_URL = process.env.NEXT_PUBLIC_FITCONNECT_API_URL ?? "http://localhost/fitconnect-api";
 
+/**
+ * The transport failure message reaches the screen verbatim on every surface that
+ * shows `error.message`. Serving staff the instruction to start Apache told
+ * members the site was broken and gave them a fix they cannot perform, so the
+ * developer wording is kept to development builds only.
+ */
+export const CONNECTION_ERROR_MESSAGE = process.env.NODE_ENV === "production"
+  ? "ยังเชื่อมต่อบริการ FitConnect ไม่ได้ กรุณาลองใหม่อีกครั้ง"
+  : "ยังเชื่อมต่อ PHP API ไม่ได้ โปรดเปิด Apache และ MySQL ใน XAMPP";
+
 export function apiAssetUrl(path: string | null): string | null {
   if (!path) return null;
   if (/^https?:\/\//.test(path)) return path;
@@ -44,7 +54,7 @@ export async function apiRequest<T>(path: string, init?: RequestInit): Promise<T
       },
     });
   } catch {
-    throw new ApiError("ยังเชื่อมต่อ PHP API ไม่ได้ โปรดเปิด Apache และ MySQL ใน XAMPP", 503);
+    throw new ApiError(CONNECTION_ERROR_MESSAGE, 503);
   }
 
   const payload = (await response.json().catch(() => null)) as ApiEnvelope<T> | ApiErrorEnvelope | null;
@@ -71,7 +81,7 @@ export async function openProtectedFile(path: string): Promise<void> {
   try {
     response = await fetch(`${API_URL}${path}`, { headers: authHeaders() });
   } catch {
-    throw new ApiError("ยังเชื่อมต่อ PHP API ไม่ได้ โปรดเปิด Apache และ MySQL ใน XAMPP", 503);
+    throw new ApiError(CONNECTION_ERROR_MESSAGE, 503);
   }
 
   if (!response.ok) {

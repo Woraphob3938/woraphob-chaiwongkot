@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { actionLabel } from "@/components/notification-center";
+import { actionLabel, isSettledReview } from "@/components/notification-center";
 import type { NotificationDetail } from "@/lib/types";
 
 function detail(overrides: {
@@ -7,8 +7,7 @@ function detail(overrides: {
   actionPath: string;
   status: NotificationDetail["booking"]["status"];
   paymentStatus?: NotificationDetail["booking"]["paymentStatus"];
-}): NotificationDetail {
-  return {
+}): NotificationDetail {  return {
     id: 1,
     type: overrides.type ?? "booking_expired",
     category: "booking",
@@ -72,5 +71,47 @@ describe("actionLabel", () => {
       .toBe("ตรวจสอบการชำระเงิน");
     expect(actionLabel(detail({ actionPath: "/admin#queue", status: "confirmed", paymentStatus: "approved" })))
       .toBe("ดูการจองในหน้าผู้ดูแลระบบ");
+  });
+
+  it("stops asking for a review once the slip has been decided", () => {
+    // The detail carries the booking's current state, so a slip reviewed after
+    // the notification was written must not keep presenting itself as a task.
+    const reviewed = detail({
+      type: "payment_review_105",
+      actionPath: "/admin",
+      status: "confirmed",
+      paymentStatus: "approved",
+    });
+    expect(isSettledReview(reviewed)).toBe(true);
+    expect(actionLabel(reviewed)).toBe("ดูการจองที่ตรวจแล้ว");
+
+    const rejected = detail({
+      type: "payment_review_104",
+      actionPath: "/admin",
+      status: "confirmed",
+      paymentStatus: "approved",
+    });
+    expect(actionLabel(rejected)).toBe("ดูการจองที่ตรวจแล้ว");
+  });
+
+  it("still asks for a review while the slip is waiting", () => {
+    const waiting = detail({
+      type: "payment_review_106",
+      actionPath: "/admin",
+      status: "payment_review",
+      paymentStatus: "reviewing",
+    });
+    expect(isSettledReview(waiting)).toBe(false);
+    expect(actionLabel(waiting)).toBe("ตรวจสอบการชำระเงิน");
+  });
+
+  it("does not call an unrelated notification settled", () => {
+    const approved = detail({
+      type: "payment_approved_member",
+      actionPath: "/member",
+      status: "confirmed",
+      paymentStatus: "approved",
+    });
+    expect(isSettledReview(approved)).toBe(false);
   });
 });
