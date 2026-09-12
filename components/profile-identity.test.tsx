@@ -14,6 +14,7 @@ const profile: MemberAccountProfile = {
   user: { displayName: "สมชาย ใจดี", email: "member@example.com" },
   imageUrl: "/v1/profile-images/member/7",
   member: {
+    nameFromDisplayName: false,
     firstName: "สมชาย", lastName: "ใจดี", phone: "", fitnessGoal: "",
     experienceLevel: "", weight: null, height: null,
   },

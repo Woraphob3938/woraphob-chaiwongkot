@@ -22,8 +22,12 @@ export function profileFieldErrors(error: unknown) {
 }
 
 function snapshot(profile: MemberAccountProfile) {
+  // An account with no stored name gets the display name as `firstName` (a legacy
+  // fallback). Presenting that as field input made the form look pre-filled and
+  // then reject the save for a missing surname, so the form starts from what is
+  // actually stored and offers the display name as a placeholder instead.
   return {
-    firstName: profile.member.firstName,
+    firstName: profile.member.nameFromDisplayName ? "" : profile.member.firstName,
     lastName: profile.member.lastName,
     phone: profile.member.phone,
     fitnessGoal: profile.member.fitnessGoal,
@@ -117,18 +121,22 @@ export function MemberProfileForm({ profile, onSaved, onDirtyChange }: MemberPro
   }
 
   const dirty = JSON.stringify(values) !== JSON.stringify(saved);
+  // The API falls back to the display name when no name is stored; show that
+  // fallback as a hint instead of as a value the member appears to have saved.
+  const nameFromDisplayName = profile.member.nameFromDisplayName && !saved.firstName;
 
   return (
     <section className="profile-section" aria-labelledby="member-details-title">
       <div className="profile-section__heading">
         <h2 id="member-details-title">รายละเอียดสมาชิก</h2>
-        <p>ชื่อและเบอร์ใช้กับการจอง เป้าหมาย น้ำหนัก และส่วนสูงอยู่เฉพาะในบัญชีนี้ ไม่ขึ้นหน้าร้านสาธารณะ</p>
+        <p>ชื่อและนามสกุลจะกลายเป็นชื่อที่แสดงในระบบ ({profile.user.displayName}) ส่วนเบอร์ใช้กับการจอง เป้าหมาย น้ำหนัก และส่วนสูงอยู่เฉพาะในบัญชีนี้ ไม่ขึ้นหน้าร้านสาธารณะ</p>
       </div>
       <form onSubmit={submit} noValidate>
         <div className="profile-form-grid">
           <div className="field">
             <label htmlFor="member-first-name">ชื่อ</label>
-            <Input id="member-first-name" value={values.firstName} aria-required="true" aria-invalid={Boolean(fields.firstName)} aria-describedby={fieldDescribedBy("member-first-name", fields.firstName)} onChange={(event) => change("firstName", event.target.value)} />
+            <Input id="member-first-name" value={values.firstName} placeholder={nameFromDisplayName ? profile.user.displayName : undefined} aria-required="true" aria-invalid={Boolean(fields.firstName)} aria-describedby={fieldDescribedBy("member-first-name", fields.firstName) ?? (nameFromDisplayName ? "member-name-hint" : undefined)} onChange={(event) => change("firstName", event.target.value)} />
+            {nameFromDisplayName && <small id="member-name-hint">ยังไม่มีชื่อที่บันทึกไว้ ระบบใช้ชื่อที่แสดง “{profile.user.displayName}” แทน — กรอกชื่อและนามสกุลแล้วบันทึกเพื่อตั้งชื่อจริง</small>}
             {fields.firstName && <small className="profile-field-error" id="member-first-name-error">{fields.firstName}</small>}
           </div>
           <div className="field">

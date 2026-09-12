@@ -13,7 +13,7 @@ const profile: MemberAccountProfile = {
   role: "member",
   user: { displayName: "สมชาย ใจดี", email: "member@example.com" },
   imageUrl: null,
-  member: { firstName: "สมชาย", lastName: "ใจดี", phone: "", fitnessGoal: "", experienceLevel: "", weight: null, height: null },
+  member: { nameFromDisplayName: false, firstName: "สมชาย", lastName: "ใจดี", phone: "", fitnessGoal: "", experienceLevel: "", weight: null, height: null },
 };
 
 beforeEach(() => vi.mocked(authenticatedRequest).mockReset());
@@ -69,8 +69,32 @@ describe("MemberProfileForm", () => {
     expect(screen.getByRole("status")).toHaveTextContent("บันทึกข้อมูลสมาชิกแล้ว");
   });
 
-  it("keeps typed values and maps server field errors", () => {
-    const apiError = new ApiError(
+  it("shows the display-name fallback as a hint, not as saved input", () => {
+    const legacy: MemberAccountProfile = {
+      ...profile,
+      user: { displayName: "สมาชิกสาธิต", email: "legacy@example.com" },
+      member: { ...profile.member, nameFromDisplayName: true, firstName: "สมาชิกสาธิต", lastName: "" },
+    };
+    render(<MemberProfileForm profile={legacy} onSaved={vi.fn()} />);
+
+    const firstName = screen.getByLabelText("ชื่อ");
+    expect(firstName).toHaveValue("");
+    expect(firstName).toHaveAttribute("placeholder", "สมาชิกสาธิต");
+    expect(document.getElementById("member-name-hint")).toHaveTextContent("ยังไม่มีชื่อที่บันทึกไว้");
+    expect(firstName).toHaveAccessibleDescription(/ยังไม่มีชื่อที่บันทึกไว้/);
+    // Nothing looks edited, so no save bar until the member types something.
+    expect(screen.queryByRole("button", { name: "บันทึกข้อมูลสมาชิก" })).not.toBeInTheDocument();
+  });
+
+  it("says that saving the name replaces the display name", () => {
+    render(<MemberProfileForm profile={profile} onSaved={vi.fn()} />);
+
+    const heading = screen.getByRole("heading", { name: "รายละเอียดสมาชิก" });
+    expect(heading.parentElement).toHaveTextContent("จะกลายเป็นชื่อที่แสดงในระบบ");
+    expect(heading.parentElement).toHaveTextContent("สมชาย ใจดี");
+  });
+
+  it("keeps typed values and maps server field errors", () => {    const apiError = new ApiError(
       "ข้อมูลโปรไฟล์ไม่ถูกต้อง", 422, "VALIDATION_FAILED", { phone: "กรอกเบอร์โทรศัพท์ให้ถูกต้อง" },
     );
     expect(profileFieldErrors(apiError)).toEqual({ phone: "กรอกเบอร์โทรศัพท์ให้ถูกต้อง" });

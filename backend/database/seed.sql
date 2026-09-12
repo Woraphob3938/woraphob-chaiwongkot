@@ -2,10 +2,13 @@ USE fitconnect;
 SET NAMES utf8mb4;
 SET time_zone = '+00:00';
 
+-- ประเภทการฝึกชุดนี้ต้องตรงกับแถวที่ฐานข้อมูลจริงใช้อยู่ เพราะ id ถูกอ้างจาก
+-- trainer_training_types และ frontend ใช้ slug/ชื่อไทยเป็นคีย์ตัวกรอง
 INSERT INTO training_types (id, slug, name_th, sort_order) VALUES
-  (1, 'strength', 'เวทเทรนนิง', 10), (2, 'weight-loss', 'ลดไขมัน', 20), (3, 'mobility', 'การเคลื่อนไหว', 30),
-  (4, 'functional', 'ฟังก์ชันนัล', 40), (5, 'running', 'วิ่ง', 50), (6, 'rehab', 'ฟื้นฟูร่างกาย', 60)
-ON DUPLICATE KEY UPDATE name_th = VALUES(name_th), sort_order = VALUES(sort_order), active = 1;
+  (1, 'hypertrophy', 'สร้างกล้ามเนื้อ', 10), (2, 'weight-loss', 'ลดน้ำหนัก', 20), (3, 'yoga', 'โยคะ', 30),
+  (4, 'Pilates', 'พิลาทิส', 40), (5, 'Specific to each sport', 'เฉพาะแต่ละกีฬา', 50),
+  (6, 'physical therapy', 'กายภาพบำบัด', 60), (7, 'Weight Training', 'เวทเทรนนิ่ง', 70)
+ON DUPLICATE KEY UPDATE slug = VALUES(slug), name_th = VALUES(name_th), sort_order = VALUES(sort_order), active = 1;
 
 -- บัญชีทั้งหมดด้านล่างเป็นข้อมูลสาธิต รหัสผ่านคือ password และห้ามใช้ในระบบจริง
 INSERT INTO users (id, email, password_hash, display_name, role, status) VALUES

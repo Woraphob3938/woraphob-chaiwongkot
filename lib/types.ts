@@ -63,6 +63,8 @@ export type MemberAccountProfile = {
   user: AccountUser;
   imageUrl: string | null;
   member: {
+    /** True when `firstName` is the display-name fallback, not a stored name. */
+    nameFromDisplayName: boolean;
     firstName: string;
     lastName: string;
     phone: string;

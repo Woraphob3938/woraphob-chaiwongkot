@@ -104,6 +104,7 @@ INSERT INTO trainer_training_types (trainer_profile_id, training_type_id) VALUES
         $memberBefore = Invoke-Api 'GET' '/v1/profile' $null $memberToken
         Assert-Equal 'member' $memberBefore.data.role 'member profile role'
         Assert-Equal 'สมาชิกก่อนแก้' $memberBefore.data.member.firstName 'legacy member name fallback'
+        Assert-Equal $true $memberBefore.data.member.nameFromDisplayName 'legacy name is flagged as the display-name fallback'
 
         $memberAfter = Invoke-Api 'PATCH' '/v1/profile' @{
             firstName = 'สมชาย'
@@ -115,6 +116,8 @@ INSERT INTO trainer_training_types (trainer_profile_id, training_type_id) VALUES
             height = 175
         } $memberToken
         Assert-Equal 'สมชาย ใจดี' $memberAfter.data.user.displayName 'updated member display name'
+        Assert-Equal $false $memberAfter.data.member.nameFromDisplayName 'a stored name is no longer a fallback'
+        Assert-Equal 'สมชาย' $memberAfter.data.member.firstName 'stored first name is returned as stored'
 
         $trainerBefore = Invoke-Api 'GET' '/v1/profile' $null $trainerToken
         Assert-Equal 'trainer' $trainerBefore.data.role 'trainer profile role'
@@ -130,6 +133,8 @@ INSERT INTO trainer_training_types (trainer_profile_id, training_type_id) VALUES
             serviceMode = 'both'
             gymName = 'Fit Gym'
             priceFrom = 650
+            paymentAccountName = 'บัญชีทดสอบ ครูเมย์'
+            promptPayId = '0899999999'
             trainingTypeIds = @($trainingTypeId)
         } $trainerToken
         Assert-Equal 'ครูเมย์' $trainerAfter.data.user.displayName 'updated trainer display name'

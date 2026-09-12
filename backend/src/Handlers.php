@@ -2280,12 +2280,18 @@ final class Handlers
                 throw new HttpException(404, 'ไม่พบโปรไฟล์สมาชิก', 'PROFILE_NOT_FOUND');
             }
             $firstName = trim((string) ($row['first_name'] ?? ''));
+            // Members registered before member_profiles carried a name have theirs
+            // only in users.display_name, so the first name falls back to it. The
+            // flag marks that fallback: an editing form must not present it as
+            // stored input, or the next save fails the surname rule instead.
+            $nameFromDisplayName = $firstName === '';
             return [
                 'role' => 'member',
                 'user' => ['displayName' => $row['display_name'], 'email' => $row['email']],
                 'imageUrl' => self::accountImageUrl('member', (int) $user['id'], $row['image_path']),
                 'member' => [
-                    'firstName' => $firstName === '' ? $row['display_name'] : $firstName,
+                    'nameFromDisplayName' => $nameFromDisplayName,
+                    'firstName' => $nameFromDisplayName ? $row['display_name'] : $firstName,
                     'lastName' => $row['last_name'] ?? '',
                     'phone' => $row['phone'] ?? '',
                     'fitnessGoal' => $row['goals'] ?? '',

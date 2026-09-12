@@ -1,6 +1,6 @@
 import { readFileSync } from "node:fs";
 import { act, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { TrainerWorkbench } from "@/components/trainer-workbench";
 import { authenticatedRequest } from "@/lib/api";
 import type { Booking } from "@/lib/types";
@@ -64,6 +64,16 @@ describe("TrainerWorkbench", () => {
     vi.restoreAllMocks();
     vi.mocked(authenticatedRequest).mockReset();
     push.mockReset();
+    // The workspace renders the Monday–Sunday week containing "now" while the
+    // fixtures place slots on "tomorrow" (and on 2026-08-10/12). Pin the clock to
+    // a Wednesday inside that week, or the two disagree: run on a Sunday and
+    // "tomorrow" is already next week, so nothing renders.
+    vi.useFakeTimers({ shouldAdvanceTime: true });
+    vi.setSystemTime(new Date("2026-08-12T02:00:00.000Z"));
+  });
+
+  afterEach(() => {
+    vi.useRealTimers();
   });
 
   it("puts the schedule action before the weekly workspace", async () => {
