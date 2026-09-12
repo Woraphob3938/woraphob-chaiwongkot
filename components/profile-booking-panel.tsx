@@ -32,6 +32,16 @@ export function ProfileBookingPanel({ trainer, selectedSlot, onSelectSlot }: Pro
   const canBook = trainer.verification === "verified"
     && (isMonthly ? monthlyAvailable : hasPrice)
     && hasSelectedTimes;
+  // The button label is the short reason; the sentence under it says what to do.
+  const blockedReason = isMonthly && !monthlyAvailable
+    ? "ยังไม่มีแพ็กเกจรายเดือน"
+    : !isMonthly && !hasPrice
+      ? "ยังจองไม่ได้"
+      : trainer.verification !== "verified"
+        ? "รอตรวจโปรไฟล์"
+        : isMonthly
+          ? "เลือกเวลานัดแรก"
+          : "เลือกเวลาก่อน";
   const changeTimeButtonRef = useRef<HTMLButtonElement>(null);
   const previousSlotId = useRef(selectedSlot?.id ?? null);
 
@@ -152,7 +162,7 @@ export function ProfileBookingPanel({ trainer, selectedSlot, onSelectSlot }: Pro
 
       <div className="profile-booking-policy">
         <ShieldCheck aria-hidden="true" size={18} />
-        <p>ยืนยันแล้วระบบกันเวลานัดแรกไว้ 10 นาที ต้องส่งสลิปให้{trainer.serviceMode === "freelance" ? "เทรนเนอร์ฟรีแลนซ์" : "ผู้ดูแลระบบ"}ตรวจอนุมัติ หากไม่ส่งทันเวลาการจองจะหมดอายุและคืนเวลาอัตโนมัติ</p>
+        <p>ยืนยันแล้วระบบกันเวลานัดแรกไว้ 10 นาที ต้องส่งสลิปให้{trainer.serviceMode === "freelance" ? "เทรนเนอร์ฟรีแลนซ์" : "ผู้ดูแลระบบ"}ตรวจและยืนยัน หากไม่ส่งทันเวลาการจองจะหมดอายุและคืนเวลาอัตโนมัติ</p>
       </div>
 
       {canBook ? (
@@ -164,17 +174,24 @@ export function ProfileBookingPanel({ trainer, selectedSlot, onSelectSlot }: Pro
           </Link>
         </Button>
       ) : (
-        <Button className="button button--wide" type="button" disabled>
-          {isMonthly && !monthlyAvailable
-            ? "ยังไม่มีแพ็กเกจรายเดือน"
-            : !isMonthly && !hasPrice
-            ? "ยังจองไม่ได้"
-            : trainer.verification !== "verified"
-              ? "รอตรวจคุณสมบัติ"
-              : isMonthly
-                ? "เลือกเวลานัดแรก"
-                : "เลือกเวลาก่อน"}
-        </Button>
+        <>
+          {/* A disabled button that only repeats its own state reads like a
+              broken control, so the panel says what is still missing. */}
+          <Button className="button button--wide" type="button" disabled aria-describedby="booking-blocked-reason">
+            {blockedReason}
+          </Button>
+          <p className="profile-booking-blocked" id="booking-blocked-reason">
+            {isMonthly && !monthlyAvailable
+              ? "เทรนเนอร์รายนี้ยังไม่เปิดแพ็กเกจ 30 วัน เลือกแบบรายครั้งได้"
+              : !isMonthly && !hasPrice
+                ? "เทรนเนอร์ยังไม่ประกาศค่าฝึก จึงยังจองไม่ได้"
+                : trainer.verification !== "verified"
+                  ? "ผู้ดูแลระบบยังตรวจใบสมัครของเทรนเนอร์ไม่เสร็จ"
+                  : isMonthly
+                    ? "เลือกเวลานัดแรกจากตารางว่างด้านบนก่อนจึงจะจองได้"
+                    : "เลือกเวลาจากตารางว่างด้านบนก่อนจึงจะจองได้"}
+          </p>
+        </>
       )}
     </aside>
   );

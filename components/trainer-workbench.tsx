@@ -664,7 +664,7 @@ export function TrainerWorkbench({ onIncompleteProfile }: { onIncompleteProfile?
       >
         <summary><span><CalendarPlus aria-hidden="true" size={20} /><strong>จัดการช่วงเวลาว่าง</strong></span><small>{slots.length} ช่วงเวลา</small></summary>
         <div className="availability-launch">
-          <p id="availability-add-hint">{approved ? "เลือกวันที่สะดวกและเวลาเริ่มต้น ระบบกำหนดเวลาฝึกครั้งละ 1 ชั่วโมง" : "รอผู้ดูแลระบบอนุมัติโปรไฟล์ก่อนจึงจะเพิ่มช่วงเวลาได้"}</p>
+          <p id="availability-add-hint">{approved ? "เลือกวันที่สะดวกและเวลาเริ่มต้น ระบบกำหนดเวลาฝึกครั้งละ 1 ชั่วโมง" : "รอผู้ดูแลระบบตรวจใบสมัครก่อนจึงจะเพิ่มช่วงเวลาได้"}</p>
           <label className="field">กรองวันที่ว่าง<input type="date" value={slotFilterDate} onChange={(event) => { setSlotFilterDate(event.target.value); setSlotPage(0); }} /></label>
           {slotFilterDate && <Button type="button" variant="outline" onClick={() => { setSlotFilterDate(""); setSlotPage(0); }}>ล้างวันที่</Button>}
         </div>
@@ -679,7 +679,7 @@ export function TrainerWorkbench({ onIncompleteProfile }: { onIncompleteProfile?
               </div>
             );
           })}
-          {slots.length === 0 && <div className="empty-state"><strong>ยังไม่มีช่วงเวลาว่าง</strong><p>เพิ่มช่วงเวลาแรกเมื่อโปรไฟล์ได้รับการอนุมัติ</p></div>}
+          {slots.length === 0 && <div className="empty-state"><strong>ยังไม่มีช่วงเวลาว่าง</strong><p>เพิ่มช่วงเวลาแรกเมื่อผู้ดูแลระบบตรวจใบสมัครแล้ว</p></div>}
           {slots.length > 0 && filteredSlots.length === 0 && <p className="empty-state">ไม่พบช่วงเวลาในวันที่เลือก</p>}
         </div>
         {slotPages > 1 && <nav className="trainer-list-pagination" aria-label="หน้ารายการเวลาว่าง"><Button type="button" variant="outline" disabled={activeSlotPage === 0} onClick={() => setSlotPage(activeSlotPage - 1)}>ก่อนหน้า</Button><span aria-live="polite">หน้า {activeSlotPage + 1} / {slotPages}</span><Button type="button" variant="outline" disabled={activeSlotPage + 1 === slotPages} onClick={() => setSlotPage(activeSlotPage + 1)}>ถัดไป</Button></nav>}

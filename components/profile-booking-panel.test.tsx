@@ -19,8 +19,8 @@ function BookingPanelHarness({ trainer }: { trainer: Trainer }) {
 describe("ProfileBookingPanel", () => {
   it.each(["freelance", "gym", "both"] as const)("names the correct slip reviewer for %s", (serviceMode) => {
     render(<BookingPanelHarness trainer={{ ...trainers[0], serviceMode }} />);
-    expect(screen.getByText(serviceMode === "freelance" ? /ส่งสลิปให้เทรนเนอร์ฟรีแลนซ์ตรวจอนุมัติ/ : /ส่งสลิปให้ผู้ดูแลระบบตรวจอนุมัติ/)).toBeInTheDocument();
-    if (serviceMode === "freelance") expect(screen.queryByText(/ผู้ดูแลระบบตรวจอนุมัติ/)).not.toBeInTheDocument();
+    expect(screen.getByText(serviceMode === "freelance" ? /ส่งสลิปให้เทรนเนอร์ฟรีแลนซ์ตรวจและยืนยัน/ : /ส่งสลิปให้ผู้ดูแลระบบตรวจและยืนยัน/)).toBeInTheDocument();
+    if (serviceMode === "freelance") expect(screen.queryByText(/ผู้ดูแลระบบตรวจและยืนยัน/)).not.toBeInTheDocument();
   });
 
   it("chooses a calendar slot, shows its summary, and exposes the existing booking URL", async () => {
@@ -102,6 +102,6 @@ describe("ProfileBookingPanel", () => {
       "href",
       `/booking?trainer=${trainer.slug}&type=monthly&slots=${trainer.slots[0].id}`,
     );
-    expect(screen.getByText(/ผู้ดูแลระบบตรวจอนุมัติ/)).toBeInTheDocument();
+    expect(screen.getByText(/ผู้ดูแลระบบตรวจและยืนยัน/)).toBeInTheDocument();
   });
 });

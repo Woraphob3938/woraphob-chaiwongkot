@@ -18,6 +18,10 @@ export function TrainerMarketplaceCard({
   const firstSlot = trainer.slots[0];
   const profileHref = `/trainers/${trainer.slug}${returnTo && returnTo !== "/trainers" ? `?returnTo=${encodeURIComponent(returnTo)}` : ""}`;
   const canChooseTime = firstSlot !== undefined && trainer.priceFrom != null;
+  const monthlyPrice = typeof trainer.monthlyPrice === "number" && trainer.monthlyPrice > 0
+    && typeof trainer.monthlySessionCount === "number" && trainer.monthlySessionCount >= 2
+    ? trainer.monthlyPrice
+    : null;
 
   return (
     <li className="trainer-marketplace-card">
@@ -45,7 +49,7 @@ export function TrainerMarketplaceCard({
           <span>{trainer.trainingTypes[0]?.nameTh ?? "การฝึกส่วนบุคคล"}</span>
           {trainer.verification === "verified" && (
             <span className="trainer-marketplace-card__verified">
-              <BadgeCheck aria-hidden="true" /> ตรวจคุณสมบัติแล้ว
+              <BadgeCheck aria-hidden="true" /> โปรไฟล์ผ่านการตรวจ
             </span>
           )}
         </div>
@@ -77,6 +81,13 @@ export function TrainerMarketplaceCard({
             <strong className={trainer.priceFrom == null ? "is-unavailable" : undefined}>
               {trainer.priceFrom == null ? "ยังไม่กำหนด" : formatMoney(trainer.priceFrom)}
             </strong>
+            {/* The price alone hides half the offer, and this fact is already on
+                the trainer's own profile, so comparing means opening each one. */}
+            <small className={monthlyPrice == null ? "is-unavailable" : undefined}>
+              {monthlyPrice == null
+                ? "ยังไม่เปิดแพ็กเกจ 30 วัน"
+                : `แพ็กเกจ 30 วัน ${formatMoney(monthlyPrice)} · ${trainer.monthlySessionCount} ครั้ง`}
+            </small>
           </div>
           <Button asChild variant={canChooseTime ? "default" : "outline"}>
             <Link href={profileHref}>

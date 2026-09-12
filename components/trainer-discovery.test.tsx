@@ -22,23 +22,30 @@ describe("TrainerDiscovery", () => {
     fireEvent.click(screen.getByLabelText("เฉพาะโปรไฟล์ที่ตรวจแล้ว"));
     fireEvent.click(screen.getByLabelText("เฉพาะเทรนเนอร์ที่มีเวลาว่าง"));
     fireEvent.change(screen.getByLabelText("เรียงผลลัพธ์"), { target: { value: "price_desc" } });
-    const saved = new URLSearchParams(window.location.search);
+    // The component mirrors its conditions into the URL; the return link is the
+    // observable result of that, so assert on it rather than on replaceState,
+    // which React schedules outside this test's control.
+    const href = screen.getByRole("link", { name: "ดูโปรไฟล์และเลือกเวลา" }).getAttribute("href")!;
+    const returnTo = new URL(href, window.location.origin).searchParams.get("returnTo")!;
+    const saved = new URLSearchParams(returnTo.split("?")[1] ?? "");
     expect(saved.get("q")).toBe(trainers[0].displayName);
+    expect(saved.get("type")).toBe("strength");
     expect(saved.get("price")).toBe("under_700");
     expect(saved.get("verified")).toBe("1");
     expect(saved.get("available")).toBe("1");
-    const href = screen.getByRole("link", { name: "ดูโปรไฟล์และเลือกเวลา" }).getAttribute("href")!;
-    expect(new URL(href, window.location.origin).searchParams.get("returnTo")).toBe(`/trainers?${saved}`);
+    expect(saved.get("sort")).toBe("price_desc");
     view.unmount();
     render(<TrainerDiscovery initialTrainers={trainers} trainingTypes={trainingTypes} initialQuery={saved.get("q")!} initialType={saved.get("type")!} initialFilters={Object.fromEntries(saved)} />);
-    expect(screen.getByRole("searchbox")).toHaveValue(trainers[0].displayName);
+    expect(screen.getByRole("searchbox")).toHaveValue(saved.get("q")!);
     expect(screen.getByLabelText("ประเภทการฝึก")).toHaveValue("strength");
     expect(screen.getByLabelText("ค่าฝึกต่อครั้ง")).toHaveValue("under_700");
     expect(screen.getByLabelText("เฉพาะโปรไฟล์ที่ตรวจแล้ว")).toBeChecked();
     expect(screen.getByLabelText("เฉพาะเทรนเนอร์ที่มีเวลาว่าง")).toBeChecked();
     expect(screen.getByLabelText("เรียงผลลัพธ์")).toHaveValue("price_desc");
     fireEvent.click(screen.getByRole("button", { name: "ล้างตัวกรองทั้งหมด" }));
-    expect(window.location.search).toBe("?sort=price_desc");
+    const clearedHref = screen.getAllByRole("link", { name: /^ดูโปรไฟล์/ })[0].getAttribute("href")!;
+    const clearedReturn = new URL(clearedHref, window.location.origin).searchParams.get("returnTo")!;
+    expect(clearedReturn).toBe("/trainers?sort=price_desc");
   });
 
   it("ignores invalid and repeated filter values in the URL", () => {
@@ -109,7 +116,7 @@ describe("TrainerDiscovery", () => {
   it("opens mobile filters with unique field ids", () => {
     renderDiscovery();
 
-    fireEvent.click(screen.getByRole("button", { name: "เปิดตัวกรอง" }));
+    fireEvent.click(screen.getByRole("button", { name: /^เปิดตัวกรอง/ }));
     expect(screen.getByRole("dialog", { name: "ตัวกรองเทรนเนอร์" })).toBeInTheDocument();
     expect(document.querySelector("#desktop-training-type")).toBeInTheDocument();
     expect(document.querySelector("#mobile-training-type")).toBeInTheDocument();
@@ -120,16 +127,16 @@ describe("TrainerDiscovery", () => {
 
     expect(screen.queryByRole("button", { name: "ล้างตัวกรองทั้งหมด" })).not.toBeInTheDocument();
 
-    fireEvent.change(screen.getByRole("searchbox", { name: "ค้นหาชื่อหรือความเชี่ยวชาญ" }), {
+    fireEvent.change(screen.getByRole("searchbox", { name: "ค้นหาเทรนเนอร์" }), {
       target: { value: trainers[0].displayName },
     });
     fireEvent.change(screen.getByLabelText("ประเภทการฝึก"), { target: { value: "strength" } });
     fireEvent.click(screen.getByLabelText("เฉพาะโปรไฟล์ที่ตรวจแล้ว"));
 
-    expect(screen.getByRole("button", { name: "เปิดตัวกรอง (2 เงื่อนไข)" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: /^เปิดตัวกรอง.*ใช้อยู่ 2 เงื่อนไข$/ })).toBeInTheDocument();
     fireEvent.click(screen.getByRole("button", { name: "ล้างตัวกรองทั้งหมด" }));
 
-    expect(screen.getByRole("searchbox", { name: "ค้นหาชื่อหรือความเชี่ยวชาญ" })).toHaveValue("");
+    expect(screen.getByRole("searchbox", { name: "ค้นหาเทรนเนอร์" })).toHaveValue("");
     expect(screen.getByLabelText("ประเภทการฝึก")).toHaveValue("");
     expect(screen.getByLabelText("เฉพาะโปรไฟล์ที่ตรวจแล้ว")).not.toBeChecked();
     expect(screen.getByRole("list", { name: "ผลการค้นหาเทรนเนอร์ 3 รายการ" })).toBeInTheDocument();
@@ -139,11 +146,11 @@ describe("TrainerDiscovery", () => {
   it("shows a useful empty state", () => {
     renderDiscovery();
 
-    fireEvent.change(screen.getByRole("searchbox", { name: "ค้นหาชื่อหรือความเชี่ยวชาญ" }), {
+    fireEvent.change(screen.getByRole("searchbox", { name: "ค้นหาเทรนเนอร์" }), {
       target: { value: "ไม่มีคำนี้ในระบบ" },
     });
 
     expect(screen.getByText("ยังไม่พบเทรนเนอร์ที่ตรงครบทุกข้อ")).toBeInTheDocument();
-    expect(screen.getByText("ลองเปลี่ยนคำค้นหรือลดตัวกรองบางข้อ")).toBeInTheDocument();
+    expect(screen.getByText(/ลองเปลี่ยนคำค้นหรือลดตัวกรองบางข้อ/)).toBeInTheDocument();
   });
 });

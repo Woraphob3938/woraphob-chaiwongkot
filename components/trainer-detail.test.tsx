@@ -34,14 +34,14 @@ describe("TrainerDetail", () => {
 
     expect(screen.getByRole("link", { name: "ย้อนกลับ" })).toHaveAttribute("href", "/trainers");
     expect(within(summary).getByRole("heading", { level: 1, name: trainer.displayName })).toBeInTheDocument();
-    expect(within(summary).getAllByText("ตรวจคุณสมบัติแล้ว").length).toBeGreaterThan(0);
+    expect(within(summary).getAllByText("โปรไฟล์ผ่านการตรวจ").length).toBeGreaterThan(0);
     expect(screen.getAllByText("ค่าฝึกต่อครั้ง").length).toBeGreaterThan(0);
     expect(within(summary).queryByText(/สกลนคร|นครพนม|พื้นที่ให้บริการ/)).not.toBeInTheDocument();
     expect(screen.getByText("ฟิตเนสประจำยิม")).toBeInTheDocument();
     expect(credentials).not.toHaveAttribute("open");
     expect(appearsBefore(summary, bookingPanel)).toBe(true);
     expect(
-      within(bookingPanel).getByText(/ระบบกันเวลานัดแรกไว้ 10 นาที.*ผู้ดูแลระบบตรวจอนุมัติ/),
+      within(bookingPanel).getByText(/ระบบกันเวลานัดแรกไว้ 10 นาที.*ผู้ดูแลระบบตรวจและยืนยัน/),
     ).toBeInTheDocument();
     fireEvent.click(within(bookingPanel).getByText("ดู QR รับเงินของเทรนเนอร์"));
     expect(within(bookingPanel).getByRole("img", { name: `QR รับเงินของ ${trainer.displayName}` })).toBeInTheDocument();

@@ -2,10 +2,101 @@
 
 import { Label } from "@/components/ui/label";
 import { NativeSelect, NativeSelectOption } from "@/components/ui/native-select";
-import type { TrainingType } from "@/lib/types";
+import { formatTrainingTypeName } from "@/lib/format";
+import type { Trainer, TrainingType } from "@/lib/types";
 
 export type TrainerPriceRange = "all" | "under_700" | "701_1000" | "over_1000";
 export type TrainerRatingFilter = "all" | "4_plus" | "4_5_plus";
+
+export const priceRangeOptions: { value: TrainerPriceRange; label: string }[] = [
+  { value: "all", label: "ทุกช่วงราคา" },
+  { value: "under_700", label: "ไม่เกิน ฿700" },
+  { value: "701_1000", label: "฿701–฿1,000" },
+  { value: "over_1000", label: "มากกว่า ฿1,000" },
+];
+
+export const ratingFilterOptions: { value: TrainerRatingFilter; label: string }[] = [
+  { value: "all", label: "ทุกคะแนน" },
+  { value: "4_plus", label: "4.0 ดาวขึ้นไป" },
+  { value: "4_5_plus", label: "4.5 ดาวขึ้นไป" },
+];
+
+export function matchPrice(trainer: Trainer, priceRange: TrainerPriceRange) {
+  if (priceRange === "all") return true;
+  if (trainer.priceFrom == null) return false;
+  if (priceRange === "under_700") return trainer.priceFrom <= 700;
+  if (priceRange === "701_1000") return trainer.priceFrom >= 701 && trainer.priceFrom <= 1_000;
+  return trainer.priceFrom > 1_000;
+}
+
+export function matchRating(trainer: Trainer, ratingFilter: TrainerRatingFilter) {
+  if (ratingFilter === "all") return true;
+  return (trainer.rating ?? 0) >= (ratingFilter === "4_5_plus" ? 4.5 : 4.0);
+}
+
+export function matchesQuery(trainer: Trainer, query: string) {
+  const normalized = query.trim().toLocaleLowerCase("th-TH");
+  if (!normalized) return true;
+  return [
+    trainer.displayName,
+    trainer.headline,
+    ...trainer.trainingTypes.map((type) => type.nameTh),
+  ].join(" ").toLocaleLowerCase("th-TH").includes(normalized);
+}
+
+export type TrainerFilterState = {
+  query: string;
+  trainingType: string;
+  priceRange: TrainerPriceRange;
+  ratingFilter: TrainerRatingFilter;
+  verifiedOnly: boolean;
+  availableOnly: boolean;
+};
+
+function matchesAll(trainer: Trainer, filters: TrainerFilterState, overrides: Partial<TrainerFilterState> = {}) {
+  const state = { ...filters, ...overrides };
+  return matchesQuery(trainer, state.query)
+    && (!state.trainingType || trainer.trainingTypes.some((type) => type.slug === state.trainingType))
+    && matchPrice(trainer, state.priceRange)
+    && matchRating(trainer, state.ratingFilter)
+    && (!state.verifiedOnly || trainer.verification === "verified")
+    && (!state.availableOnly || trainer.slots.length > 0);
+}
+
+export function filterTrainers(trainers: Trainer[], filters: TrainerFilterState) {
+  return trainers.filter((trainer) => matchesAll(trainer, filters));
+}
+
+/**
+ * How many trainers each option would leave, holding every other filter as it
+ * is. The count ignores the filter it belongs to — otherwise every option would
+ * report the same number as the current selection.
+ */
+export function countByTrainingType(trainers: Trainer[], filters: TrainerFilterState, trainingTypes: TrainingType[]) {
+  const counts = new Map<string, number>();
+  counts.set("", filterTrainers(trainers, { ...filters, trainingType: "" }).length);
+  // Seed every known type so one nobody offers reports 0 instead of nothing.
+  for (const type of trainingTypes) {
+    counts.set(type.slug, filterTrainers(trainers, { ...filters, trainingType: type.slug }).length);
+  }
+  return counts;
+}
+
+export function countByPriceRange(trainers: Trainer[], filters: TrainerFilterState) {
+  const counts = new Map<TrainerPriceRange, number>();
+  for (const option of priceRangeOptions) {
+    counts.set(option.value, filterTrainers(trainers, { ...filters, priceRange: option.value }).length);
+  }
+  return counts;
+}
+
+export function countByRating(trainers: Trainer[], filters: TrainerFilterState) {
+  const counts = new Map<TrainerRatingFilter, number>();
+  for (const option of ratingFilterOptions) {
+    counts.set(option.value, filterTrainers(trainers, { ...filters, ratingFilter: option.value }).length);
+  }
+  return counts;
+}
 
 type TrainerMarketplaceFiltersProps = {
   ratingFilter?: TrainerRatingFilter;
@@ -16,11 +107,20 @@ type TrainerMarketplaceFiltersProps = {
   priceRange: TrainerPriceRange;
   verifiedOnly: boolean;
   availableOnly: boolean;
+  trainingTypeCounts?: Map<string, number>;
+  priceCounts?: Map<TrainerPriceRange, number>;
+  ratingCounts?: Map<TrainerRatingFilter, number>;
+  resultCount?: number;
   onTrainingTypeChange: (value: string) => void;
   onPriceRangeChange: (value: TrainerPriceRange) => void;
   onVerifiedOnlyChange: (value: boolean) => void;
   onAvailableOnlyChange: (value: boolean) => void;
 };
+
+/** `ทั้งหมด (12)` reads as a fact; the bare label makes the reader guess. */
+function withCount(label: string, count: number | undefined) {
+  return count === undefined ? label : `${label} (${count})`;
+}
 
 export function TrainerMarketplaceFilters({
   idPrefix,
@@ -30,6 +130,10 @@ export function TrainerMarketplaceFilters({
   ratingFilter,
   verifiedOnly,
   availableOnly,
+  trainingTypeCounts,
+  priceCounts,
+  ratingCounts,
+  resultCount,
   onRatingFilterChange,
   onTrainingTypeChange,
   onPriceRangeChange,
@@ -50,9 +154,11 @@ export function TrainerMarketplaceFilters({
           value={trainingType}
           onChange={(event) => onTrainingTypeChange(event.target.value)}
         >
-          <NativeSelectOption value="">ทุกประเภท</NativeSelectOption>
+          <NativeSelectOption value="">{withCount("ทุกประเภท", trainingTypeCounts?.get(""))}</NativeSelectOption>
           {trainingTypes.map((type) => (
-            <NativeSelectOption key={type.id} value={type.slug}>{type.nameTh}</NativeSelectOption>
+            <NativeSelectOption key={type.id} value={type.slug}>
+              {withCount(formatTrainingTypeName(type.nameTh), trainingTypeCounts?.get(type.slug))}
+            </NativeSelectOption>
           ))}
         </NativeSelect>
       </div>
@@ -64,10 +170,11 @@ export function TrainerMarketplaceFilters({
           value={priceRange}
           onChange={(event) => onPriceRangeChange(event.target.value as TrainerPriceRange)}
         >
-          <NativeSelectOption value="all">ทุกช่วงราคา</NativeSelectOption>
-          <NativeSelectOption value="under_700">ไม่เกิน ฿700</NativeSelectOption>
-          <NativeSelectOption value="701_1000">฿701–฿1,000</NativeSelectOption>
-          <NativeSelectOption value="over_1000">มากกว่า ฿1,000</NativeSelectOption>
+          {priceRangeOptions.map((option) => (
+            <NativeSelectOption key={option.value} value={option.value}>
+              {withCount(option.label, priceCounts?.get(option.value))}
+            </NativeSelectOption>
+          ))}
         </NativeSelect>
       </div>
 
@@ -79,9 +186,11 @@ export function TrainerMarketplaceFilters({
             value={ratingFilter ?? "all"}
             onChange={(event) => onRatingFilterChange(event.target.value as TrainerRatingFilter)}
           >
-            <NativeSelectOption value="all">ทุกคะแนน</NativeSelectOption>
-            <NativeSelectOption value="4_plus">4.0 ดาวขึ้นไป</NativeSelectOption>
-            <NativeSelectOption value="4_5_plus">4.5 ดาวขึ้นไป</NativeSelectOption>
+            {ratingFilterOptions.map((option) => (
+              <NativeSelectOption key={option.value} value={option.value}>
+                {withCount(option.label, ratingCounts?.get(option.value))}
+              </NativeSelectOption>
+            ))}
           </NativeSelect>
         </div>
       )}
@@ -105,6 +214,11 @@ export function TrainerMarketplaceFilters({
         />
         <span>เฉพาะเทรนเนอร์ที่มีเวลาว่าง</span>
       </label>
+
+      <p className="marketplace-filter-note" role="status" aria-live="polite">
+        ตัวเลขในวงเล็บคือจำนวนเทรนเนอร์ที่ตัวเลือกนั้นจะเหลือ
+        {resultCount !== undefined && ` · ขณะนี้แสดง ${resultCount} รายการ`}
+      </p>
     </div>
   );
 }

@@ -5813,6 +5813,15 @@ body {
   font-size: var(--text-sm);
 }
 
+/* Sits under the disabled booking button and says what is still missing, so the
+   control does not read as broken. */
+.profile-booking-blocked {
+  margin-top: var(--space-xs);
+  color: var(--color-muted);
+  font-size: var(--text-sm);
+  line-height: 1.5;
+}
+
 .profile-booking-types {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
@@ -7284,10 +7293,9 @@ a.trainer-week-event:hover {
 }
 
 .trainer-marketplace-card__footer>div {
-  display: flex;
-  align-items: baseline;
-  justify-content: space-between;
-  gap: var(--space-sm);
+  display: grid;
+  gap: var(--space-3xs);
+  min-width: 0;
 }
 
 .trainer-marketplace-card__footer span {
@@ -7298,6 +7306,27 @@ a.trainer-week-event:hover {
 .trainer-marketplace-card__footer strong {
   font-size: var(--text-lg);
   white-space: nowrap;
+}
+
+/* The monthly package sits under the per-session price so the two offers can be
+   compared from the list instead of one profile at a time. */
+.trainer-marketplace-card__footer small {
+  color: var(--color-ink-2);
+  font-size: var(--text-xs);
+  font-variant-numeric: tabular-nums;
+}
+
+.trainer-marketplace-card__footer small.is-unavailable,
+.trainer-marketplace-card__footer strong.is-unavailable {
+  color: var(--color-muted);
+  font-weight: 600;
+}
+
+.marketplace-filter-note {
+  margin-top: var(--space-2xs);
+  color: var(--color-muted);
+  font-size: var(--text-xs);
+  line-height: 1.5;
 }
 
 .trainer-marketplace-card__footer [data-slot="button"] {

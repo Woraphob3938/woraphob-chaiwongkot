@@ -215,7 +215,7 @@ export function PaymentPanel({ booking, onUpdated }: PaymentPanelProps) {
               {fieldErrors.slip && <small className="field-error" id={slipErrorId}>{fieldErrors.slip}</small>}
             </div>
           </div>
-          <p className="payment-bank-check-note"><ShieldCheck aria-hidden="true" size={18} /> ผู้ตรวจจะอนุมัติหลังพบยอดนี้ในรายการเงินจริงของแอปธนาคาร</p>
+          <p className="payment-bank-check-note"><ShieldCheck aria-hidden="true" size={18} /> ผู้ตรวจจะยืนยันหลังพบยอดนี้ในรายการเงินจริงของแอปธนาคาร</p>
           <Button className="button button--accent" type="submit" disabled={busy}>
             {busy ? "กำลังส่งสลิป…" : requestError === "upload" ? "ลองส่งอีกครั้ง" : "ส่งสลิปให้ตรวจ"}
           </Button>

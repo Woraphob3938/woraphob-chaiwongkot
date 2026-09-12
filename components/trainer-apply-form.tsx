@@ -232,7 +232,7 @@ export function TrainerApplyForm() {
       if (certificateInputRef.current) certificateInputRef.current.value = "";
       setMessage({
         tone: "success",
-        text: "ส่งใบสมัครแล้ว โปรไฟล์จะกลับมาแสดงเมื่อผู้ดูแลระบบตรวจและอนุมัติอีกครั้ง",
+        text: "ส่งใบสมัครแล้ว โปรไฟล์จะกลับมาแสดงเมื่อผู้ดูแลระบบตรวจและยืนยันอีกครั้ง",
       });
     } catch (submitError) {
       if (submitError instanceof ApiError) {

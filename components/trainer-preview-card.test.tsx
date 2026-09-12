@@ -11,7 +11,7 @@ describe("TrainerPreviewCard", () => {
 
     expect(screen.getByRole("heading", { name: trainer.displayName })).toBeInTheDocument();
     expect(screen.queryByText(/สกลนคร|นครพนม/)).not.toBeInTheDocument();
-    expect(screen.getByText("ตรวจคุณสมบัติแล้ว")).toBeInTheDocument();
+    expect(screen.getByText("โปรไฟล์ผ่านการตรวจ")).toBeInTheDocument();
     expect(screen.getByRole("link", { name: "ดูโปรไฟล์" })).toHaveAttribute("href", `/trainers/${trainer.slug}`);
     expect(screen.queryByText(trainer.bio)).not.toBeInTheDocument();
   });

@@ -45,7 +45,7 @@ export function TrainerPreviewCard({ trainer, priority = false }: TrainerPreview
           <h3>{trainer.displayName}</h3>
         </div>
         <div className="trainer-preview-card__facts">
-          {trainer.verification === "verified" && <span><BadgeCheck aria-hidden="true" size={16} />ตรวจคุณสมบัติแล้ว</span>}
+          {trainer.verification === "verified" && <span><BadgeCheck aria-hidden="true" size={16} />โปรไฟล์ผ่านการตรวจ</span>}
         </div>
         <strong className="trainer-preview-card__price">{price}</strong>
         <Link className="trainer-preview-card__action" href={`/trainers/${trainer.slug}`}>ดูโปรไฟล์</Link>

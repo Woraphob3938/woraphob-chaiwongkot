@@ -4,8 +4,8 @@ import type { BookingStatus, VerificationStatus } from "@/lib/types";
 type Status = VerificationStatus | BookingStatus | "reviewing" | "approved" | "rejected";
 
 const labels: Record<Status, string> = {
-  verified: "ตรวจคุณสมบัติแล้ว",
-  pending: "รอตรวจคุณสมบัติ",
+  verified: "โปรไฟล์ผ่านการตรวจ",
+  pending: "รอตรวจโปรไฟล์",
   rejected: "ต้องแก้ไข",
   awaiting_payment: "รอชำระเงิน",
   payment_review: "รอตรวจสลิป",
