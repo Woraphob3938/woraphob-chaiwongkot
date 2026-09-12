@@ -406,6 +406,11 @@ describe("NotificationCenter", () => {
     mockedRequest.mockResolvedValue(list([urgentItem]));
     render(<NotificationCenter />);
 
-    expect(await screen.findByText("⚠️ ต้องดำเนินการ")).toBeInTheDocument();
+    // The badge is an icon plus text now, so match the element rather than a
+    // single text node that contained the emoji.
+    const badge = await screen.findByText("ต้องดำเนินการ");
+    expect(badge).toHaveClass("urgency-badge");
+    expect(badge.querySelector("svg")).not.toBeNull();
+    expect(badge.textContent).not.toMatch(/[\u{1F300}-\u{1FAFF}\u{2600}-\u{27BF}]/u);
   });
 });

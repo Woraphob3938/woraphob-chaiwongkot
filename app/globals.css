@@ -8067,7 +8067,8 @@ body:has(.app-sidebar) .page-footer {
 
 .notification-search-box input {
   width: 100%;
-  min-height: 2.25rem;
+  /* Matches the app's control height contract; 36px was under the 44px floor. */
+  min-height: var(--size-control);
   padding: var(--space-2xs) var(--space-sm) var(--space-2xs) 2.25rem;
   color: var(--color-ink);
   background: var(--color-paper);
@@ -8194,6 +8195,7 @@ body:has(.app-sidebar) .page-footer {
 .urgency-badge {
   display: inline-flex;
   align-items: center;
+  gap: var(--space-3xs);
   padding: 0.1rem 0.4rem;
   color: var(--color-error);
   background: var(--color-error-soft);
@@ -8202,6 +8204,10 @@ body:has(.app-sidebar) .page-footer {
   font-size: 0.68rem;
   font-weight: 700;
   line-height: 1.2;
+}
+
+.urgency-badge svg {
+  flex: 0 0 auto;
 }
 
 .category-badge--payment {
@@ -8216,13 +8222,14 @@ body:has(.app-sidebar) .page-footer {
   border-color: color-mix(in oklch, var(--color-focus) 40%, transparent);
 }
 
-.notification-list__copy strong,
-.notification-list__copy small,
+/* A booking code is an identifier, not prose: wrapping it is better than
+   replacing its tail with an ellipsis, which makes the row unusable for the one
+   thing the code is for. */
 .notification-list__copy code {
-  min-width: 0;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
+  overflow: visible;
+  text-overflow: clip;
+  white-space: normal;
+  overflow-wrap: anywhere;
 }
 
 .notification-list__copy small,

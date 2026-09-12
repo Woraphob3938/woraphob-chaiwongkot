@@ -19,6 +19,7 @@ import {
   Clock3,
   CreditCard,
   Search,
+  TriangleAlert,
 } from "lucide-react";
 import { ApiError, authenticatedRequest } from "@/lib/api";
 import { formatDateTime, formatDay } from "@/lib/format";
@@ -130,7 +131,15 @@ function categoryAccessibleLabel(label: string, unread: number) {
   return unread > 0 ? `${label} มี ${unread} รายการที่ยังไม่ได้อ่าน` : `${label} ไม่มีรายการที่ยังไม่ได้อ่าน`;
 }
 
-function actionLabel(detail: NotificationDetail) {
+/** True only for the trainer workspace, not for the /trainers listing. */
+function isTrainerWorkspacePath(path: string) {
+  return path === "/trainer" || path.startsWith("/trainer/") || path.startsWith("/trainer#");
+}
+
+// Exported so the label logic can be tested directly: it is decided from the
+// booking status and the action path, and one prefix slip sent an expired
+// notification to the trainer list under the wrong label.
+export function actionLabel(detail: NotificationDetail) {
   if (detail.actionPath === "/admin" || detail.actionPath.startsWith("/admin#")) {
     return detail.booking.status === "payment_review" ? "ตรวจสอบการชำระเงิน" : "ดูการจองในหน้าผู้ดูแลระบบ";
   }
@@ -140,13 +149,29 @@ function actionLabel(detail: NotificationDetail) {
     && ["not_submitted", "rejected"].includes(detail.booking.paymentStatus)
   ) return "ส่งหลักฐานการชำระเงิน";
   if (detail.booking.status === "payment_review") return "ดูสถานะการชำระเงิน";
-  if (detail.booking.status === "confirmed" || detail.actionPath.startsWith("/trainer")) return "ดูตารางนัดหมาย";
+  // `/trainers` also starts with `/trainer`, so the closed-booking case is
+  // decided first; otherwise an expired notification offered "ดูตารางนัดหมาย"
+  // while linking to the trainer list.
   if (["cancelled", "expired"].includes(detail.booking.status) || detail.actionPath.startsWith("/trainers")) {
     return "ค้นหาเทรนเนอร์";
   }
+  if (detail.booking.status === "confirmed" || isTrainerWorkspacePath(detail.actionPath)) return "ดูตารางนัดหมาย";
   return "ดูการจอง";
 }
 
+/**
+ * The urgency marker used to be an emoji. The rest of the interface uses Lucide
+ * icons, and an emoji renders differently on every platform, so the same
+ * warning looked unlike the design system and unlike itself between machines.
+ */
+function UrgencyBadge() {
+  return (
+    <span className="urgency-badge">
+      <TriangleAlert aria-hidden="true" size={12} strokeWidth={2.4} />
+      ต้องดำเนินการ
+    </span>
+  );
+}
 function PaymentStatusBadge({ status }: { status: NotificationDetail["booking"]["paymentStatus"] }) {
   if (status === "not_submitted") {
     return (
@@ -503,7 +528,7 @@ export function NotificationCenter() {
                               <Badge variant="outline" className={`category-badge category-badge--${item.category}`}>
                                 {categoryLabel(item.category)}
                               </Badge>
-                              {urgent && <span className="urgency-badge">⚠️ ต้องดำเนินการ</span>}
+                              {urgent && <UrgencyBadge />}
                             </span>
                             <time dateTime={item.createdAt} title={formatDateTime(item.createdAt)}>
                               {formatRelativeTime(item.createdAt)}
@@ -592,7 +617,7 @@ export function NotificationCenter() {
                     <Badge variant="outline" className={`category-badge category-badge--${detail.category}`}>
                       {categoryLabel(detail.category)}
                     </Badge>
-                    {isUrgentNotification(detail) && <span className="urgency-badge">⚠️ ต้องดำเนินการ</span>}
+                    {isUrgentNotification(detail) && <UrgencyBadge />}
                     <time dateTime={detail.createdAt}>{formatDateTime(detail.createdAt)}</time>
                   </div>
                   <h2>{detail.title}</h2>
