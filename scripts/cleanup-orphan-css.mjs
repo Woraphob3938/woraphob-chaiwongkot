@@ -65,6 +65,14 @@ const dead = [
   "availability-panel",
   "slot-button",
   "selected-trainer-summary",
+  // Removed when /trainer's week became a read-only strip behind a disclosure:
+  // the heading, the week controls, the range and the grid's own action buttons
+  // have no component left, and .trainer-week-strip replaced them.
+  "trainer-week__heading",
+  "trainer-week__range",
+  "trainer-week__controls",
+  "trainer-week-event__actions",
+  "trainer-slot-delete",
 ];
 
 const patterns = dead.map((name) => new RegExp(`\\.${name}\\b`));

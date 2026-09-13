@@ -4,6 +4,10 @@ import { TrainerApplyForm } from "@/components/trainer-apply-form";
 import { ApiError, authenticatedRequest } from "@/lib/api";
 import type { TrainerAccountProfile } from "@/lib/types";
 
+const push = vi.fn();
+
+vi.mock("next/navigation", () => ({ useRouter: () => ({ push }) }));
+
 vi.mock("@/lib/api", async () => {
   const actual = await vi.importActual<typeof import("@/lib/api")>("@/lib/api");
   return { ...actual, authenticatedRequest: vi.fn() };
@@ -74,6 +78,7 @@ async function fillRequiredFields() {
 describe("TrainerApplyForm", () => {
   beforeEach(() => {
     vi.mocked(authenticatedRequest).mockReset();
+    push.mockClear();
     localStorage.setItem("fitconnect_token", "trainer-token");
   });
 
@@ -99,6 +104,62 @@ describe("TrainerApplyForm", () => {
     expect(body.getAll("trainingTypeIds[]")).toEqual(["1"]);
     expect(body.get("certificate")).toBeInstanceOf(File);
     expect(body.has("provinceId")).toBe(false);
+  });
+
+  it("keeps the service mode to two choices and collects no gym name", async () => {
+    mockApi(profileWith("verified"));
+    render(<TrainerApplyForm />);
+    await waitFor(() => expect(screen.getByLabelText("ชื่อที่แสดง")).toHaveValue("เทรนเนอร์ ทดสอบ"));
+
+    // The record offers freelance or gym only and no longer asks where the
+    // trainer works, so a submission carries no gym name at all.
+    expect(screen.getAllByRole("option").map((option) => option.textContent)).toEqual(["ฟรีแลนซ์", "ประจำฟิตเนส"]);
+    expect(screen.queryByLabelText("ชื่อสถานที่ฝึก")).not.toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole("button", { name: /ส่งใบสมัครให้ผู้ดูแลระบบตรวจ/ }));
+    await waitFor(() => expect(vi.mocked(authenticatedRequest).mock.calls.some(([path]) => path === "/v1/trainer-applications")).toBe(true));
+    const call = vi.mocked(authenticatedRequest).mock.calls.find(([path]) => path === "/v1/trainer-applications");
+    const body = call?.[1]?.body as FormData;
+    expect(body.get("serviceMode")).toBe("freelance");
+    expect(body.has("gymName")).toBe(false);
+  });
+
+  it("returns to the profile page and can put the saved record back", async () => {
+    mockApi(profileWith("verified"));
+    render(<TrainerApplyForm />);
+    await waitFor(() => expect(screen.getByLabelText("ชื่อที่แสดง")).toHaveValue("เทรนเนอร์ ทดสอบ"));
+
+    expect(screen.getByRole("link", { name: "ย้อนกลับ" })).toHaveAttribute("href", "/profile");
+    const restore = screen.getByRole("button", { name: /คืนค่า/ });
+    expect(restore).toBeDisabled();
+
+    fireEvent.change(screen.getByLabelText("ชื่อที่แสดง"), { target: { value: "ชื่อที่แก้แล้ว" } });
+    fireEvent.change(screen.getByLabelText("ค่าฝึกเริ่มต้น (บาท)"), { target: { value: "999" } });
+    expect(restore).toBeEnabled();
+
+    fireEvent.click(restore);
+
+    expect(screen.getByLabelText("ชื่อที่แสดง")).toHaveValue("เทรนเนอร์ ทดสอบ");
+    expect(screen.getByLabelText("ค่าฝึกเริ่มต้น (บาท)")).toHaveValue(650);
+    expect(restore).toBeDisabled();
+  });
+
+  it("asks before leaving with changes it has not sent", async () => {
+    mockApi(profileWith("verified"));
+    render(<TrainerApplyForm />);
+    await waitFor(() => expect(screen.getByLabelText("ชื่อที่แสดง")).toHaveValue("เทรนเนอร์ ทดสอบ"));
+
+    // Nothing typed yet, so leaving is not worth interrupting.
+    expect(screen.queryByText("ย้อนกลับโดยที่ยังไม่ได้ส่งใบสมัคร?")).not.toBeInTheDocument();
+
+    fireEvent.change(screen.getByLabelText("ชื่อที่แสดง"), { target: { value: "ชื่อที่แก้แล้ว" } });
+    fireEvent.click(screen.getByRole("link", { name: "ย้อนกลับ" }));
+
+    expect(await screen.findByText("ย้อนกลับโดยที่ยังไม่ได้ส่งใบสมัคร?")).toBeInTheDocument();
+    expect(push).not.toHaveBeenCalled();
+
+    fireEvent.click(screen.getByRole("button", { name: "ย้อนกลับโดยไม่บันทึก" }));
+    await waitFor(() => expect(push).toHaveBeenCalledWith("/profile"));
   });
 
   it("demands a certificate when the trainer has none on file", async () => {

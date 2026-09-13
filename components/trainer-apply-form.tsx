@@ -1,11 +1,21 @@
 "use client";
 
-import { ChangeEvent, FormEvent, useCallback, useEffect, useRef, useState } from "react";
+import { ChangeEvent, FormEvent, MouseEvent, useCallback, useEffect, useRef, useState } from "react";
 import Link from "next/link";
-import { CircleAlert, FileUp, LoaderCircle, Save } from "lucide-react";
+import { useRouter } from "next/navigation";
+import { CircleAlert, FileUp, LoaderCircle, RotateCcw, Save } from "lucide-react";
 import { Input } from "@/components/ui/input";
 import { NativeSelect, NativeSelectOption } from "@/components/ui/native-select";
 import { Textarea } from "@/components/ui/textarea";
+import {
+  Dialog,
+  DialogClose,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
 import { StatusBadge } from "@/components/status-badge";
 import { ApiError, authenticatedRequest } from "@/lib/api";
 import { fieldDescribedBy, focusFirstInvalid } from "@/lib/profile-form";
@@ -19,7 +29,6 @@ const emptyForm = {
   bio: "",
   yearsExperience: "0",
   serviceMode: "freelance",
-  gymName: "",
   priceFrom: "",
   monthlyPrice: "",
   monthlySessionCount: "",
@@ -37,7 +46,6 @@ const fieldIdByKey: Record<string, string> = {
   bio: "apply-bio",
   yearsExperience: "apply-years",
   serviceMode: "apply-service",
-  gymName: "apply-gym",
   priceFrom: "apply-price",
   monthlyPrice: "apply-monthly-price",
   monthlySessionCount: "apply-monthly-sessions",
@@ -56,7 +64,6 @@ function fromProfile(profile: TrainerAccountProfile): FormValues {
     bio: profile.trainer.bio,
     yearsExperience: profile.trainer.yearsExperience.toString(),
     serviceMode: profile.trainer.serviceMode,
-    gymName: profile.trainer.gymName ?? "",
     priceFrom: profile.trainer.priceFrom?.toString() ?? "",
     monthlyPrice: profile.trainer.monthlyPrice?.toString() ?? "",
     monthlySessionCount: profile.trainer.monthlySessionCount?.toString() ?? "",
@@ -86,7 +93,13 @@ export function TrainerApplyForm() {
   const [fields, setFields] = useState<Record<string, string>>({});
   const [pending, setPending] = useState(false);
   const [message, setMessage] = useState<{ tone: "success" | "error"; text: string } | null>(null);
+  // The record as the server last stored it: what "คืนค่า" returns to, and what
+  // decides whether the form has anything unsaved to warn about.
+  const [saved, setSaved] = useState<FormValues>(emptyForm);
+  const [savedTypes, setSavedTypes] = useState<number[]>([]);
+  const [leavingWithChanges, setLeavingWithChanges] = useState(false);
   const certificateInputRef = useRef<HTMLInputElement>(null);
+  const router = useRouter();
   // A rejected certificate is a reason to submit again, so it never counts as
   // evidence already on file.
   const hasStoredCertificate = certificateStatus !== null && certificateStatus !== "rejected";
@@ -116,8 +129,11 @@ export function TrainerApplyForm() {
     authenticatedRequest<TrainerAccountProfile>("/v1/profile")
       .then((profile) => {
         if (!active || profile.role !== "trainer") return;
-        setValues(fromProfile(profile));
+        const record = fromProfile(profile);
+        setValues(record);
+        setSaved(record);
         setSelectedTypes(profile.trainer.trainingTypeIds);
+        setSavedTypes(profile.trainer.trainingTypeIds);
         const stored = profile.trainer.certificates[0];
         if (stored) {
           setCertificateStatus(stored.status);
@@ -163,6 +179,31 @@ export function TrainerApplyForm() {
     setCertificate(file);
   }
 
+  const hasUnsavedChanges = certificate !== null
+    || selectedTypes.join(",") !== savedTypes.join(",")
+    || (Object.keys(emptyForm) as Array<keyof FormValues>).some((key) => values[key] !== saved[key]);
+
+  /**
+   * Put the record back to the values the server already holds, so a trainer who
+   * changed their mind starts from the stored truth instead of retyping it.
+   */
+  function restoreSavedRecord() {
+    setValues(saved);
+    setSelectedTypes(savedTypes);
+    setCertificate(null);
+    if (certificateInputRef.current) certificateInputRef.current.value = "";
+    setFields({});
+    setMessage(null);
+    document.getElementById("apply-display-name")?.focus();
+  }
+
+  // Leaving with unsent changes is what loses the work, so it asks first.
+  function goBack(event: MouseEvent<HTMLAnchorElement>) {
+    if (!hasUnsavedChanges) return;
+    event.preventDefault();
+    setLeavingWithChanges(true);
+  }
+
   async function submit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     if (pending) return;
@@ -180,9 +221,6 @@ export function TrainerApplyForm() {
     }
     if (!Number.isInteger(Number(values.yearsExperience)) || Number(values.yearsExperience) < 0) {
       nextFields.yearsExperience = "กรอกจำนวนปีตั้งแต่ศูนย์ขึ้นไป";
-    }
-    if (values.serviceMode !== "freelance" && !values.gymName.trim()) {
-      nextFields.gymName = "กรอกชื่อสถานที่ฝึก";
     }
     if ((values.monthlyPrice === "") !== (values.monthlySessionCount === "")) {
       if (values.monthlyPrice === "") nextFields.monthlyPrice = "กรอกราคาแพ็กเกจ 30 วัน";
@@ -217,7 +255,6 @@ export function TrainerApplyForm() {
     body.set("bio", values.bio.trim());
     body.set("yearsExperience", values.yearsExperience);
     body.set("serviceMode", values.serviceMode);
-    body.set("gymName", values.serviceMode === "freelance" ? "" : values.gymName.trim());
     body.set("priceFrom", values.priceFrom);
     body.set("monthlyPrice", values.monthlyPrice);
     body.set("monthlySessionCount", values.monthlySessionCount);
@@ -260,14 +297,14 @@ export function TrainerApplyForm() {
             <Input id="apply-display-name" value={values.displayName} aria-required="true" aria-invalid={Boolean(fields.displayName)} aria-describedby={fieldDescribedBy("apply-display-name", fields.displayName)} onChange={(event) => change("displayName", event.target.value)} />
             {fields.displayName && <small className="profile-field-error" id="apply-display-name-error">{fields.displayName}</small>}
           </div>
-          <div className="field field--full">
+          <div className="field">
             <label htmlFor="apply-headline">ประโยคแนะนำตัวบนหน้าร้าน</label>
             <Input id="apply-headline" value={values.headline} placeholder="เช่น วางรากฐานความแข็งแรงอย่างเป็นระบบ" aria-required="true" aria-invalid={Boolean(fields.headline)} aria-describedby={fieldDescribedBy("apply-headline", fields.headline)} onChange={(event) => change("headline", event.target.value)} />
             {fields.headline && <small className="profile-field-error" id="apply-headline-error">{fields.headline}</small>}
           </div>
           <div className="field field--full">
             <label htmlFor="apply-bio">เกี่ยวกับฉัน</label>
-            <Textarea id="apply-bio" rows={4} value={values.bio} aria-required="true" aria-invalid={Boolean(fields.bio)} aria-describedby={fieldDescribedBy("apply-bio", fields.bio)} onChange={(event) => change("bio", event.target.value)} />
+            <Textarea id="apply-bio" rows={3} value={values.bio} aria-required="true" aria-invalid={Boolean(fields.bio)} aria-describedby={fieldDescribedBy("apply-bio", fields.bio)} onChange={(event) => change("bio", event.target.value)} />
             <small>อธิบายประสบการณ์และแนวทางการฝึก สมาชิกอ่านก่อนตัดสินใจจอง</small>
             {fields.bio && <small className="profile-field-error" id="apply-bio-error">{fields.bio}</small>}
           </div>
@@ -276,7 +313,7 @@ export function TrainerApplyForm() {
 
       <div className="profile-group">
         <div className="profile-group__heading">
-          <h2>การให้บริการ</h2>
+          <h2>การให้บริการและราคา</h2>
           <span>สมาชิกมองเห็น</span>
         </div>
         <div className="profile-form-grid">
@@ -290,17 +327,9 @@ export function TrainerApplyForm() {
             <NativeSelect className="profile-select" id="apply-service" value={values.serviceMode} onChange={(event) => change("serviceMode", event.target.value)}>
               <NativeSelectOption value="freelance">ฟรีแลนซ์</NativeSelectOption>
               <NativeSelectOption value="gym">ประจำฟิตเนส</NativeSelectOption>
-              <NativeSelectOption value="both">ทั้งสองแบบ</NativeSelectOption>
             </NativeSelect>
             <small>ฟรีแลนซ์เป็นผู้ตรวจสลิปเอง ส่วนแบบประจำฟิตเนสให้ผู้ดูแลระบบตรวจ</small>
           </div>
-          {values.serviceMode !== "freelance" && (
-            <div className="field field--full">
-              <label htmlFor="apply-gym">ชื่อสถานที่ฝึก</label>
-              <Input id="apply-gym" value={values.gymName} aria-invalid={Boolean(fields.gymName)} aria-describedby={fieldDescribedBy("apply-gym", fields.gymName)} onChange={(event) => change("gymName", event.target.value)} />
-              {fields.gymName && <small className="profile-field-error" id="apply-gym-error">{fields.gymName}</small>}
-            </div>
-          )}
           <fieldset
             className="field field--full profile-training-types"
             id="apply-training-types"
@@ -322,14 +351,7 @@ export function TrainerApplyForm() {
             {fields.trainingTypeIds && <small className="profile-field-error" id="apply-training-types-error">{fields.trainingTypeIds}</small>}
           </fieldset>
         </div>
-      </div>
-
-      <div className="profile-group">
-        <div className="profile-group__heading">
-          <h2>ราคา</h2>
-          <span>สมาชิกมองเห็น</span>
-        </div>
-        <div className="profile-form-grid">
+        <div className="profile-form-grid profile-form-grid--numbers">
           <div className="field">
             <label htmlFor="apply-price">ค่าฝึกเริ่มต้น (บาท)</label>
             <Input id="apply-price" type="number" min="0" step="0.01" inputMode="decimal" value={values.priceFrom} aria-required="true" aria-invalid={Boolean(fields.priceFrom)} aria-describedby={fieldDescribedBy("apply-price", fields.priceFrom)} onChange={(event) => change("priceFrom", event.target.value)} />
@@ -351,27 +373,7 @@ export function TrainerApplyForm() {
 
       <div className="profile-group">
         <div className="profile-group__heading">
-          <h2>การรับเงิน</h2>
-          <span>ไม่แสดงบนหน้าร้าน</span>
-        </div>
-        <div className="profile-form-grid">
-          <div className="field">
-            <label htmlFor="apply-payment-account">ชื่อบัญชีรับเงิน</label>
-            <Input id="apply-payment-account" value={values.paymentAccountName} aria-required="true" aria-invalid={Boolean(fields.paymentAccountName)} aria-describedby={fieldDescribedBy("apply-payment-account", fields.paymentAccountName)} onChange={(event) => change("paymentAccountName", event.target.value)} />
-            {fields.paymentAccountName && <small className="profile-field-error" id="apply-payment-account-error">{fields.paymentAccountName}</small>}
-          </div>
-          <div className="field">
-            <label htmlFor="apply-promptpay">หมายเลขพร้อมเพย์</label>
-            <Input id="apply-promptpay" inputMode="numeric" autoComplete="off" value={values.promptPayId} aria-required="true" aria-invalid={Boolean(fields.promptPayId)} aria-describedby={fieldDescribedBy("apply-promptpay", fields.promptPayId)} onChange={(event) => change("promptPayId", event.target.value)} />
-            <small>ใช้สร้าง QR หลังสมาชิกจอง ไม่แสดงบนหน้าร้าน · อัปโหลด QR ได้ที่หน้าโปรไฟล์</small>
-            {fields.promptPayId && <small className="profile-field-error" id="apply-promptpay-error">{fields.promptPayId}</small>}
-          </div>
-        </div>
-      </div>
-
-      <div className="profile-group">
-        <div className="profile-group__heading">
-          <h2>ข้อมูลเฉพาะบัญชี</h2>
+          <h2>ข้อมูลเฉพาะบัญชีและการรับเงิน</h2>
           <span>ไม่แสดงบนหน้าร้าน</span>
         </div>
         <div className="profile-form-grid">
@@ -384,6 +386,17 @@ export function TrainerApplyForm() {
             <label htmlFor="apply-phone">เบอร์โทรศัพท์</label>
             <Input id="apply-phone" type="tel" inputMode="tel" value={values.phone} aria-invalid={Boolean(fields.phone)} aria-describedby={fieldDescribedBy("apply-phone", fields.phone)} onChange={(event) => change("phone", event.target.value)} />
             {fields.phone && <small className="profile-field-error" id="apply-phone-error">{fields.phone}</small>}
+          </div>
+          <div className="field">
+            <label htmlFor="apply-payment-account">ชื่อบัญชีรับเงิน</label>
+            <Input id="apply-payment-account" value={values.paymentAccountName} aria-required="true" aria-invalid={Boolean(fields.paymentAccountName)} aria-describedby={fieldDescribedBy("apply-payment-account", fields.paymentAccountName)} onChange={(event) => change("paymentAccountName", event.target.value)} />
+            {fields.paymentAccountName && <small className="profile-field-error" id="apply-payment-account-error">{fields.paymentAccountName}</small>}
+          </div>
+          <div className="field">
+            <label htmlFor="apply-promptpay">หมายเลขพร้อมเพย์</label>
+            <Input id="apply-promptpay" inputMode="numeric" autoComplete="off" value={values.promptPayId} aria-required="true" aria-invalid={Boolean(fields.promptPayId)} aria-describedby={fieldDescribedBy("apply-promptpay", fields.promptPayId)} onChange={(event) => change("promptPayId", event.target.value)} />
+            <small>ใช้สร้าง QR หลังสมาชิกจอง ไม่แสดงบนหน้าร้าน · อัปโหลด QR ได้ที่หน้าโปรไฟล์</small>
+            {fields.promptPayId && <small className="profile-field-error" id="apply-promptpay-error">{fields.promptPayId}</small>}
           </div>
         </div>
       </div>
@@ -423,22 +436,55 @@ export function TrainerApplyForm() {
         </div>
       </div>
 
-      <div className="form-message-slot" aria-live="polite">
-        {message && (
-          <div className={`form-message form-message--${message.tone}`} role={message.tone === "error" ? "alert" : "status"}>
-            <CircleAlert aria-hidden="true" size={18} /> {message.text}
-          </div>
-        )}
+      {/* The submit row stays in reach while the record is being filled; it used
+          to sit at the bottom of a 2882px page. The result of a submission
+          belongs next to the button that caused it, so the message rides here
+          too. */}
+      <div className="trainer-apply-submit">
+        <div className="form-message-slot" aria-live="polite">
+          {message && (
+            <div className={`form-message form-message--${message.tone}`} role={message.tone === "error" ? "alert" : "status"}>
+              <CircleAlert aria-hidden="true" size={18} /> {message.text}
+            </div>
+          )}
+        </div>
+
+        <div className="trainer-apply-actions">
+          <Link className="button" href="/profile" onClick={goBack}>ย้อนกลับ</Link>
+          <button className="button" type="button" onClick={restoreSavedRecord} disabled={!hasUnsavedChanges}>
+            <RotateCcw aria-hidden="true" size={18} /> คืนค่า
+          </button>
+          <button className="button button--accent" type="submit" disabled={pending || !profileReady}>
+            {pending
+              ? <><LoaderCircle className="spin" aria-hidden="true" size={18} /> กำลังส่งใบสมัคร</>
+              : <><Save aria-hidden="true" size={18} /> ส่งใบสมัครให้ผู้ดูแลระบบตรวจ</>}
+          </button>
+        </div>
       </div>
 
-      <div className="trainer-apply-actions">
-        <Link className="button" href="/trainer">กลับไปพื้นที่เทรนเนอร์</Link>
-        <button className="button button--accent" type="submit" disabled={pending || !profileReady}>
-          {pending
-            ? <><LoaderCircle className="spin" aria-hidden="true" size={18} /> กำลังส่งใบสมัคร</>
-            : <><Save aria-hidden="true" size={18} /> ส่งใบสมัครให้ผู้ดูแลระบบตรวจ</>}
-        </button>
-      </div>
+      <Dialog open={leavingWithChanges} onOpenChange={(open) => { if (!open) setLeavingWithChanges(false); }}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>ย้อนกลับโดยที่ยังไม่ได้ส่งใบสมัคร?</DialogTitle>
+            <DialogDescription>ข้อความที่แก้ไว้จะหายไป และระบบยังใช้ข้อมูลเดิมที่บันทึกไว้</DialogDescription>
+          </DialogHeader>
+          <DialogFooter>
+            <DialogClose asChild>
+              <button className="button" type="button">แก้ไขต่อ</button>
+            </DialogClose>
+            <button
+              className="button button--danger"
+              type="button"
+              onClick={() => {
+                setLeavingWithChanges(false);
+                router.push("/profile");
+              }}
+            >
+              ย้อนกลับโดยไม่บันทึก
+            </button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </form>
   );
 }

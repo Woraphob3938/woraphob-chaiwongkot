@@ -2,7 +2,7 @@
 
 import { useRouter } from "next/navigation";
 import { useCallback, useEffect, useRef, useState } from "react";
-import { FileText, RefreshCw } from "lucide-react";
+import { FileText, RefreshCw, ShieldCheck } from "lucide-react";
 import { NextActionCard } from "@/components/dashboard-primitives";
 import { StatusBadge } from "@/components/status-badge";
 import { ApiError, authenticatedRequest, openProtectedFile } from "@/lib/api";
@@ -37,15 +37,39 @@ type PaymentDecisionResponse = {
   paymentDeadlineAt: string | null;
 };
 
-export function TrainerPaymentReview() {
-  const [open, setOpen] = useState(false);
-  return <details id="payment-review" className="admin-record-disclosure" onToggle={(event) => setOpen(event.currentTarget.open)}>
-    <summary>ตรวจสลิปการจองฟรีแลนซ์ของฉัน</summary>
-    {open && <AdminReviewQueue reviewer="trainer" />}
+/**
+ * The freelance trainer's own slip queue, kept behind a disclosure at the end of
+ * the workspace. The count comes from the workspace that already fetched the
+ * queue, so the next-action card and this summary cannot disagree.
+ */
+export function TrainerPaymentReview({ pendingSlips, open = false, onQueueLoaded }: {
+  pendingSlips: number | null;
+  open?: boolean;
+  onQueueLoaded?: (queue: AdminQueue) => void;
+}) {
+  const [openState, setOpenState] = useState(open);
+  return <details
+    id="payment-review"
+    className="admin-record-disclosure"
+    // Re-keying on the action target resets `openState` to the new prop without
+    // an effect, the same way the availability disclosure is opened by the
+    // next-action card.
+    key={open ? "payment-review-action" : "payment-review-idle"}
+    open={openState}
+    onToggle={(event) => setOpenState(event.currentTarget.open)}
+  >
+    <summary>
+      <span><ShieldCheck aria-hidden="true" size={20} /><strong>ตรวจสลิปการจองฟรีแลนซ์ของฉัน</strong></span>
+      <small>{pendingSlips === null ? "ยังโหลดจำนวนไม่ได้" : `${pendingSlips} สลิป`}</small>
+    </summary>
+    {openState && <AdminReviewQueue reviewer="trainer" onQueueLoaded={onQueueLoaded} />}
   </details>;
 }
 
-export function AdminReviewQueue({ reviewer = "admin" }: { reviewer?: "admin" | "trainer" }) {
+export function AdminReviewQueue({ reviewer = "admin", onQueueLoaded }: {
+  reviewer?: "admin" | "trainer";
+  onQueueLoaded?: (queue: AdminQueue) => void;
+}) {
   const router = useRouter();
   const navigate = router.push;
   const [queue, setQueue] = useState<AdminQueue | null>(null);
@@ -61,6 +85,11 @@ export function AdminReviewQueue({ reviewer = "admin" }: { reviewer?: "admin" | 
   const [loading, setLoading] = useState(true);
   const noticeRef = useRef<HTMLParagraphElement>(null);
   const queueRequestRef = useRef(0);
+  // Held in a ref so a new callback identity never re-creates `loadQueue`.
+  const onQueueLoadedRef = useRef(onQueueLoaded);
+  useEffect(() => {
+    onQueueLoadedRef.current = onQueueLoaded;
+  }, [onQueueLoaded]);
 
   function startRowTask(rowKey: string, action: "file" | "approve" | "reject" | "refresh") {
     setBusyRows((current) => ({ ...current, [rowKey]: action }));
@@ -82,6 +111,9 @@ export function AdminReviewQueue({ reviewer = "admin" }: { reviewer?: "admin" | 
       const nextQueue = await authenticatedRequest<AdminQueue>(`/v1/${reviewer}/review-queue`);
       if (requestId !== queueRequestRef.current) return "superseded" as const;
       setQueue(nextQueue);
+      // Keep whatever asked for the count (the workspace's next-action card)
+      // showing the same queue this list just loaded.
+      onQueueLoadedRef.current?.(nextQueue);
       const availableKeys = [
         ...nextQueue.trainers.map((trainer) => `trainer-${trainer.id}`),
         ...nextQueue.payments.map((payment) => `payment-${payment.id}`),
@@ -460,7 +492,13 @@ export function AdminReviewQueue({ reviewer = "admin" }: { reviewer?: "admin" | 
             })()}
           </div>
         ) : (
-          <div className="empty-state"><strong>ไม่มีรายการรอตรวจ</strong><p>คิวตรวจสอบเป็นปัจจุบันแล้ว</p></div>
+          <div className="empty-state">
+            <strong>ไม่มีรายการรอตรวจ</strong>
+            <p>คิวตรวจสอบเป็นปัจจุบันแล้ว หากสมาชิกเพิ่งส่งสลิป ให้โหลดคิวอีกครั้ง</p>
+            <button className="button" type="button" disabled={loading} onClick={() => void loadQueue()}>
+              <RefreshCw aria-hidden="true" size={16} /> {loading ? "กำลังโหลด…" : "โหลดคิวอีกครั้ง"}
+            </button>
+          </div>
         )}
       </section>
     </div>

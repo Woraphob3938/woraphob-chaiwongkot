@@ -2,9 +2,10 @@
 
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { FormEvent, useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { CalendarDays, CalendarPlus, ChevronLeft, ChevronRight, MessageSquareText, RefreshCw, Trash2 } from "lucide-react";
+import { FormEvent, KeyboardEvent, useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { CalendarDays, CalendarPlus, ChevronDown, ChevronLeft, ChevronRight, MessageSquareText, RefreshCw, Search, Trash2 } from "lucide-react";
 import { NextActionCard } from "@/components/dashboard-primitives";
+import { TrainerPaymentReview } from "@/components/admin-review-queue";
 import { StatusBadge } from "@/components/status-badge";
 import { Button } from "@/components/ui/button";
 import {
@@ -18,9 +19,9 @@ import {
 } from "@/components/ui/dialog";
 import { ApiError, authenticatedRequest } from "@/lib/api";
 import { getTrainerNextAction, hasValidBookingPeriod } from "@/lib/dashboard-actions";
-import { formatDateTime, formatTime, formatTimeRange } from "@/lib/format";
+import { formatDateTime, formatMoney, formatShortDay, formatTime, formatTimeRange } from "@/lib/format";
 import { leaveExpiredSession } from "@/lib/session";
-import type { Booking, SlotState, TrainerAvailabilitySlot, TrainerWorkspace } from "@/lib/types";
+import type { AdminQueue, Booking, SlotState, TrainerAvailabilitySlot, TrainerWorkspace } from "@/lib/types";
 
 const slotStateCopy: Record<SlotState, string> = {
   available: "พร้อมจอง",
@@ -32,6 +33,8 @@ const slotStateCopy: Record<SlotState, string> = {
 // Every visible date and time is pinned to Bangkok so a trainer's schedule reads
 // the same whatever timezone the machine that rendered it sits in.
 const BANGKOK = "Asia/Bangkok";
+/** How many appointments the trainer sees before asking for the next page. */
+const APPOINTMENTS_PER_PAGE = 4;
 const dayNameFormatter = new Intl.DateTimeFormat("th-TH", { weekday: "short", timeZone: BANGKOK });
 const dayDateFormatter = new Intl.DateTimeFormat("th-TH", { day: "numeric", month: "short", timeZone: BANGKOK });
 const weekDateFormatter = new Intl.DateTimeFormat("th-TH", { day: "numeric", month: "short", year: "numeric", timeZone: BANGKOK });
@@ -116,10 +119,11 @@ export function TrainerWorkbench({ onIncompleteProfile }: { onIncompleteProfile?
   const [busy, setBusy] = useState<string | null>(null);
   const [slotToDelete, setSlotToDelete] = useState<TrainerAvailabilitySlot | null>(null);
   const [bookingToComplete, setBookingToComplete] = useState<Booking | null>(null);
-  const [showAllBookings, setShowAllBookings] = useState(false);
+  const [appointmentLimit, setAppointmentLimit] = useState(APPOINTMENTS_PER_PAGE);
+  const [scheduleOpen, setScheduleOpen] = useState(false);
+  const [activeTab, setActiveTab] = useState<"work" | "finance">("work");
   const [bookingQuery, setBookingQuery] = useState("");
   const [bookingDate, setBookingDate] = useState("");
-  const [bookingPage, setBookingPage] = useState(0);
   const [slotFilterDate, setSlotFilterDate] = useState("");
   const [slotPage, setSlotPage] = useState(0);
   const [selectedBooking, setSelectedBooking] = useState<Booking | null>(null);
@@ -127,8 +131,16 @@ export function TrainerWorkbench({ onIncompleteProfile }: { onIncompleteProfile?
   const [loading, setLoading] = useState(true);
   const [workspaceReady, setWorkspaceReady] = useState(false);
   const [bookingsReady, setBookingsReady] = useState(false);
+  // Slips waiting for this trainer's own review. `null` means the count could
+  // not be read, which never invents work that is not there.
+  const [pendingSlips, setPendingSlips] = useState<number | null>(null);
   const actionNoticeRef = useRef<HTMLParagraphElement>(null);
   const completionErrorRef = useRef<HTMLDivElement>(null);
+  // Every dialog here is opened from a plain button rather than a DialogTrigger,
+  // so the element that opened it is remembered and focused again on close.
+  // Without this, dismissing with Escape dropped focus onto <body> and a
+  // keyboard user restarted from the top of the document.
+  const dialogTriggerRef = useRef<HTMLElement | null>(null);
   const onIncompleteProfileRef = useRef(onIncompleteProfile);
 
   useEffect(() => {
@@ -174,8 +186,9 @@ export function TrainerWorkbench({ onIncompleteProfile }: { onIncompleteProfile?
     const initialLoad = Promise.allSettled([
       authenticatedRequest<TrainerWorkspace>("/v1/trainer/me"),
       authenticatedRequest<Booking[]>("/v1/bookings"),
+      authenticatedRequest<AdminQueue>("/v1/trainer/review-queue"),
     ]);
-    void initialLoad.then(([workspaceResult, bookingResult]) => {
+    void initialLoad.then(([workspaceResult, bookingResult, queueResult]) => {
       if (workspaceResult.status === "fulfilled") {
         setWorkspace(workspaceResult.value);
         setWorkspaceError("");
@@ -194,6 +207,9 @@ export function TrainerWorkbench({ onIncompleteProfile }: { onIncompleteProfile?
         setBookingsReady(false);
         setBookingError(bookingResult.reason instanceof Error ? bookingResult.reason.message : "โหลดคำขอจองไม่สำเร็จ");
       }
+
+      const queue = queueResult.status === "fulfilled" ? queueResult.value : null;
+      setPendingSlips(Array.isArray(queue?.payments) ? queue.payments.length : null);
       setLoading(false);
     });
   }, [navigate]);
@@ -236,9 +252,17 @@ export function TrainerWorkbench({ onIncompleteProfile }: { onIncompleteProfile?
   const approved = workspace?.profile?.approvalStatus === "approved";
   const confirmedBookings = bookingsReady ? bookings.filter((booking) => booking.status === "confirmed") : [];
   const completedBookings = bookingsReady ? bookings.filter((booking) => booking.status === "completed") : [];
-  const totalEarned = completedBookings.reduce((sum, b) => sum + (b.quotedPrice ?? 0), 0);
+  // Money is only claimed where the review that makes it real has happened, so
+  // the ledger keeps settled amounts apart from slips still under review.
+  const approvedEarned = completedBookings
+    .filter((booking) => booking.paymentStatus === "approved")
+    .reduce((sum, b) => sum + (b.quotedPrice ?? 0), 0);
+  const approvedCompletedCount = completedBookings.filter((booking) => booking.paymentStatus === "approved").length;
+  const reviewEarned = completedBookings
+    .filter((booking) => booking.paymentStatus === "reviewing")
+    .reduce((sum, b) => sum + (b.quotedPrice ?? 0), 0);
   const upcomingEarned = confirmedBookings.reduce((sum, b) => sum + (b.quotedPrice ?? 0), 0);
-  const nextAction = workspaceReady && bookingsReady ? getTrainerNextAction(workspace, bookings) : null;
+  const nextAction = workspaceReady && bookingsReady ? getTrainerNextAction(workspace, bookings, pendingSlips ?? 0) : null;
   const actionBookingId = nextAction?.href.match(/(?:booking-|booking=)([^&#]+)/)?.[1];
   const orderedConfirmedBookings = confirmedBookings.slice().sort((left, right) => new Date(left.startsAt).getTime() - new Date(right.startsAt).getTime());
   const urgentBooking = orderedConfirmedBookings.find((booking) => booking.id === actionBookingId && booking.actions.canComplete && hasValidBookingPeriod(booking));
@@ -250,13 +274,38 @@ export function TrainerWorkbench({ onIncompleteProfile }: { onIncompleteProfile?
   const upcomingBookings = orderedConfirmedBookings.filter((booking) => nextSession(booking))
     .sort((a, b) => new Date(nextSession(a)!.startsAt).getTime() - new Date(nextSession(b)!.startsAt).getTime());
   const pendingBookings = orderedConfirmedBookings.filter((booking) => !nextSession(booking));
-  const bookingPreview = upcomingBookings.slice(0, 2);
-  const filteredBookings = orderedConfirmedBookings.filter((booking) =>
+
+  // The next-action card names one record, so following its link has to land on
+  // that record's own button rather than merely near it. It runs only when the
+  // URL targets that booking, so a plain visit to /trainer never steals focus.
+  useEffect(() => {
+    function focusTargetedRow() {
+      if (!actionBookingId || window.location.hash !== `#booking-${actionBookingId}`) return;
+      const row = document.getElementById(`booking-${actionBookingId}`);
+      row?.querySelector<HTMLElement>(".queue-actions button:not([disabled])")?.focus();
+    }
+    focusTargetedRow();
+    window.addEventListener("hashchange", focusTargetedRow);
+    return () => window.removeEventListener("hashchange", focusTargetedRow);
+    // `bookingsReady` re-runs it once the rows are mounted and the hash can hit.
+  }, [actionBookingId, bookingsReady]);
+  // One list owns every appointment: the records still owing a result first (the
+  // actionable one on top), then the upcoming ones in date order. Two sections
+  // made the page pay twice — a header, a count, an empty state and an expansion
+  // control — for one collection split by a rule the trainer cannot see.
+  const appointments = [
+    ...(urgentBooking ? [urgentBooking, ...pendingBookings.filter((booking) => booking.id !== urgentBooking.id)] : pendingBookings),
+    ...upcomingBookings,
+  ];
+  const filteredAppointments = appointments.filter((booking) =>
     `${booking.id} ${booking.member?.displayName ?? ""}`.toLocaleLowerCase("th-TH").includes(bookingQuery.trim().toLocaleLowerCase("th-TH"))
     && (!bookingDate || (booking.sessions?.length ? booking.sessions : [booking]).some((session) => localDateKey(new Date(session.startsAt)) === bookingDate)));
-  const bookingPages = Math.max(1, Math.ceil(filteredBookings.length / 6));
-  const activeBookingPage = Math.min(bookingPage, bookingPages - 1);
-  const visibleConfirmedBookings = showAllBookings ? filteredBookings.slice(activeBookingPage * 6, (activeBookingPage + 1) * 6) : bookingPreview;
+  // "Show more" appends the next page; the row named by the next-action card is
+  // always on screen, even when it sits deeper in the list.
+  const actionIndex = filteredAppointments.findIndex((booking) => booking.id === actionBookingId);
+  const appointmentLimitApplied = actionIndex >= appointmentLimit ? actionIndex + 1 : appointmentLimit;
+  const visibleAppointments = filteredAppointments.slice(0, appointmentLimitApplied);
+  const hiddenAppointmentCount = Math.max(0, filteredAppointments.length - visibleAppointments.length);
   const slots = workspace?.slots ?? [];
   const filteredSlots = slots.filter((slot) => !slotFilterDate || localDateKey(new Date(slot.startsAt)) === slotFilterDate)
     .slice().sort((a, b) => new Date(a.startsAt).getTime() - new Date(b.startsAt).getTime());
@@ -307,6 +356,17 @@ export function TrainerWorkbench({ onIncompleteProfile }: { onIncompleteProfile?
         booking,
       })),
   ].sort((left, right) => new Date(left.startsAt).getTime() - new Date(right.startsAt).getTime());
+  const weekBookingCount = weeklySchedule.filter((item) => item.kind === "booking").length;
+
+  // Arrow keys move between the two tabs, matching the profile page's tablist.
+  function onTrainerTabKeyDown(event: KeyboardEvent<HTMLButtonElement>) {
+    if (event.key !== "ArrowRight" && event.key !== "ArrowLeft" && event.key !== "Home" && event.key !== "End") return;
+    if (!approved) return; // a single-tab list has nowhere to move
+    event.preventDefault();
+    const next = event.key === "ArrowLeft" || event.key === "Home" ? "work" : "finance";
+    setActiveTab(next);
+    document.getElementById(`trainer-${next}-tab`)?.focus();
+  }
 
   function openSlotDialog() {
     setAvailabilityError("");
@@ -319,11 +379,29 @@ export function TrainerWorkbench({ onIncompleteProfile }: { onIncompleteProfile?
 
   function renderBookingRow(booking: Booking) {
     const session = nextSession(booking);
+    const validPeriod = hasValidBookingPeriod(booking);
+    const canComplete = validPeriod && booking.actions.canComplete;
+    const isBusy = busy === `booking-${booking.id}`;
     return (
-      <article className="trainer-appointment-row" id={`booking-${booking.id}`} key={booking.id}>
+      <article className="trainer-appointment-row" id={`booking-${booking.id}`} key={booking.id} aria-busy={isBusy}>
         <div><strong>{booking.member?.displayName ?? "สมาชิก FitConnect"}</strong><small>{booking.id}</small></div>
-        <div><span>{formatDateTime(session?.startsAt ?? booking.startsAt)}</span><small>{session ? "นัดที่กำลังจะถึง" : booking.actions.canComplete ? "รอบันทึกผล" : "รอจัดเวลาที่เหลือ / ตรวจรายละเอียด"}</small></div>
-        <Button type="button" variant="outline" onClick={() => setSelectedBooking(booking)}>ดูรายละเอียด</Button>
+        <div><span>{formatDateTime(session?.startsAt ?? booking.startsAt)}</span><small className={canComplete ? "trainer-appointment-row__pending" : undefined}>{canComplete ? "รอบันทึกผลการฝึก" : session ? "นัดที่กำลังจะถึง" : "รอจัดเวลาที่เหลือ / ตรวจรายละเอียด"}</small></div>
+        {/* The row carries the action it is asking for, so the next-action card
+            does not hand the trainer a place where the action does not exist. */}
+        <div className="queue-actions">
+          {canComplete && (
+            <button
+              type="button"
+              disabled={isBusy}
+              aria-label={`บันทึกผลการฝึก ${booking.id}`}
+              onClick={(event) => { dialogTriggerRef.current = event.currentTarget; setBookingToComplete(booking); }}
+            >
+              {isBusy ? "กำลังบันทึก…" : "บันทึกผลการฝึก"}
+            </button>
+          )}
+          {!validPeriod && <span>ข้อมูลเวลาไม่ถูกต้อง</span>}
+          <button type="button" onClick={(event) => { dialogTriggerRef.current = event.currentTarget; setSelectedBooking(booking); }}>ดูรายละเอียด</button>
+        </div>
       </article>
     );
   }
@@ -442,6 +520,10 @@ export function TrainerWorkbench({ onIncompleteProfile }: { onIncompleteProfile?
         <dl>
           <div><dt>เริ่มฝึก</dt><dd>{formatDateTime(booking.startsAt)}</dd></div>
           <div><dt>สิ้นสุด</dt><dd>{formatDateTime(booking.endsAt)}</dd></div>
+          {/* A booking carries its own price and the review state that makes the
+              money real, so nothing has to be recalled from an aggregate. */}
+          <div><dt>ค่าฝึก</dt><dd>{formatMoney(booking.quotedPrice ?? undefined)}</dd></div>
+          <div><dt>การชำระเงิน</dt><dd><StatusBadge status={booking.status} /></dd></div>
         </dl>
         {(booking.member?.goals || booking.member?.medicalNote || booking.member?.weight || booking.member?.height) && (
           <div className="trainer-booking-card__health text-sm space-y-1 my-2 p-2 bg-muted/40 rounded">
@@ -475,8 +557,8 @@ export function TrainerWorkbench({ onIncompleteProfile }: { onIncompleteProfile?
               <MessageSquareText aria-hidden="true" size={17} /> เปิดการสนทนา
             </Link>
           )}
-          {validPeriod && <button type="button" disabled={!booking.actions.canComplete || isBusy} aria-label={`${booking.actions.canComplete ? "บันทึกว่าฝึกเสร็จ" : "รอสิ้นสุดการฝึก"} ${booking.id}`} onClick={() => setBookingToComplete(booking)}>
-            {isBusy ? "กำลังบันทึก…" : booking.actions.canComplete ? "บันทึกว่าฝึกเสร็จ" : "รอสิ้นสุดการฝึก"}
+          {validPeriod && <button type="button" disabled={!booking.actions.canComplete || isBusy} aria-label={`${booking.actions.canComplete ? "บันทึกผลการฝึก" : "รอสิ้นสุดการฝึก"} ${booking.id}`} onClick={() => setBookingToComplete(booking)}>
+            {isBusy ? "กำลังบันทึก…" : booking.actions.canComplete ? "บันทึกผลการฝึก" : "รอสิ้นสุดการฝึก"}
           </button>}
         </div>
       </article>
@@ -510,7 +592,21 @@ export function TrainerWorkbench({ onIncompleteProfile }: { onIncompleteProfile?
           {workspaceError && <div className="workbench-error" role="alert"><span>{workspaceError}</span><button type="button" onClick={() => void loadWorkspace()}>ลองใหม่</button></div>}
         </section>
         {bookingError && <div className="workbench-error" role="alert"><span>{bookingError}</span><button type="button" onClick={() => void loadBookings()}><RefreshCw aria-hidden="true" size={15} /> ลองใหม่</button></div>}
-        {nextAction && <NextActionCard action={nextAction} />}
+        {nextAction && (
+        <NextActionCard
+          action={nextAction}
+          onFollow={() => {
+            // After Next has pushed the hash, land the caret on the record's own
+            // button so the card's promise is kept in one click.
+            if (!actionBookingId) return;
+            window.setTimeout(() => {
+              document.getElementById(`booking-${actionBookingId}`)
+                ?.querySelector<HTMLElement>(".queue-actions button:not([disabled])")
+                ?.focus();
+            }, 0);
+          }}
+        />
+      )}
       </div>
     );
   }
@@ -528,65 +624,140 @@ export function TrainerWorkbench({ onIncompleteProfile }: { onIncompleteProfile?
               หน้าโปรไฟล์เทรนเนอร์
             </Link>
             <StatusBadge status={workspace.profile.approvalStatus} />
+            {approved && <Button type="button" onClick={(event) => { dialogTriggerRef.current = event.currentTarget; openSlotDialog(); }}><CalendarPlus aria-hidden="true" size={18} /> เปิดเวลารับจอง</Button>}
           </div>
         )}
         {workspaceError && <div className="workbench-error" role="alert"><span>{workspaceError}</span><button type="button" onClick={() => void loadWorkspace()}>ลองใหม่</button></div>}
       </section>
 
-      {nextAction && <NextActionCard action={nextAction} />}
+      {nextAction && (
+        <NextActionCard
+          action={nextAction}
+          onFollow={() => {
+            // After Next has pushed the hash, land the caret on the record's own
+            // button so the card's promise is kept in one click.
+            if (!actionBookingId) return;
+            window.setTimeout(() => {
+              document.getElementById(`booking-${actionBookingId}`)
+                ?.querySelector<HTMLElement>(".queue-actions button:not([disabled])")
+                ?.focus();
+            }, 0);
+          }}
+        />
+      )}
       {actionNotice && <p ref={actionNoticeRef} className="queue-notice workbench-success" role="status" tabIndex={-1}>{actionNotice}</p>}
 
-      {bookingsReady && pendingBookings.length > 0 && !showAllBookings && (
-        <section className="trainer-booking-list" aria-label="รอบันทึกผลและจัดเวลาที่เหลือ">
-          <header className="section-line-heading"><h2>งานที่ยังต้องจัดการ</h2><span>{pendingBookings.length} รายการ</span></header>
-          {(urgentBooking ? [urgentBooking] : pendingBookings.slice(0, 1)).map(renderBookingRow)}
-          {pendingBookings.length > 1 && <Button type="button" variant="outline" onClick={() => { setShowAllBookings(true); setBookingPage(0); document.getElementById("trainer-confirmed-title")?.scrollIntoView({ block: "start" }); }}>ดูงานที่เหลือในรายการทั้งหมด</Button>}
+      {/* The result of recording a session must stay visible even when the
+          follow-up refresh failed and the list is no longer on screen. */}
+      {completionError && (
+        <div ref={completionErrorRef} className="workbench-error" role="alert" tabIndex={-1}>
+          <span>{completionError}</span>
+          <button type="button" disabled={busy === "bookings-refresh"} onClick={() => void retryBookingRefresh()}>
+            <RefreshCw aria-hidden="true" size={15} /> {busy === "bookings-refresh" ? "กำลังโหลด…" : "ลองโหลดใหม่"}
+          </button>
+        </div>
+      )}
+
+      {/* Two questions, two tabs: the work itself, and the money it earned. The
+          ledger used to sit in the work column as a fourth disclosure; as its own
+          tab it stops competing with the records a trainer acts on. */}
+      <div className="profile-tabs" role="tablist" aria-label="มุมมองพื้นที่เทรนเนอร์">
+        <button
+          type="button"
+          role="tab"
+          id="trainer-work-tab"
+          aria-selected={activeTab === "work"}
+          aria-controls="trainer-work-panel"
+          tabIndex={activeTab === "work" ? 0 : -1}
+          onClick={() => setActiveTab("work")}
+          onKeyDown={onTrainerTabKeyDown}
+        >
+          งานและตาราง <span>{appointments.length}</span>
+        </button>
+        {approved && (
+          <button
+            type="button"
+            role="tab"
+            id="trainer-finance-tab"
+            aria-selected={activeTab === "finance"}
+            aria-controls="trainer-finance-panel"
+            tabIndex={activeTab === "finance" ? 0 : -1}
+            onClick={() => setActiveTab("finance")}
+            onKeyDown={onTrainerTabKeyDown}
+          >
+            สรุปการเงิน <span>{bookingsReady ? formatMoney(approvedEarned) : "—"}</span>
+          </button>
+        )}
+      </div>
+
+      <div id="trainer-work-panel" role="tabpanel" aria-labelledby="trainer-work-tab" hidden={activeTab !== "work"}>
+
+      {bookingsReady ? (
+        <section className="trainer-booking-list" id="appointments" aria-labelledby="trainer-appointments-title">
+          <header className="section-line-heading trainer-booking-list__heading">
+            <div>
+              <h2 id="trainer-appointments-title">นัดของสมาชิก</h2>
+              <p>รอบันทึกผลการฝึกก่อน แล้วจึงเป็นนัดที่กำลังจะถึง</p>
+            </div>
+            <div className="trainer-booking-list__meta">
+              <span className="queue-count">{filteredAppointments.length} รายการ</span>
+              <a className="button button--outline" href="#schedule" onClick={() => setScheduleOpen(true)}>ดูตารางเต็ม</a>
+            </div>
+          </header>
+
+          <details className="trainer-disclosure trainer-list-filters" open={bookingQuery !== "" || bookingDate !== "" || undefined}>
+            <summary>
+              <span><Search aria-hidden="true" size={18} /><strong>ค้นหาและกรองนัดหมาย</strong></span>
+              <small>{bookingQuery || bookingDate ? `กรองแล้ว ${filteredAppointments.length} รายการ` : null}</small>
+              <ChevronDown className="trainer-disclosure__chevron" aria-hidden="true" size={18} />
+            </summary>
+            <div className="trainer-list-filters__fields">
+              <label className="field">ค้นหานัดหมาย<input type="search" placeholder="ชื่อสมาชิกหรือรหัสการจอง" value={bookingQuery} onChange={(event) => { setBookingQuery(event.target.value); setAppointmentLimit(APPOINTMENTS_PER_PAGE); }} /></label>
+              <label className="field">วันที่ฝึก<input type="date" lang="th-TH" value={bookingDate} onChange={(event) => { setBookingDate(event.target.value); setAppointmentLimit(APPOINTMENTS_PER_PAGE); }} /></label>
+              {bookingDate && <small className="availability-day-slots">วันที่เลือก {formatShortDay(bookingDate)}</small>}
+              {(bookingQuery || bookingDate) && <Button type="button" variant="outline" onClick={() => { setBookingQuery(""); setBookingDate(""); setAppointmentLimit(APPOINTMENTS_PER_PAGE); }}>ล้างตัวกรอง</Button>}
+            </div>
+          </details>
+
+          {appointments.length === 0 && <div className="empty-state"><strong>ยังไม่มีนัดที่ยืนยันแล้ว</strong><p>เมื่อนัดได้รับการยืนยัน รายละเอียดสมาชิกจะมาอยู่ตรงนี้</p></div>}
+          {appointments.length > 0 && filteredAppointments.length === 0 && <div className="empty-state"><strong>ไม่พบนัดหมายที่ตรงกับตัวกรอง</strong><p>ลองเปลี่ยนชื่อหรือวันที่ค้นหา</p></div>}
+          {visibleAppointments.map(renderBookingRow)}
+          {hiddenAppointmentCount > 0 && (
+            <Button className="trainer-booking-toggle" type="button" variant="outline" onClick={() => setAppointmentLimit(appointmentLimitApplied + APPOINTMENTS_PER_PAGE)}>
+              แสดงอีก {Math.min(APPOINTMENTS_PER_PAGE, hiddenAppointmentCount)} รายการ · เหลือ {hiddenAppointmentCount}
+            </Button>
+          )}
+          {appointmentLimitApplied > APPOINTMENTS_PER_PAGE && (
+            <Button className="trainer-booking-toggle" type="button" variant="outline" onClick={() => setAppointmentLimit(APPOINTMENTS_PER_PAGE)}>ย่อนัดหมาย</Button>
+          )}
+        </section>
+      ) : (
+        <section className="trainer-booking-list" aria-label="นัดของสมาชิก">
+          <div className="workbench-error" role="alert"><span>{bookingError || "โหลดนัดหมายไม่สำเร็จ"}</span><button type="button" onClick={() => void loadBookings()}><RefreshCw aria-hidden="true" size={15} /> ลองใหม่</button></div>
         </section>
       )}
 
-      {approved && (
-        <section className="trainer-metrics-summary my-4" aria-label="สรุปรายได้และนัดหมาย">
-          <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 p-4 rounded-lg bg-card border">
-            <div>
-              <span className="text-xs text-muted-foreground block">รายได้สะสม (งานที่สำเร็จ)</span>
-              <strong className="text-xl font-bold text-foreground">{bookingsReady ? `฿${totalEarned.toLocaleString("th-TH", { minimumFractionDigits: 0 })}` : "—"}</strong>
-              <small className="block text-xs text-muted-foreground">{bookingsReady ? `${completedBookings.length} การจองที่เสร็จสิ้น` : "โหลดข้อมูลนัดหมายไม่สำเร็จ"}</small>
-            </div>
-            <div>
-              <span className="text-xs text-muted-foreground block">มูลค่านัดที่ยืนยันแล้ว</span>
-              <strong className="text-xl font-bold text-foreground">{bookingsReady ? `฿${upcomingEarned.toLocaleString("th-TH", { minimumFractionDigits: 0 })}` : "—"}</strong>
-              <small className="block text-xs text-muted-foreground">{bookingsReady ? `${confirmedBookings.length} การจองที่ยังไม่ปิดงาน` : "โหลดข้อมูลนัดหมายไม่สำเร็จ"}</small>
-            </div>
-            <div>
-              <span className="text-xs text-muted-foreground block">ช่วงเวลาพร้อมจอง</span>
-              <strong className="text-xl font-bold text-foreground">{slots.filter((s) => s.state === "available").length}</strong>
-              <small className="block text-xs text-muted-foreground">จากทั้งหมด {slots.length} ช่วงเวลา</small>
-            </div>
-          </div>
-        </section>
-      )}
-
-      <section className="trainer-week" id="schedule" aria-labelledby="trainer-week-title">
-        <header className="trainer-week__heading">
-          <div>
-            <h2 id="trainer-week-title">ตารางรายสัปดาห์</h2>
-            <p>ดูนัดของสมาชิกและเวลาที่เปิดรับจองในมุมมองเดียว</p>
-          </div>
-          <div className="trainer-week__controls" aria-label="เปลี่ยนสัปดาห์">
-            <Button type="button" disabled={!approved} onClick={openSlotDialog}><CalendarPlus aria-hidden="true" size={18} /> เพิ่มช่วงเวลาว่าง</Button>
-            <button type="button" aria-label="สัปดาห์ก่อนหน้า" onClick={() => setWeekOffset((current) => current - 1)}>
-              <ChevronLeft aria-hidden="true" size={18} />
-            </button>
-            <button type="button" onClick={() => setWeekOffset(0)} disabled={weekOffset === 0}>สัปดาห์นี้</button>
-            <button type="button" aria-label="สัปดาห์ถัดไป" onClick={() => setWeekOffset((current) => current + 1)}>
-              <ChevronRight aria-hidden="true" size={18} />
-            </button>
-          </div>
-          <p className="trainer-week__range" aria-live="polite">
+      <details
+        className="trainer-disclosure trainer-week"
+        id="schedule"
+        open={scheduleOpen || nextAction?.href === "/trainer#schedule" || nextAction?.href === "/trainer#availability"}
+        onToggle={(event) => setScheduleOpen(event.currentTarget.open)}
+      >
+        <summary>
+          <span><CalendarDays aria-hidden="true" size={20} /><strong>ตารางรายสัปดาห์และช่วงเวลาว่าง</strong></span>
+          <small>{weekBookingCount} นัด · {slots.length} ช่วงเวลา</small>
+          <ChevronDown className="trainer-disclosure__chevron" aria-hidden="true" size={18} />
+        </summary>
+        <div className="trainer-week-toolbar">
+          <p className="trainer-week-strip__range" aria-live="polite">
             {weekDateFormatter.format(weekStart)} – {weekDateFormatter.format(addDays(weekEnd, -1))}
           </p>
-        </header>
-        {!bookingsReady && <div className="workbench-error" role="alert"><span>{bookingError || "โหลดนัดหมายไม่สำเร็จ"} · ตารางนี้แสดงเฉพาะช่วงเวลา ยังไม่ใช่ข้อมูลนัดหมายทั้งหมด</span><Button type="button" variant="outline" onClick={() => void loadBookings()}>ลองใหม่</Button></div>}
+          <div className="trainer-week-strip__controls" aria-label="เปลี่ยนสัปดาห์">
+            <button type="button" aria-label="สัปดาห์ก่อนหน้า" onClick={() => setWeekOffset((current) => current - 1)}><ChevronLeft aria-hidden="true" size={18} /></button>
+            <button type="button" onClick={() => setWeekOffset(0)} disabled={weekOffset === 0}>สัปดาห์นี้</button>
+            <button type="button" aria-label="สัปดาห์ถัดไป" onClick={() => setWeekOffset((current) => current + 1)}><ChevronRight aria-hidden="true" size={18} /></button>
+          </div>
+        </div>
         <div className="trainer-week__grid">
           {weekDays.map((day) => {
             const dayItems = weeklySchedule.filter((item) => localDateKey(new Date(item.startsAt)) === localDateKey(day));
@@ -600,45 +771,15 @@ export function TrainerWorkbench({ onIncompleteProfile }: { onIncompleteProfile?
                 </header>
                 <div className="trainer-week__events">
                   {dayItems.map((item) => {
-                    const timeRange = formatTimeRange(item.startsAt, item.endsAt);
-                    const canDeleteSlot = item.slot?.state === "available" && new Date(item.startsAt).getTime() > now.getTime();
                     const booking = item.booking;
                     const validBookingPeriod = !booking || hasValidBookingPeriod(booking);
-                    const canCompleteBooking = Boolean(booking?.actions.canComplete && validBookingPeriod);
-                    const canOpenChat = Boolean(booking?.actions.canReadChat);
-                    const eventClass = `trainer-week-event trainer-week-event--${item.kind} trainer-week-event--${item.state}`;
-                    if (canDeleteSlot && item.slot) {
-                      const slot = item.slot;
-                      return (
-                        <article className={eventClass} key={item.key}>
-                          <time dateTime={item.startsAt}>{timeRange}</time>
-                          <strong>{item.title}</strong>
-                          <button type="button" className="trainer-slot-delete" aria-label={`ลบช่วงว่าง ${timeRange}`} onClick={() => setSlotToDelete(slot)}><Trash2 aria-hidden="true" size={15} /> ลบ</button>
-                        </article>
-                      );
-                    }
-                    if (booking && (canCompleteBooking || canOpenChat)) {
-                      return (
-                        <article className={eventClass} key={item.key}>
-                          <time dateTime={item.startsAt}>{timeRange}</time>
-                          <strong>{item.title}</strong>
-                          {!validBookingPeriod && <span className="trainer-week-event__warning">ข้อมูลเวลาไม่ถูกต้อง</span>}
-                          <span className="trainer-week-event__actions">
-                            {canCompleteBooking && (
-                              <button type="button" onClick={() => setBookingToComplete(booking)}>บันทึกผล</button>
-                            )}
-                            {canOpenChat && (
-                              <Link href={`/chat?booking=${encodeURIComponent(booking.id)}`}>แชต</Link>
-                            )}
-                          </span>
-                        </article>
-                      );
-                    }
                     return (
-                      <article className={eventClass} key={item.key}>
-                        <time dateTime={item.startsAt}>{timeRange}</time>
+                      <article className={`trainer-week-event trainer-week-event--${item.kind} trainer-week-event--${item.state}`} key={item.key}>
+                        <time dateTime={item.startsAt}>{formatTimeRange(item.startsAt, item.endsAt)}</time>
                         <strong>{item.title}</strong>
-                        <span>{item.detail}</span>
+                        {validBookingPeriod
+                          ? <span>{item.detail}</span>
+                          : <span className="trainer-week-event__warning">ข้อมูลเวลาไม่ถูกต้อง</span>}
                       </article>
                     );
                   })}
@@ -651,38 +792,43 @@ export function TrainerWorkbench({ onIncompleteProfile }: { onIncompleteProfile?
         <footer className="trainer-week__legend" aria-label="คำอธิบายสถานะตาราง">
           <span><i className="is-available" aria-hidden="true" /> พร้อมจอง</span>
           <span><i className="is-held" aria-hidden="true" /> ล็อกชั่วคราว · สมาชิกกำลังส่งสลิป 10 นาที</span>
-          <span><i className="is-confirmed" aria-hidden="true" /> นัดยืนยันแล้ว · ฝึกเสร็จหรือแชต</span>
+          <span><i className="is-confirmed" aria-hidden="true" /> นัดยืนยันแล้ว</span>
           <span><i className="is-blocked" aria-hidden="true" /> ปิดช่วงเวลา</span>
         </footer>
-      </section>
 
-      <details
-        className="trainer-disclosure trainer-availability"
-        id="availability"
-        key={nextAction?.href === "/trainer#availability" ? "availability-action" : "availability-idle"}
-        open={nextAction?.href === "/trainer#availability" || undefined}
-      >
-        <summary><span><CalendarPlus aria-hidden="true" size={20} /><strong>จัดการช่วงเวลาว่าง</strong></span><small>{slots.length} ช่วงเวลา</small></summary>
-        <div className="availability-launch">
-          <p id="availability-add-hint">{approved ? "เลือกวันที่สะดวกและเวลาเริ่มต้น ระบบกำหนดเวลาฝึกครั้งละ 1 ชั่วโมง" : "รอผู้ดูแลระบบตรวจใบสมัครก่อนจึงจะเพิ่มช่วงเวลาได้"}</p>
-          <label className="field">กรองวันที่ว่าง<input type="date" value={slotFilterDate} onChange={(event) => { setSlotFilterDate(event.target.value); setSlotPage(0); }} /></label>
-          {slotFilterDate && <Button type="button" variant="outline" onClick={() => { setSlotFilterDate(""); setSlotPage(0); }}>ล้างวันที่</Button>}
-        </div>
-        {availabilityError && !slotDialogOpen && <p className="row-error" role="alert">{availabilityError}</p>}
-        <div className="trainer-slot-list">
-          {filteredSlots.slice(activeSlotPage * 6, (activeSlotPage + 1) * 6).map((slot) => {
-            const canDelete = slot.state === "available" && new Date(slot.startsAt).getTime() > now.getTime();
-            return (
-              <div className="trainer-slot-row" key={slot.id} aria-busy={busy === `slot-${slot.id}`}>
-                <span><strong>{formatDateTime(slot.startsAt)}</strong><small>{slotStateCopy[slot.state]}</small></span>
-                {canDelete && <button type="button" disabled={busy === `slot-${slot.id}`} onClick={() => setSlotToDelete(slot)} aria-label={`ลบช่วงเวลา ${formatDateTime(slot.startsAt)}`}><Trash2 aria-hidden="true" size={16} /> ลบ</button>}
-              </div>
-            );
-          })}
-          {slots.length === 0 && <div className="empty-state"><strong>ยังไม่มีช่วงเวลาว่าง</strong><p>เพิ่มช่วงเวลาแรกเมื่อผู้ดูแลระบบตรวจใบสมัครแล้ว</p></div>}
-          {slots.length > 0 && filteredSlots.length === 0 && <p className="empty-state">ไม่พบช่วงเวลาในวันที่เลือก</p>}
-        </div>
-        {slotPages > 1 && <nav className="trainer-list-pagination" aria-label="หน้ารายการเวลาว่าง"><Button type="button" variant="outline" disabled={activeSlotPage === 0} onClick={() => setSlotPage(activeSlotPage - 1)}>ก่อนหน้า</Button><span aria-live="polite">หน้า {activeSlotPage + 1} / {slotPages}</span><Button type="button" variant="outline" disabled={activeSlotPage + 1 === slotPages} onClick={() => setSlotPage(activeSlotPage + 1)}>ถัดไป</Button></nav>}
+        {/* The slot tools live with the grid they change: the trainer who opens
+            the week to see what is booked is the same trainer who opens it to add
+            or remove a slot. The id keeps /trainer#availability working. */}
+        <section className="trainer-availability" id="availability" aria-labelledby="trainer-availability-title">
+          <header className="section-line-heading">
+            <h3 id="trainer-availability-title">ช่วงเวลาที่เปิดรับจอง</h3>
+            <span>{slots.length} ช่วงเวลา</span>
+          </header>
+          <div className="availability-launch">
+            <p id="availability-add-hint">{approved ? "เลือกวันที่สะดวกและเวลาเริ่มต้น ระบบกำหนดเวลาฝึกครั้งละ 1 ชั่วโมง" : "รอผู้ดูแลระบบตรวจใบสมัครก่อนจึงจะเพิ่มช่วงเวลาได้"}</p>
+            <Button type="button" disabled={!approved} aria-describedby="availability-add-hint" onClick={(event) => { dialogTriggerRef.current = event.currentTarget; openSlotDialog(); }}><CalendarPlus aria-hidden="true" size={18} /> เพิ่มช่วงเวลาว่าง</Button>
+            <label className="field">กรองวันที่ว่าง<input type="date" lang="th-TH" value={slotFilterDate} onChange={(event) => { setSlotFilterDate(event.target.value); setSlotPage(0); }} /></label>
+            {/* A native date field shows the browser's own format, so the chosen
+                day is repeated in Buddhist-era Thai where the reader can check it. */}
+            {slotFilterDate && <small className="availability-day-slots">วันที่เลือก {formatShortDay(slotFilterDate)}</small>}
+            {slotFilterDate && <Button type="button" variant="outline" onClick={() => { setSlotFilterDate(""); setSlotPage(0); }}>ล้างวันที่</Button>}
+          </div>
+          {availabilityError && !slotDialogOpen && <p className="row-error" role="alert">{availabilityError}</p>}
+          <div className="trainer-slot-list">
+            {filteredSlots.slice(activeSlotPage * 6, (activeSlotPage + 1) * 6).map((slot) => {
+              const canDelete = slot.state === "available" && new Date(slot.startsAt).getTime() > now.getTime();
+              return (
+                <div className="trainer-slot-row" key={slot.id} aria-busy={busy === `slot-${slot.id}`}>
+                  <span><strong>{formatDateTime(slot.startsAt)}</strong><small>{slotStateCopy[slot.state]}</small></span>
+                  {canDelete && <button type="button" disabled={busy === `slot-${slot.id}`} onClick={(event) => { dialogTriggerRef.current = event.currentTarget; setSlotToDelete(slot); }} aria-label={`ลบช่วงเวลา ${formatDateTime(slot.startsAt)}`}><Trash2 aria-hidden="true" size={16} /> ลบ</button>}
+                </div>
+              );
+            })}
+            {slots.length === 0 && <div className="empty-state"><strong>ยังไม่มีช่วงเวลาว่าง</strong><p>เพิ่มช่วงเวลาแรกเมื่อผู้ดูแลระบบตรวจใบสมัครแล้ว</p></div>}
+            {slots.length > 0 && filteredSlots.length === 0 && <div className="empty-state"><strong>ไม่พบช่วงเวลาในวันที่เลือก</strong><p>ล้างวันที่เพื่อดูช่วงเวลาทั้งหมด</p></div>}
+          </div>
+          {slotPages > 1 && <nav className="trainer-list-pagination" aria-label="หน้ารายการเวลาว่าง"><Button type="button" variant="outline" disabled={activeSlotPage === 0} onClick={() => setSlotPage(activeSlotPage - 1)}>ก่อนหน้า</Button><span aria-live="polite">หน้า {activeSlotPage + 1} / {slotPages}</span><Button type="button" variant="outline" disabled={activeSlotPage + 1 === slotPages} onClick={() => setSlotPage(activeSlotPage + 1)}>ถัดไป</Button></nav>}
+        </section>
       </details>
 
       <Dialog open={slotDialogOpen} onOpenChange={(open) => {
@@ -693,7 +839,10 @@ export function TrainerWorkbench({ onIncompleteProfile }: { onIncompleteProfile?
           setFieldErrors({});
         }
       }}>
-        <DialogContent className="slot-calendar-dialog availability-calendar-dialog">
+        <DialogContent
+          className="slot-calendar-dialog availability-calendar-dialog"
+          onCloseAutoFocus={(event) => { event.preventDefault(); dialogTriggerRef.current?.focus(); }}
+        >
           <DialogHeader className="slot-calendar-dialog__header">
             <DialogTitle>เพิ่มช่วงเวลาว่าง</DialogTitle>
             <DialogDescription>เลือกวันและเวลาเริ่มต้น ระบบจะกำหนดเวลาสิ้นสุดให้อัตโนมัติอีก 1 ชั่วโมง</DialogDescription>
@@ -795,39 +944,45 @@ export function TrainerWorkbench({ onIncompleteProfile }: { onIncompleteProfile?
         </DialogContent>
       </Dialog>
 
-      <section className="trainer-booking-list" aria-labelledby="trainer-confirmed-title">
-        <header className="section-line-heading trainer-booking-list__heading">
-          <div><h2 id="trainer-confirmed-title">{showAllBookings ? "นัดหมายทั้งหมดที่ยังไม่ปิดงาน" : "นัดถัดไปของสมาชิก"}</h2><p>{showAllBookings ? "ค้นหานัดหมายหรือเปิดรายละเอียดเพื่อบันทึกผล" : "2 รายการใกล้ที่สุด · เปิดรายละเอียดเพื่อเตรียมตัว"}</p></div>
-          <span className="queue-count">{bookingsReady ? String(showAllBookings ? filteredBookings.length : upcomingBookings.length) : "—"}</span>
-        </header>
-        {showAllBookings && <div className="trainer-list-filters">
-          <label className="field">ค้นหานัดหมาย<input type="search" placeholder="ชื่อสมาชิกหรือรหัสการจอง" value={bookingQuery} onChange={(event) => { setBookingQuery(event.target.value); setBookingPage(0); }} /></label>
-          <label className="field">วันที่ฝึก<input type="date" value={bookingDate} onChange={(event) => { setBookingDate(event.target.value); setBookingPage(0); }} /></label>
-          {(bookingQuery || bookingDate) && <Button type="button" variant="outline" onClick={() => { setBookingQuery(""); setBookingDate(""); setBookingPage(0); }}>ล้างตัวกรอง</Button>}
-        </div>}
-        <div className="trainer-booking-preview">
-          {completionError && (
-            <div ref={completionErrorRef} className="workbench-error" role="alert" tabIndex={-1}>
-              <span>{completionError}</span>
-              <button type="button" disabled={busy === "bookings-refresh"} onClick={() => void retryBookingRefresh()}>
-                <RefreshCw aria-hidden="true" size={15} /> {busy === "bookings-refresh" ? "กำลังโหลด…" : "ลองโหลดใหม่"}
-              </button>
-            </div>
-          )}
-          {visibleConfirmedBookings.map(renderBookingRow)}
-          {bookingsReady && confirmedBookings.length === 0 && <div className="empty-state"><strong>ยังไม่มีนัดที่ยืนยันแล้ว</strong><p>เมื่อนัดได้รับการยืนยัน รายละเอียดสมาชิกจะมาอยู่ตรงนี้</p></div>}
-          {bookingsReady && confirmedBookings.length > 0 && visibleConfirmedBookings.length === 0 && <div className="empty-state"><strong>{showAllBookings ? "ไม่พบนัดหมายที่ตรงกับตัวกรอง" : "ยังไม่มีนัดที่กำลังจะถึง"}</strong><p>{showAllBookings ? "ลองเปลี่ยนชื่อหรือวันที่ค้นหา" : "นัดเก่าอยู่ในงานที่ยังต้องจัดการ"}</p></div>}
+      {/* The trainer's own slip queue sits at the end of the workspace as a
+          disclosure, and only exists when a slip is actually waiting: freelance
+          trainers are the reviewers of their own slips, and an empty desk is
+          noise the next-action card already accounts for. */}
+      {(pendingSlips !== null && pendingSlips > 0) || nextAction?.href === "/trainer#payment-review" ? (
+        <TrainerPaymentReview
+          pendingSlips={pendingSlips}
+          open={nextAction?.href === "/trainer#payment-review"}
+          onQueueLoaded={(queue) => setPendingSlips(queue.payments.length)}
+        />
+      ) : null}
+
+      </div>
+
+      {approved && (
+        <div id="trainer-finance-panel" role="tabpanel" aria-labelledby="trainer-finance-tab" hidden={activeTab !== "finance"}>
+          <section className="trainer-finance" aria-labelledby="trainer-finance-title">
+            <header className="section-line-heading">
+              <div>
+                <h2 id="trainer-finance-title">สรุปการเงิน</h2>
+              </div>
+              <span className="queue-count">{bookingsReady ? `รับแล้ว ${formatMoney(approvedEarned)}` : "—"}</span>
+            </header>
+            <dl className="profile-ledger">
+              <div><dt>ยอดที่ตรวจหลักฐานแล้ว</dt><dd>{bookingsReady ? `${formatMoney(approvedEarned)} · ${approvedCompletedCount} การจอง` : "—"}</dd></div>
+              <div><dt>ยอดที่รอตรวจหลักฐาน</dt><dd>{bookingsReady ? formatMoney(reviewEarned) : "—"}</dd></div>
+              <div><dt>มูลค่านัดที่ยืนยันแล้วแต่ยังไม่บันทึกผล</dt><dd>{bookingsReady ? `${formatMoney(upcomingEarned)} · ${confirmedBookings.length} การจอง` : "—"}</dd></div>
+              <div><dt>ช่วงเวลาที่เปิดรับจอง</dt><dd>{slots.filter((slot) => slot.state === "available").length} จาก {slots.length} ช่วงเวลา</dd></div>
+            </dl>
+            <p className="profile-group__hint">ตัวเลขคิดจากค่าฝึกที่บันทึกไว้ในแต่ละการจอง และนับเป็นรายได้เฉพาะการจองที่หลักฐานการชำระเงินผ่านการตรวจแล้ว</p>
+          </section>
         </div>
-        {showAllBookings && bookingPages > 1 && <nav className="trainer-list-pagination" aria-label="หน้ารายการนัดหมาย"><Button type="button" variant="outline" disabled={activeBookingPage === 0} onClick={() => setBookingPage(activeBookingPage - 1)}>ก่อนหน้า</Button><span aria-live="polite">หน้า {activeBookingPage + 1} / {bookingPages}</span><Button type="button" variant="outline" disabled={activeBookingPage + 1 === bookingPages} onClick={() => setBookingPage(activeBookingPage + 1)}>ถัดไป</Button></nav>}
-        {confirmedBookings.length > 0 && (
-          <Button className="trainer-booking-toggle" type="button" variant="outline" aria-expanded={showAllBookings} onClick={() => setShowAllBookings((current) => !current)}>
-            {showAllBookings ? "ย่อนัดหมาย" : "ดูนัดหมายทั้งหมด"}
-          </Button>
-        )}
-      </section>
+      )}
 
       <Dialog open={selectedBooking !== null} onOpenChange={(open) => { if (!open) setSelectedBooking(null); }}>
-        <DialogContent className="trainer-appointment-dialog">
+        <DialogContent
+          className="trainer-appointment-dialog"
+          onCloseAutoFocus={(event) => { event.preventDefault(); dialogTriggerRef.current?.focus(); }}
+        >
           <DialogHeader><DialogTitle>รายละเอียดนัดหมาย</DialogTitle><DialogDescription>ข้อมูลสมาชิกและการฝึกในรายการจองนี้</DialogDescription></DialogHeader>
           {selectedBooking && renderConfirmedBooking(bookings.find((booking) => booking.id === selectedBooking.id) ?? selectedBooking)}
         </DialogContent>
@@ -837,7 +992,7 @@ export function TrainerWorkbench({ onIncompleteProfile }: { onIncompleteProfile?
         if (busy?.startsWith("slot-")) return;
         if (!open) setSlotToDelete(null);
       }}>
-        <DialogContent>
+        <DialogContent onCloseAutoFocus={(event) => { event.preventDefault(); dialogTriggerRef.current?.focus(); }}>
           <DialogHeader>
             <DialogTitle>ลบช่วงเวลานี้?</DialogTitle>
             <DialogDescription className="grid gap-1">
@@ -867,9 +1022,9 @@ export function TrainerWorkbench({ onIncompleteProfile }: { onIncompleteProfile?
         if (busy?.startsWith("booking-")) return;
         if (!open) setBookingToComplete(null);
       }}>
-        <DialogContent>
+        <DialogContent onCloseAutoFocus={(event) => { event.preventDefault(); dialogTriggerRef.current?.focus(); }}>
           <DialogHeader>
-            <DialogTitle>บันทึกว่าฝึกเสร็จ?</DialogTitle>
+            <DialogTitle>บันทึกผลการฝึก?</DialogTitle>
             <DialogDescription className="grid gap-1">
               <span>{bookingToComplete?.member?.displayName ?? "สมาชิก FitConnect"}</span>
               <span>{bookingToComplete ? `${formatDateTime(bookingToComplete.startsAt)} – ${formatDateTime(bookingToComplete.endsAt)}` : ""}</span>

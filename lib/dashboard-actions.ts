@@ -33,7 +33,7 @@ export function getMemberNextAction(bookings: Booking[]): DashboardAction {
   return { title: "เริ่มค้นหาเทรนเนอร์", description: "เปรียบเทียบคุณสมบัติและตารางว่าง", href: "/trainers", cta: "ค้นหาเทรนเนอร์", state: "complete" };
 }
 
-export function getTrainerNextAction(workspace: TrainerWorkspace | null, bookings: Booking[]): DashboardAction {
+export function getTrainerNextAction(workspace: TrainerWorkspace | null, bookings: Booking[], pendingSlips = 0): DashboardAction {
   if (!workspace?.profile) {
     return { title: "กรอกข้อมูลวิชาชีพให้ครบ", description: "บัญชีพร้อมแล้ว เหลือข้อมูลการให้บริการและใบรับรอง", href: "/trainer/apply", cta: "กรอกข้อมูลวิชาชีพ", state: "action" };
   }
@@ -58,6 +58,19 @@ export function getTrainerNextAction(workspace: TrainerWorkspace | null, booking
     };
   }
 
+  // A freelance trainer is the reviewer of their own slips, and the member's
+  // payment clock is running, so this outranks recording a session that is
+  // already over.
+  if (pendingSlips > 0) {
+    return {
+      title: "ตรวจสลิปที่รออยู่",
+      description: `${pendingSlips} สลิปจากสมาชิกที่รอผลตรวจ`,
+      href: "/trainer#payment-review",
+      cta: "เปิดคิวตรวจสลิป",
+      state: "action",
+    };
+  }
+
   const completable = bookings.find((booking) => booking.status === "confirmed" && booking.actions.canComplete && hasValidBookingPeriod(booking));
   if (completable) {
     const memberName = completable.member?.displayName ?? "สมาชิก FitConnect";
@@ -65,12 +78,15 @@ export function getTrainerNextAction(workspace: TrainerWorkspace | null, booking
       title: "บันทึกผลการฝึก",
       description: `${memberName} · คำขอ ${completable.id}`,
       href: `/trainer#booking-${completable.id}`,
-      cta: "บันทึกว่าฝึกเสร็จ",
+      cta: "บันทึกผลการฝึก",
       state: "action",
     };
   }
 
-  if (workspace.slots.length === 0) {
+  // What matters is whether anything is still sellable, not how many rows the
+  // availability table holds: a trainer whose slots are all booked has nothing
+  // a member can choose.
+  if (!workspace.slots.some((slot) => slot.state === "available")) {
     return { title: "เพิ่มช่วงเวลาว่าง", description: "กำหนดตารางเพื่อให้สมาชิกจองได้", href: "/trainer#availability", cta: "เพิ่มช่วงเวลาว่าง", state: "action" };
   }
 

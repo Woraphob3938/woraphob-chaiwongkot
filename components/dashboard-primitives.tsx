@@ -2,7 +2,7 @@ import Link from "next/link";
 import { useId, type ReactNode } from "react";
 import type { DashboardAction } from "@/lib/dashboard-actions";
 
-export function NextActionCard({ action }: { action: DashboardAction }) {
+export function NextActionCard({ action, onFollow }: { action: DashboardAction; onFollow?: () => void }) {
   const titleId = useId();
 
   return (
@@ -11,7 +11,11 @@ export function NextActionCard({ action }: { action: DashboardAction }) {
         <h2 id={titleId}>{action.title}</h2>
         <p className="next-action-card__description">{action.description}</p>
       </div>
-      <Link className="button button--accent" href={action.href}>{action.cta}</Link>
+      {/* `onFollow` lets the surface finish the promise the card makes — moving
+          focus onto the record it just named. Next's client-side navigation
+          pushes history state instead of changing the hash, so a `hashchange`
+          listener alone never hears about this click. */}
+      <Link className="button button--accent" href={action.href} onClick={onFollow}>{action.cta}</Link>
     </section>
   );
 }

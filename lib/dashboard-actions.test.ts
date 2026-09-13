@@ -120,6 +120,24 @@ describe("getTrainerNextAction", () => {
     expect(getTrainerNextAction({ ...workspace, slots: [] }, [])).toMatchObject({ href: "/trainer#availability", state: "action" });
   });
 
+  it("prompts for availability when every slot is already taken", () => {
+    expect(getTrainerNextAction({
+      ...workspace,
+      slots: [{ ...workspace.slots[0], state: "booked" }, { ...workspace.slots[0], id: 2, state: "held" }],
+    }, [])).toMatchObject({ href: "/trainer#availability", state: "action" });
+  });
+
+  it("surfaces slips that are waiting for the trainer's own review", () => {
+    expect(getTrainerNextAction(workspace, [], 2)).toMatchObject({
+      title: "ตรวจสลิปที่รออยู่",
+      description: "2 สลิปจากสมาชิกที่รอผลตรวจ",
+      href: "/trainer#payment-review",
+      cta: "เปิดคิวตรวจสลิป",
+      state: "action",
+    });
+    expect(getTrainerNextAction(workspace, [], 0).href).not.toBe("/trainer#payment-review");
+  });
+
   it("otherwise leads to the current schedule", () => {
     expect(getTrainerNextAction(workspace, [])).toMatchObject({ href: "/trainer#schedule" });
   });
@@ -149,7 +167,7 @@ describe("getTrainerNextAction", () => {
       actions: { ...booking.actions, canComplete: true },
     }])).toMatchObject({
       href: "/trainer#booking-BK-DONE",
-      cta: "บันทึกว่าฝึกเสร็จ",
+      cta: "บันทึกผลการฝึก",
       state: "action",
     });
   });

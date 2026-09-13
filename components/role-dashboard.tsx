@@ -14,7 +14,6 @@ import {
   Search,
 } from "lucide-react";
 import { AdminOperations } from "@/components/admin-operations";
-import { TrainerPaymentReview } from "@/components/admin-review-queue";
 import { DashboardSection, NextActionCard } from "@/components/dashboard-primitives";
 import { DisclosureSection } from "@/components/disclosure-section";
 import {
@@ -454,7 +453,7 @@ export function RoleDashboard({
         </div>
       )}
 
-      {role === "trainer" && <><TrainerPaymentReview /><TrainerWorkbench onIncompleteProfile={() => goTo("/trainer/apply")} /></>}
+      {role === "trainer" && <TrainerWorkbench onIncompleteProfile={() => goTo("/trainer/apply")} />}
 
       {role === "admin" && <AdminOperations />}
     </main>

@@ -59,6 +59,13 @@ function bookingFixture(overrides: Partial<Booking> = {}): Booking {
   };
 }
 
+/** The schedule lives in a <details>; its name comes from the summary text. */
+const scheduleDisclosure = () => {
+  const disclosure = document.querySelector("details.trainer-week");
+  if (!disclosure) throw new Error("schedule disclosure is missing");
+  return disclosure as HTMLElement;
+};
+
 describe("TrainerWorkbench", () => {
   beforeEach(() => {
     vi.restoreAllMocks();
@@ -87,10 +94,10 @@ describe("TrainerWorkbench", () => {
     render(<TrainerWorkbench />);
 
     const actionTitle = await screen.findByRole("heading", { name: "พร้อมดูแลสมาชิกแล้ว" });
-    const weekHeading = screen.getByRole("heading", { name: "ตารางรายสัปดาห์" });
+    const appointments = screen.getByRole("region", { name: "นัดของสมาชิก" });
     expect(screen.getByRole("link", { name: "ดูตารางงาน" })).toHaveAttribute("href", "/trainer#schedule");
     expect(screen.queryByText("สถานที่")).not.toBeInTheDocument();
-    expect(actionTitle.compareDocumentPosition(weekHeading) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    expect(actionTitle.compareDocumentPosition(appointments) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
   });
 
   it("shows availability and confirmed appointments in a seven-day weekly workspace", async () => {
@@ -123,16 +130,33 @@ describe("TrainerWorkbench", () => {
 
     render(<TrainerWorkbench />);
 
-    const weeklySchedule = await screen.findByRole("region", { name: "ตารางรายสัปดาห์" });
+    // Week navigation belongs to the calendar, not the unfiltered appointment list.
+    expect(await screen.findByRole("heading", { name: "นัดของสมาชิก" })).toBeInTheDocument();
+    expect(screen.getByText(/นัด · \d+ ช่วงเวลา$/)).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "สัปดาห์ก่อนหน้า" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "สัปดาห์ถัดไป" })).toBeInTheDocument();
+
+    const weeklySchedule = scheduleDisclosure();
+    expect(within(weeklySchedule).getByRole("button", { name: "สัปดาห์ก่อนหน้า" })).toBeInTheDocument();
+    expect(within(screen.getByRole("region", { name: "นัดของสมาชิก" })).queryByRole("button", { name: "สัปดาห์ก่อนหน้า" })).not.toBeInTheDocument();
     expect(within(weeklySchedule).getAllByRole("group")).toHaveLength(7);
     expect(within(weeklySchedule).getAllByText("พร้อมจอง")).not.toHaveLength(0);
     expect(within(weeklySchedule).getAllByText("ล็อกชั่วคราว")).not.toHaveLength(0);
     expect(within(weeklySchedule).getByText("สมาชิกทดสอบ")).toBeInTheDocument();
-    expect(within(weeklySchedule).getByText("นัดยืนยันแล้ว")).toBeInTheDocument();
-    expect(within(weeklySchedule).getByRole("button", { name: /ลบช่วงว่าง/ })).toBeInTheDocument();
-    expect(within(weeklySchedule).getByRole("button", { name: "สัปดาห์ก่อนหน้า" })).toBeInTheDocument();
-    expect(within(weeklySchedule).getByRole("button", { name: "สัปดาห์ถัดไป" })).toBeInTheDocument();
+    expect(within(weeklySchedule).getAllByText("นัดยืนยันแล้ว").length).toBeGreaterThan(0);
+    // Read-only: managing a slot happens in "จัดการช่วงเวลาว่าง", not in the map.
+    expect(within(weeklySchedule).queryByRole("button", { name: /ลบช่วงว่าง/ })).not.toBeInTheDocument();
+    expect(within(weeklySchedule).queryByRole("button", { name: "บันทึกผลการฝึก" })).not.toBeInTheDocument();
+  });
 
+  it("opens the availability popup directly from the workspace toolbar", async () => {
+    vi.mocked(authenticatedRequest)
+      .mockResolvedValueOnce(approvedWorkspace)
+      .mockResolvedValueOnce([]);
+    render(<TrainerWorkbench />);
+
+    fireEvent.click(await screen.findByRole("button", { name: "เปิดเวลารับจอง" }));
+    expect(screen.getByRole("dialog", { name: "เพิ่มช่วงเวลาว่าง" })).toBeInTheDocument();
   });
 
   it("uses a distinct success color for confirmed appointments", () => {
@@ -150,7 +174,7 @@ describe("TrainerWorkbench", () => {
     expect(styles).toMatch(/\.trainer-appointment-dialog \.trainer-booking-card \.queue-actions\s*\{[\s\S]*?grid-column:\s*1\s*\/\s*-1;[\s\S]*?grid-row:\s*auto;/);
   });
 
-  it("shows only the next two appointments beside the urgent action until expanded", async () => {
+  it("keeps the actionable appointment first and filters the one list", async () => {
     const future = (day: number, hour: number) => {
       const date = new Date();
       date.setDate(date.getDate() + day);
@@ -165,21 +189,147 @@ describe("TrainerWorkbench", () => {
     ];
     vi.mocked(authenticatedRequest)
       .mockResolvedValueOnce(approvedWorkspace)
-      .mockResolvedValueOnce(bookings);
+      .mockResolvedValueOnce(bookings)
+      .mockResolvedValueOnce({ trainers: [], payments: [] });
 
     const { container } = render(<TrainerWorkbench />);
 
-    expect(await screen.findByRole("heading", { name: "บันทึกผลการฝึก" })).toBeInTheDocument();
-    expect(Array.from(container.querySelectorAll(".trainer-booking-preview .trainer-appointment-row")).map((card) => card.id)).toEqual([
+    expect(await screen.findByRole("heading", { name: "นัดของสมาชิก" })).toBeInTheDocument();
+    // One list now owns every appointment: the record owing a result first,
+    // then the upcoming ones in date order.
+    expect(Array.from(container.querySelectorAll("#appointments .trainer-appointment-row")).map((row) => row.id)).toEqual([
+      "booking-BK-URGENT",
       "booking-BK-NEXT-1",
       "booking-BK-NEXT-2",
+      "booking-BK-LATER",
     ]);
-    fireEvent.click(screen.getByRole("button", { name: "ดูนัดหมายทั้งหมด" }));
-    expect(container.querySelectorAll(".trainer-booking-preview .trainer-appointment-row")).toHaveLength(4);
+    expect(screen.getByText("4 รายการ")).toBeInTheDocument();
+
     fireEvent.change(screen.getByLabelText("ค้นหานัดหมาย"), { target: { value: "BK-LATER" } });
-    expect(container.querySelectorAll(".trainer-booking-preview .trainer-appointment-row")).toHaveLength(1);
-    fireEvent.click(screen.getByRole("button", { name: "ดูรายละเอียด" }));
+    expect(container.querySelectorAll("#appointments .trainer-appointment-row")).toHaveLength(1);
+
+    fireEvent.click(screen.getAllByRole("button", { name: "ดูรายละเอียด" })[0]);
     expect(screen.getByRole("dialog", { name: "รายละเอียดนัดหมาย" })).toBeInTheDocument();
+  });
+
+  it("leads with the slip queue when a slip waits for the trainer's own review", async () => {
+    vi.mocked(authenticatedRequest)
+      .mockResolvedValueOnce(approvedWorkspace)
+      .mockResolvedValueOnce([])
+      .mockResolvedValueOnce({ trainers: [], payments: [{ id: 9, bookingId: "BK-SLIP" }] });
+
+    render(<TrainerWorkbench />);
+
+    expect(await screen.findByRole("heading", { name: "ตรวจสลิปที่รออยู่" })).toBeInTheDocument();
+    expect(screen.getByRole("link", { name: "เปิดคิวตรวจสลิป" })).toHaveAttribute("href", "/trainer#payment-review");
+    const deskSummary = screen.getByText("ตรวจสลิปการจองฟรีแลนซ์ของฉัน").closest("summary");
+    if (!deskSummary) throw new Error("slip disclosure is missing");
+    expect(within(deskSummary).getByText("1 สลิป")).toBeInTheDocument();
+  });
+
+  it("shows one page of appointments and appends the next page on request", async () => {
+    const finishedSession = (daysAgo: number) => {
+      const start = new Date();
+      start.setDate(start.getDate() - daysAgo);
+      start.setHours(9, 0, 0, 0);
+      return { startsAt: start.toISOString(), endsAt: new Date(start.getTime() + 3_600_000).toISOString() };
+    };
+    const pending = [1, 2, 3, 4, 5, 6, 7, 8].map((day) => bookingFixture({ id: `BK-P${day}`, status: "confirmed", ...finishedSession(day) }));
+    vi.mocked(authenticatedRequest)
+      .mockResolvedValueOnce({ ...approvedWorkspace, slots: [] })
+      .mockResolvedValueOnce(pending)
+      .mockResolvedValueOnce({ trainers: [], payments: [] });
+
+    render(<TrainerWorkbench />);
+
+    const section = await screen.findByRole("region", { name: "นัดของสมาชิก" });
+    expect(within(section).getByText("8 รายการ")).toBeInTheDocument();
+    expect(section.querySelectorAll(".trainer-appointment-row")).toHaveLength(4);
+
+    // The escape hatch appends the next page instead of spending 1349px inline.
+    fireEvent.click(within(section).getByRole("button", { name: /แสดงอีก 4 รายการ/ }));
+    expect(section.querySelectorAll(".trainer-appointment-row")).toHaveLength(8);
+    expect(within(section).getByRole("button", { name: "ย่อนัดหมาย" })).toBeInTheDocument();
+  });
+
+  it("moves focus to the record the next-action card names", async () => {
+    const booking = bookingFixture({
+      id: "BK-TARGET",
+      status: "confirmed",
+      actions: { ...bookingFixture().actions, canComplete: true },
+    });
+    vi.mocked(authenticatedRequest)
+      .mockResolvedValueOnce(approvedWorkspace)
+      .mockResolvedValueOnce([booking])
+      .mockResolvedValueOnce({ trainers: [], payments: [] });
+
+    window.location.hash = "#booking-BK-TARGET";
+    render(<TrainerWorkbench />);
+
+    const row = (await screen.findByText("BK-TARGET")).closest("article");
+    if (!row) throw new Error("appointment row is missing");
+    await waitFor(() => expect(within(row).getByRole("button", { name: "บันทึกผลการฝึก BK-TARGET" })).toHaveFocus());
+    window.location.hash = "";
+  });
+
+  it("hands focus to the record's own button when the card is followed", async () => {
+    const booking = bookingFixture({
+      id: "BK-FOLLOW",
+      status: "confirmed",
+      actions: { ...bookingFixture().actions, canComplete: true },
+    });
+    vi.mocked(authenticatedRequest)
+      .mockResolvedValueOnce(approvedWorkspace)
+      .mockResolvedValueOnce([booking])
+      .mockResolvedValueOnce({ trainers: [], payments: [] });
+
+    render(<TrainerWorkbench />);
+    fireEvent.click(await screen.findByRole("link", { name: "บันทึกผลการฝึก" }));
+
+    await waitFor(() => expect(screen.getByRole("button", { name: "บันทึกผลการฝึก BK-FOLLOW" })).toHaveFocus());
+  });
+
+  it("keeps the money on its own tab", async () => {
+    vi.mocked(authenticatedRequest)
+      .mockResolvedValueOnce(approvedWorkspace)
+      .mockResolvedValueOnce([])
+      .mockResolvedValueOnce({ trainers: [], payments: [] });
+
+    render(<TrainerWorkbench />);
+
+    const workTab = await screen.findByRole("tab", { name: /งานและตาราง/ });
+    const financeTab = screen.getByRole("tab", { name: /สรุปการเงิน/ });
+    expect(workTab).toHaveAttribute("aria-selected", "true");
+    expect(document.getElementById("trainer-finance-panel")).toHaveAttribute("hidden");
+    expect(document.getElementById("trainer-work-panel")).not.toHaveAttribute("hidden");
+
+    fireEvent.click(financeTab);
+    expect(financeTab).toHaveAttribute("aria-selected", "true");
+    expect(document.getElementById("trainer-finance-panel")).not.toHaveAttribute("hidden");
+    expect(document.getElementById("trainer-work-panel")).toHaveAttribute("hidden");
+
+    // Arrow keys move between the two tabs, as on the profile page.
+    fireEvent.keyDown(financeTab, { key: "ArrowLeft" });
+    expect(workTab).toHaveAttribute("aria-selected", "true");
+  });
+
+  it("offers the completion action on the appointment row itself", async () => {
+    const booking = bookingFixture({
+      id: "BK-ROW",
+      status: "confirmed",
+      actions: { ...bookingFixture().actions, canComplete: true },
+    });
+    vi.mocked(authenticatedRequest)
+      .mockResolvedValueOnce(approvedWorkspace)
+      .mockResolvedValueOnce([booking])
+      .mockResolvedValueOnce({ trainers: [], payments: [] });
+
+    render(<TrainerWorkbench />);
+
+    const row = (await screen.findByText("BK-ROW")).closest("article");
+    if (!row) throw new Error("appointment row is missing");
+    fireEvent.click(within(row).getByRole("button", { name: "บันทึกผลการฝึก BK-ROW" }));
+    expect(screen.getByRole("dialog", { name: "บันทึกผลการฝึก?" })).toBeInTheDocument();
   });
 
   it("labels booked and blocked schedule slots by their real state", async () => {
@@ -200,9 +350,15 @@ describe("TrainerWorkbench", () => {
 
     render(<TrainerWorkbench />);
 
-    const schedule = await screen.findByRole("region", { name: "ตารางรายสัปดาห์" });
-    expect(within(schedule).getByText("ถูกจองแล้ว")).toBeInTheDocument();
-    expect(within(schedule).getAllByText("ปิดช่วงเวลา")).not.toHaveLength(0);
+    // The seven-column grid is a read-only map inside its own disclosure; its
+    // accessible name comes from the summary, which dom-accessibility-api does
+    // not surface as the group's name, so locate it through the disclosure class.
+    await screen.findByRole("heading", { name: "นัดของสมาชิก" });
+    const weeklySchedule = scheduleDisclosure();
+    // A booked slot with no matching appointment row in the list still draws its
+    // own state; the legend no longer needs a swatch for it.
+    expect(within(weeklySchedule).getByText("ถูกจองแล้ว")).toBeInTheDocument();
+    expect(within(weeklySchedule).getAllByText("ปิดช่วงเวลา")).not.toHaveLength(0);
   });
 
   it("blocks completion when an appointment ends before it starts", async () => {
@@ -220,7 +376,7 @@ describe("TrainerWorkbench", () => {
 
     fireEvent.click(await screen.findByRole("button", { name: "ดูรายละเอียด" }));
     expect(screen.getAllByText("ข้อมูลเวลาไม่ถูกต้อง").length).toBeGreaterThan(0);
-    expect(screen.queryByRole("button", { name: /บันทึกว่าฝึกเสร็จ BK-BAD-TIME/ })).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: /บันทึกผลการฝึก BK-BAD-TIME/ })).not.toBeInTheDocument();
   });
 
   it("adds a one-hour availability slot from the calendar dialog", async () => {
@@ -234,9 +390,11 @@ describe("TrainerWorkbench", () => {
     });
 
     render(<TrainerWorkbench />);
-    const availabilitySummary = (await screen.findByText("จัดการช่วงเวลาว่าง")).closest("summary");
-    if (!availabilitySummary) throw new Error("availability disclosure is missing");
-    fireEvent.click(availabilitySummary);
+    // The slot tools live inside the week disclosure now.
+    await screen.findByRole("heading", { name: "นัดของสมาชิก" });
+    const scheduleSummary = scheduleDisclosure().querySelector("summary");
+    if (!scheduleSummary) throw new Error("schedule disclosure is missing");
+    fireEvent.click(scheduleSummary);
     fireEvent.click(screen.getByRole("button", { name: "เพิ่มช่วงเวลาว่าง" }));
 
     const dialog = screen.getByRole("dialog", { name: "เพิ่มช่วงเวลาว่าง" });
@@ -287,7 +445,8 @@ describe("TrainerWorkbench", () => {
 
     render(<TrainerWorkbench />);
 
-    const weeklySchedule = await screen.findByRole("region", { name: "ตารางรายสัปดาห์" });
+    await screen.findByRole("heading", { name: "นัดของสมาชิก" });
+    const weeklySchedule = scheduleDisclosure();
     expect(within(weeklySchedule).getAllByText("สมาชิกทดสอบ")).toHaveLength(2);
   });
 
@@ -389,6 +548,7 @@ describe("TrainerWorkbench", () => {
     vi.mocked(authenticatedRequest)
       .mockRejectedValueOnce(new Error("โหลดสถานะเทรนเนอร์ไม่ได้"))
       .mockResolvedValueOnce([bookingFixture()])
+      .mockResolvedValueOnce({ trainers: [], payments: [] })
       .mockResolvedValueOnce(approvedWorkspace);
 
     render(<TrainerWorkbench />);
@@ -409,6 +569,7 @@ describe("TrainerWorkbench", () => {
     vi.mocked(authenticatedRequest)
       .mockResolvedValueOnce(approvedWorkspace)
       .mockRejectedValueOnce(new Error("โหลดคำขอจองไม่ได้"))
+      .mockResolvedValueOnce({ trainers: [], payments: [] })
       .mockResolvedValueOnce([bookingFixture()]);
 
     render(<TrainerWorkbench />);
@@ -460,12 +621,13 @@ describe("TrainerWorkbench", () => {
     vi.mocked(authenticatedRequest)
       .mockResolvedValueOnce(approvedWorkspace)
       .mockResolvedValueOnce([booking])
+      .mockResolvedValueOnce({ trainers: [], payments: [] })
       .mockResolvedValueOnce({ id: "BK-DONE", status: "completed" })
       .mockResolvedValueOnce([]);
 
     render(<TrainerWorkbench />);
     fireEvent.click(await screen.findByRole("button", { name: "ดูรายละเอียด" }));
-    fireEvent.click(await screen.findByRole("button", { name: "บันทึกว่าฝึกเสร็จ BK-DONE" }));
+    fireEvent.click(await screen.findByRole("button", { name: "บันทึกผลการฝึก BK-DONE" }));
     fireEvent.click(screen.getByRole("button", { name: "บันทึกผลการฝึก" }));
 
     await waitFor(() => expect(authenticatedRequest).toHaveBeenCalledWith(
@@ -486,7 +648,7 @@ describe("TrainerWorkbench", () => {
 
     fireEvent.click(await screen.findByRole("button", { name: "ดูรายละเอียด" }));
     expect(await screen.findByRole("button", { name: "รอสิ้นสุดการฝึก BK-WAIT" })).toBeDisabled();
-    expect(screen.queryByRole("button", { name: "บันทึกว่าฝึกเสร็จ BK-WAIT" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "บันทึกผลการฝึก BK-WAIT" })).not.toBeInTheDocument();
     expect(screen.getByText("บันทึกผลได้หลัง จันทร์ 10 ส.ค. 2569 · 10:00 น.")).toBeInTheDocument();
   });
 
@@ -501,21 +663,24 @@ describe("TrainerWorkbench", () => {
     vi.mocked(authenticatedRequest)
       .mockResolvedValueOnce(approvedWorkspace)
       .mockResolvedValueOnce([booking])
+      .mockResolvedValueOnce({ trainers: [], payments: [] })
       .mockResolvedValueOnce({ id: "BK-REFRESH", status: "completed" })
       .mockRejectedValueOnce(new Error("โหลดรายการนัดล่าสุดไม่ได้"));
 
     render(<TrainerWorkbench />);
     fireEvent.click(await screen.findByRole("button", { name: "ดูรายละเอียด" }));
-    fireEvent.click(await screen.findByRole("button", { name: "บันทึกว่าฝึกเสร็จ BK-REFRESH" }));
+    fireEvent.click(await screen.findByRole("button", { name: "บันทึกผลการฝึก BK-REFRESH" }));
     fireEvent.click(screen.getByRole("button", { name: "บันทึกผลการฝึก" }));
-    await waitFor(() => expect(screen.queryByRole("dialog", { name: "บันทึกว่าฝึกเสร็จ?" })).not.toBeInTheDocument());
+    await waitFor(() => expect(screen.queryByRole("dialog", { name: "บันทึกผลการฝึก?" })).not.toBeInTheDocument());
 
-    const confirmedSection = screen.getByRole("region", { name: "นัดถัดไปของสมาชิก" });
-    const refreshError = await within(confirmedSection).findByRole("alert");
-    expect(refreshError).toHaveTextContent("บันทึกผลแล้ว แต่โหลดรายการล่าสุดไม่สำเร็จ");
-    await waitFor(() => expect(refreshError).toHaveFocus());
+    // The result of recording a session stays on screen even when the follow-up
+    // refresh fails and the appointment list has dropped out.
+    const refreshError = await screen.findByText(/บันทึกผลแล้ว แต่โหลดรายการล่าสุดไม่สำเร็จ/);
+    const refreshAlert = refreshError.closest(".workbench-error") as HTMLElement | null;
+    if (!refreshAlert) throw new Error("completion error panel is missing");
+    await waitFor(() => expect(refreshAlert).toHaveFocus());
     expect(screen.queryByText("บันทึกผลการฝึกสำหรับคำขอ BK-REFRESH แล้ว")).not.toBeInTheDocument();
-    expect(within(confirmedSection).queryByRole("button", { name: "บันทึกว่าฝึกเสร็จ BK-REFRESH" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "บันทึกผลการฝึก BK-REFRESH" })).not.toBeInTheDocument();
     expect(vi.mocked(authenticatedRequest).mock.calls.filter(([path, options]) => (
       path === "/v1/bookings/BK-REFRESH/status" && options?.method === "PATCH"
     ))).toHaveLength(1);
@@ -532,32 +697,34 @@ describe("TrainerWorkbench", () => {
     vi.mocked(authenticatedRequest)
       .mockResolvedValueOnce(approvedWorkspace)
       .mockResolvedValueOnce([booking])
+      .mockResolvedValueOnce({ trainers: [], payments: [] })
       .mockResolvedValueOnce({ id: "BK-RETRY-OK", status: "completed" })
       .mockRejectedValueOnce(new Error("โหลดรายการนัดล่าสุดไม่ได้"))
       .mockImplementationOnce(() => pendingRetry);
 
     render(<TrainerWorkbench />);
     fireEvent.click(await screen.findByRole("button", { name: "ดูรายละเอียด" }));
-    fireEvent.click(await screen.findByRole("button", { name: "บันทึกว่าฝึกเสร็จ BK-RETRY-OK" }));
+    fireEvent.click(await screen.findByRole("button", { name: "บันทึกผลการฝึก BK-RETRY-OK" }));
     fireEvent.click(screen.getByRole("button", { name: "บันทึกผลการฝึก" }));
-    await waitFor(() => expect(screen.queryByRole("dialog", { name: "บันทึกว่าฝึกเสร็จ?" })).not.toBeInTheDocument());
+    await waitFor(() => expect(screen.queryByRole("dialog", { name: "บันทึกผลการฝึก?" })).not.toBeInTheDocument());
 
-    const confirmedSection = screen.getByRole("region", { name: "นัดถัดไปของสมาชิก" });
-    const refreshError = await within(confirmedSection).findByRole("alert");
-    const retryButton = within(refreshError).getByRole("button", { name: "ลองโหลดใหม่" });
+    const refreshError = await screen.findByText(/บันทึกผลแล้ว แต่โหลดรายการล่าสุดไม่สำเร็จ/);
+    const refreshAlert = refreshError.closest(".workbench-error") as HTMLElement | null;
+    if (!refreshAlert) throw new Error("completion error panel is missing");
+    const retryButton = within(refreshAlert).getByRole("button", { name: "ลองโหลดใหม่" });
     retryButton.focus();
     fireEvent.click(retryButton);
 
-    expect(refreshError).toBeInTheDocument();
-    await waitFor(() => expect(refreshError).toHaveFocus());
-    expect(within(refreshError).getByRole("button", { name: "กำลังโหลด…" })).toBeDisabled();
+    expect(refreshAlert).toBeInTheDocument();
+    await waitFor(() => expect(refreshAlert).toHaveFocus());
+    expect(within(refreshAlert).getByRole("button", { name: "กำลังโหลด…" })).toBeDisabled();
 
     await act(async () => { resolveRetry([]); });
 
     const successNotice = await screen.findByRole("status");
     expect(successNotice).toHaveTextContent("โหลดรายการนัดหมายล่าสุดแล้ว");
     await waitFor(() => expect(successNotice).toHaveFocus());
-    expect(within(confirmedSection).queryByRole("alert")).not.toBeInTheDocument();
+    expect(screen.queryByText(/บันทึกผลแล้ว แต่โหลดรายการล่าสุดไม่สำเร็จ/)).not.toBeInTheDocument();
   });
 
   it("keeps the retry alert focused and usable when refresh fails again", async () => {
@@ -571,28 +738,30 @@ describe("TrainerWorkbench", () => {
     vi.mocked(authenticatedRequest)
       .mockResolvedValueOnce(approvedWorkspace)
       .mockResolvedValueOnce([booking])
+      .mockResolvedValueOnce({ trainers: [], payments: [] })
       .mockResolvedValueOnce({ id: "BK-RETRY-FAIL", status: "completed" })
       .mockRejectedValueOnce(new Error("โหลดรายการนัดล่าสุดไม่ได้"))
       .mockImplementationOnce(() => pendingRetry);
 
     render(<TrainerWorkbench />);
     fireEvent.click(await screen.findByRole("button", { name: "ดูรายละเอียด" }));
-    fireEvent.click(await screen.findByRole("button", { name: "บันทึกว่าฝึกเสร็จ BK-RETRY-FAIL" }));
+    fireEvent.click(await screen.findByRole("button", { name: "บันทึกผลการฝึก BK-RETRY-FAIL" }));
     fireEvent.click(screen.getByRole("button", { name: "บันทึกผลการฝึก" }));
-    await waitFor(() => expect(screen.queryByRole("dialog", { name: "บันทึกว่าฝึกเสร็จ?" })).not.toBeInTheDocument());
+    await waitFor(() => expect(screen.queryByRole("dialog", { name: "บันทึกผลการฝึก?" })).not.toBeInTheDocument());
 
-    const confirmedSection = screen.getByRole("region", { name: "นัดถัดไปของสมาชิก" });
-    const refreshError = await within(confirmedSection).findByRole("alert");
-    fireEvent.click(within(refreshError).getByRole("button", { name: "ลองโหลดใหม่" }));
+    const refreshError = await screen.findByText(/บันทึกผลแล้ว แต่โหลดรายการล่าสุดไม่สำเร็จ/);
+    const refreshAlert = refreshError.closest(".workbench-error") as HTMLElement | null;
+    if (!refreshAlert) throw new Error("completion error panel is missing");
+    fireEvent.click(within(refreshAlert).getByRole("button", { name: "ลองโหลดใหม่" }));
 
-    expect(refreshError).toBeInTheDocument();
-    await waitFor(() => expect(refreshError).toHaveFocus());
-    expect(within(refreshError).getByRole("button", { name: "กำลังโหลด…" })).toBeDisabled();
+    expect(refreshAlert).toBeInTheDocument();
+    await waitFor(() => expect(refreshAlert).toHaveFocus());
+    expect(within(refreshAlert).getByRole("button", { name: "กำลังโหลด…" })).toBeDisabled();
 
     await act(async () => { rejectRetry(new Error("เครือข่ายขัดข้อง")); });
 
-    expect(await within(confirmedSection).findByRole("alert")).toHaveTextContent("ยังโหลดรายการนัดหมายล่าสุดไม่สำเร็จ กรุณาลองใหม่");
-    await waitFor(() => expect(refreshError).toHaveFocus());
-    expect(within(refreshError).getByRole("button", { name: "ลองโหลดใหม่" })).toBeEnabled();
+    expect(await screen.findByText("ยังโหลดรายการนัดหมายล่าสุดไม่สำเร็จ กรุณาลองใหม่")).toBeInTheDocument();
+    await waitFor(() => expect(refreshAlert).toHaveFocus());
+    expect(within(refreshAlert).getByRole("button", { name: "ลองโหลดใหม่" })).toBeEnabled();
   });
 });
