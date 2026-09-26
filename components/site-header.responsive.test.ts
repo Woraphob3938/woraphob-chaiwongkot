@@ -25,6 +25,21 @@ function propertyAtWidth(selector: string, property: string, width: number) {
   return value;
 }
 
+function importantPropertyInMedia(selector: string, property: string, mediaQuery: string) {
+  let value: string | undefined;
+
+  stylesheet.walkAtRules("media", (media) => {
+    if (media.params !== mediaQuery) return;
+    media.walkRules(selector, (rule) => {
+      rule.walkDecls(property, (declaration) => {
+        if (declaration.important) value = declaration.value;
+      });
+    });
+  });
+
+  return value;
+}
+
 describe("responsive site header", () => {
   it("compacts the desktop header enough to fit at the 768px boundary", () => {
     expect(propertyAtWidth(".desktop-nav", "display", 768)).toBe("flex");
@@ -32,5 +47,18 @@ describe("responsive site header", () => {
     expect(propertyAtWidth(".header-inner", "gap", 768)).toBe("var(--space-sm)");
     expect(propertyAtWidth(".desktop-nav", "gap", 768)).toBe("var(--space-md)");
     expect(propertyAtWidth(".header-actions", "gap", 768)).toBe("var(--space-xs)");
+  });
+
+  it("keeps the requested sidebar transition when Windows reduces motion", () => {
+    expect(importantPropertyInMedia(
+      "body:has(.app-sidebar)",
+      "transition-duration",
+      "(prefers-reduced-motion: reduce)",
+    )).toBe("var(--dur-short)");
+  });
+
+  it("does not clip the account menu when the sidebar is expanded or collapsed", () => {
+    expect(propertyAtWidth(".app-sidebar", "overflow", 1280)).toBe("visible");
+    expect(propertyAtWidth(".app-sidebar .profile-menu", "left", 1280)).toBe("0");
   });
 });

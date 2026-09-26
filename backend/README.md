@@ -7,9 +7,45 @@ PHP REST API แบบไม่พึ่ง Composer สำหรับ Apache +
 1. คัดลอก `.env.example` เป็น `.env` และแก้รหัสผ่านฐานข้อมูลถ้ามี
 2. เปิด Apache และ MySQL ใน XAMPP Control Panel
 3. จากโฟลเดอร์โปรเจกต์ รัน `npm run xampp:connect`
-4. ตรวจ `http://localhost/fitconnect-api/v1/health`
+4. หากใช้ฐานข้อมูลเดิม รัน `npm run migrate:admin-permissions`, `npm run migrate:monthly-bookings`, `npm run migrate:payment-proof` และ `npm run migrate:rate-limits` หนึ่งครั้ง คำสั่งที่สามเพิ่มข้อมูลพร้อมเพย์และ QR รับเงิน ส่วนคำสั่งสุดท้ายเพิ่มตารางตัวนับการเรียกใช้งาน โดยทุกคำสั่งสำรองฐานข้อมูลก่อนแก้โครงสร้าง
+5. รัน `npm run booking-expiry:install` หนึ่งครั้ง เพื่อตรวจการจองที่หมดเวลาทุกหนึ่งนาที
+6. ตรวจ `http://localhost/fitconnect-api/v1/health`
 
 สคริปต์เชื่อมต่อจะสร้าง junction จาก `C:\xampp\htdocs\fitconnect-api` มาที่โฟลเดอร์นี้โดยไม่คัดลอกหรือเขียนทับโฟลเดอร์เดิม จากนั้นนำเข้า `database/schema.sql` และ `database/seed.sql`
+
+Windows Task Scheduler จะเก็บงานชื่อ `FitConnect-ExpireBookings` ไว้ งานนี้เรียกคำสั่ง PHP ทุกหนึ่งนาทีเพื่อเปลี่ยนการจองที่เกินกำหนด 10 นาทีเป็น `expired` และคืนช่วงเวลาให้สมาชิกคนอื่นจองได้ งานยังทำต่อเมื่อเครื่องใช้แบตเตอรี่ หากย้ายโฟลเดอร์โปรเจกต์ ให้รันคำสั่งติดตั้งอีกครั้ง คุณสามารถตรวจคำสั่งด้วยตัวเองโดยรัน `npm run booking-expiry:run`
+
+## ตั้งค่า Gmail สำหรับการแจ้งเตือน
+
+คัดลอกค่าต่อไปนี้ไปยัง `.env` แล้วแทนที่ข้อมูลบัญชี Gmail ของคุณ บัญชีต้องเปิดการยืนยันแบบ 2 ขั้นตอนและใช้ **App Password** ไม่ใช่รหัสผ่านเข้าสู่ระบบปกติ:
+
+```env
+MAIL_ENABLED=false
+MAIL_HOST=smtp.gmail.com
+MAIL_PORT=587
+MAIL_USERNAME=your-account@gmail.com
+MAIL_APP_PASSWORD=your-16-character-app-password
+MAIL_FROM_EMAIL=your-account@gmail.com
+MAIL_FROM_NAME=FitConnect
+APP_URL=http://localhost:3000
+```
+
+จากโฟลเดอร์หลักของโครงการ รัน:
+
+```powershell
+npm run migrate:notifications
+npm run notifications:install
+```
+
+งาน `FitConnect-ProcessNotifications` จะสร้างการเตือนก่อนนัดและลองส่งคิว Gmail ทุกหนึ่งนาทีแบบซ่อนหน้าต่าง งานนี้แยกจาก `FitConnect-ExpireBookings` และต้องเก็บไว้ทั้งคู่ หากย้ายโฟลเดอร์โครงการให้ติดตั้งงานแจ้งเตือนใหม่
+
+ให้คง `MAIL_ENABLED=false` ระหว่างทดสอบในเครื่อง เมื่อพร้อมจึงเปลี่ยนเป็น `true` และส่งอีเมลทดสอบที่ต้องยืนยันคำว่า `SEND`:
+
+```powershell
+npm run notifications:send-test -- -RecipientEmail you@example.com -ConfirmSend SEND
+```
+
+การส่งล้มเหลวไม่เปลี่ยนผลการจองหรือการชำระเงิน ระบบจะลองใหม่สูงสุด 5 ครั้ง ตรวจได้จาก `notifications.email_status`, `email_attempt_count`, `email_next_attempt_at` และ `email_last_error` ห้ามคัดลอก `MAIL_APP_PASSWORD` ลง log, screenshot หรือ Git
 
 ## เส้นทางหลัก
 
@@ -19,24 +55,73 @@ PHP REST API แบบไม่พึ่ง Composer สำหรับ Apache +
 - `GET /v1/trainers/{slug}`
 - `POST /v1/auth/register`
 - `POST /v1/auth/login`
+- `POST /v1/auth/forgot-password` — ขอรหัสตั้งรหัสผ่านใหม่ทางอีเมล ตอบข้อความเดียวกันทุกอีเมลเพื่อไม่ให้ตรวจสอบได้ว่าอีเมลใดมีบัญชี
+- `POST /v1/auth/reset-password` — ยืนยันรหัส 6 หลักแล้วตั้งรหัสผ่านใหม่ รหัสใช้ได้ครั้งเดียวและเพิกถอนเซสชันเดิมทั้งหมด
 - `GET /v1/me`
+- `GET|PATCH /v1/profile` — อ่านและแก้ไขข้อมูลโปรไฟล์ตามบทบาท
+- `POST|DELETE /v1/profile/image` — อัปโหลดหรือเอารูปโปรไฟล์ออก
+- `PATCH /v1/profile/password` — เปลี่ยนรหัสผ่านของบัญชีที่เข้าสู่ระบบ
+- `POST /v1/auth/logout` — เพิกถอน token ปัจจุบันก่อนออกจากระบบในเบราว์เซอร์
 - `POST /v1/trainer-applications`
 - `GET /v1/trainer/me`
 - `POST /v1/availability-slots`
 - `DELETE /v1/availability-slots/{id}`
 - `GET|POST /v1/bookings`
-- `PATCH /v1/bookings/{publicId}/status` — เทรนเนอร์ตอบรับพร้อมราคาสุทธิ ยกเลิก หรือจบการฝึกตามสิทธิ์
-- `POST /v1/payments` — สมาชิกส่งหลักฐานการชำระเงินแบบ multipart
+- `POST /v1/bookings` รองรับ `bookingType=monthly` พร้อม `slotIds` ตามจำนวนครั้งที่เทรนเนอร์กำหนด โดยทุกครั้งต้องอยู่ภายใน 30 วันและใช้เส้นตายชำระเงินร่วมกัน 10 นาที
+- `POST /v1/bookings/{publicId}/cancel` — สมาชิกยกเลิกคำขอที่ยังไม่ส่งสลิป ระบบคืนช่วงเวลาให้จองต่อทันที
+- `PATCH /v1/bookings/{publicId}/status` — เทรนเนอร์บันทึกว่าฝึกเสร็จแล้ว หรือผู้ดูแลระบบยืนยันและยกเลิกตามสิทธิ์
+- `POST /v1/payments` — สมาชิกส่ง `bookingId` และสลิปแบบ multipart ยอดเงินยึดจากราคาการจองฝั่งระบบ
 - `GET|POST /v1/chat-rooms/{id}/messages` — อ่านและส่งข้อความหรือไฟล์แนบในห้องของการจอง
 - `GET /v1/chat-rooms/{id}/messages/{messageId}/attachment` — ดาวน์โหลดไฟล์แนบสำหรับคู่สนทนาเท่านั้น
 - `POST /v1/reviews` — สมาชิกเจ้าของการจองเผยแพร่รีวิวหลังจบการฝึก
 - `POST /v1/admin/trainers/{id}/approve`
 - `POST /v1/admin/trainers/{id}/reject`
-- `GET /v1/admin/review-queue` — คิวหลักฐานที่รอแอดมินตรวจ
+- `GET /v1/admin/review-queue` — คิวหลักฐานที่รอผู้ดูแลระบบตรวจ
 - `GET /v1/admin/files/{payment|certificate}/{id}` — เปิดหลักฐานที่มีสิทธิ์ดู
-- `POST /v1/admin/payments/{id}/{approve|reject}` — แอดมินอนุมัติหรือปฏิเสธพร้อมเหตุผล
+- `POST /v1/admin/payments/{id}/{approve|reject}` — ผู้รับผิดชอบอนุมัติหลังยืนยันรายการเงินจริงในแอปธนาคาร หรือปฏิเสธพร้อมเหตุผล
+- `GET /v1/admin/operations` — บัญชี การจอง ประวัติสถานะ รายได้ และธุรกรรมตามสิทธิ์ของบัญชี แบ่งหน้าฝั่ง API ครั้งละ 10 รายการด้วย `userPage`, `administratorPage`, `bookingPage`, `incomePage`, `paymentPage` และกรองด้วย `userQuery`, `bookingStatus`
+- `POST /v1/admin/users` — เพิ่มบัญชีผู้ดูแลระบบพร้อมกำหนดสิทธิ์
+- `PATCH /v1/admin/users/{id}` — แก้ข้อมูล ระงับหรือเปิดบัญชี และปรับสิทธิ์ผู้ดูแลระบบ
+- `GET /v1/notifications` — รายการส่วนตัวของสมาชิกหรือเทรนเนอร์ แบ่งหน้าครั้งละ 10 รายการ
+- `GET /v1/notifications/{id}` — รายละเอียดของเจ้าของการแจ้งเตือนเท่านั้น
+- `PATCH /v1/notifications/{id}/read` — ทำเครื่องหมายรายการว่าอ่านแล้วแบบเรียกซ้ำได้
+- `POST /v1/notifications/read-all` — ทำเครื่องหมายรายการของบัญชีปัจจุบันว่าอ่านแล้วทั้งหมด
 
-เส้นทางที่เกี่ยวกับบัญชีต้องใส่ `Authorization: Bearer <token>`. การตรวจใบรับรองและสลิปเป็นการตรวจโดยแอดมินจริง ไม่ใช่การตรวจอัตโนมัติหรือระบบชำระเงินอัตโนมัติ เมื่อปฏิเสธ แอดมินต้องระบุเหตุผลให้สมาชิกแก้ไขและส่งหลักฐานใหม่
+เส้นทางที่เกี่ยวกับบัญชีต้องใส่ `Authorization: Bearer <token>` และเส้นทางผู้ดูแลระบบยังตรวจสิทธิ์ย่อยดังนี้:
+
+- `manageUsers` — ดู/แก้/ระงับบัญชี และเพิ่มหรือกำหนดสิทธิ์ผู้ดูแลระบบ
+- `reviewTrainers` — ตรวจโปรไฟล์ ใบรับรอง และตัดสินผลเทรนเนอร์
+- `manageBookings` — ดูการจองทั้งหมด ประวัติสถานะ และจัดการสถานะการจอง
+- `reviewPayments` — ตรวจสลิป ตัดสินการชำระเงิน ดูธุรกรรมและรายได้ที่อนุมัติแล้ว
+
+`GET /v1/admin/operations` ส่งเฉพาะส่วนที่บัญชีนั้นมีสิทธิ์ดู การมี token บทบาทผู้ดูแลระบบเพียงอย่างเดียวจึงไม่พอสำหรับทุกเส้นทาง การตรวจใบรับรองและสลิปเป็นการตรวจโดยผู้ดูแลระบบจริง ไม่ใช่การตรวจอัตโนมัติหรือระบบชำระเงินอัตโนมัติ เมื่อปฏิเสธ ผู้ดูแลระบบต้องระบุเหตุผลให้สมาชิกแก้ไขและส่งหลักฐานใหม่
+
+## เวลาหมดอายุของคำขอจอง
+
+การเปลี่ยนสถานะเป็น `expired` และการคืนช่วงเวลาเป็นงานของฝั่งเขียนเท่านั้น คือ `FitConnect-ExpireBookings`, `POST /v1/bookings` และ `POST /v1/payments` ส่วน `GET /v1/bookings` เรียกกวาดที่หมดเวลาได้ระหว่างทางเพราะเป็นคำขอที่ผูกกับบัญชีเดียวและมีจำนวนจำกัด ส่วน `GET /v1/trainers`, `GET /v1/trainers/{slug}`, `GET /v1/trainer/me`, `GET /v1/admin/operations`, `GET /v1/admin/review-queue` และการอ่านข้อความในแชตไม่เขียนฐานข้อมูลอีกต่อไป
+
+ระหว่างที่รอบกวาดยังไม่ทำงาน ระบบรายงานคำขอที่ `payment_deadline_at` ผ่านแล้วว่า `expired` ตั้งแต่ตอนอ่าน พร้อมปิด `canPay` และ `canCancel` ดังนั้นหน้าจอจึงไม่แสดงคำขอที่หมดเวลาแล้วว่ายังชำระได้
+
+## การจำกัดจำนวนครั้งและการตั้งรหัสผ่านใหม่
+
+ตาราง `rate_limits` เก็บตัวนับแบบช่วงเวลาคงที่ หนึ่งแถวต่อคู่ `scope` กับ `subject` โดย `scope` คือประเภทงาน และ `subject` เป็นได้ทั้งบัญชี (`account:<อีเมล>`) หรือเครือข่ายต้นทาง (`client:<ไอพี>`) ค่าที่ใช้จริงอยู่ใน `RateLimiter::RULES`
+
+| ขอบเขต | เพดาน | ช่วงเวลา | นับตาม |
+|---|---|---|---|
+| `login` | 10 | 15 นาที | บัญชี และเครือข่าย |
+| `register` | 5 | 1 ชั่วโมง | เครือข่าย |
+| `password_reset_request` | 5 | 1 ชั่วโมง | บัญชี และเครือข่าย |
+| `password_reset_confirm` | 10 | 15 นาที | บัญชี |
+| `trainer_application` | 10 | 1 ชั่วโมง | บัญชี |
+| `profile_image` | 20 | 1 ชั่วโมง | บัญชี |
+| `payment_slip` | 20 | 1 ชั่วโมง | บัญชี |
+| `chat_attachment` | 60 | 1 ชั่วโมง | บัญชีและห้องสนทนา |
+
+เมื่อเกินเพดาน ระบบตอบ `429` พร้อมรหัส `RATE_LIMITED` และหัวข้อ `Retry-After` เป็นจำนวนวินาที การเข้าสู่ระบบสำเร็จจะล้างตัวนับของบัญชีนั้น เพื่อให้ผู้ใช้ที่พิมพ์ผิดสองสามครั้งไม่ถูกตัดสิทธิ์ทั้งช่วงเวลา
+
+การตั้งรหัสผ่านใหม่ใช้ตาราง `password_reset_tokens` ที่มีอยู่แล้ว โดยเก็บเฉพาะแฮชของรหัส ไม่เก็บรหัสจริง ขอรหัสใหม่จะยกเลิกรหัสเดิมทันที รหัสอายุ 15 นาที ใช้ได้ครั้งเดียว และเมื่อตั้งรหัสผ่านใหม่สำเร็จ ระบบจะเพิกถอน token ทุกตัวของบัญชีนั้น ผู้ดูแลระบบไม่สามารถดูรหัสได้ และการส่งอีเมลล้มเหลวไม่เปลี่ยนข้อความตอบกลับ
+
+ผู้ดูแลระบบแจกได้เฉพาะสิทธิ์ที่บัญชีตนเองมีอยู่ และเปลี่ยนรหัสผ่านเริ่มต้นของตนเองได้จากหน้า **ผู้ดูแลระบบ** ระบบจะกันไม่ให้ระงับหรือลบสิทธิ์จัดการบัญชีของผู้ดูแลคนสุดท้าย
 
 ## ตรวจขั้นตอนหลักในเครื่อง
 
@@ -46,7 +131,25 @@ PHP REST API แบบไม่พึ่ง Composer สำหรับ Apache +
 rtk powershell -NoProfile -ExecutionPolicy Bypass -File scripts/api-workflow-smoke.ps1 -Scenario all
 ```
 
-การทดสอบครอบคลุมการอนุมัติเทรนเนอร์ การสร้าง/ลบช่วงเวลาว่าง การจองพร้อมกัน การตอบรับ และการปฏิเสธ สคริปต์เปลี่ยนแปลงเฉพาะฐานข้อมูลสำหรับพัฒนาในเครื่อง และ `npm run xampp:connect` จะคืนสถานะข้อมูลตั้งต้นก่อนเริ่มรอบสะอาดอีกครั้ง
+การทดสอบครอบคลุมการอนุมัติเทรนเนอร์ การสร้างและลบช่วงเวลาว่าง การจองพร้อมกัน การตรวจชำระเงิน และการปฏิเสธ สคริปต์เปลี่ยนแปลงเฉพาะฐานข้อมูลสำหรับพัฒนาในเครื่อง และ `npm run xampp:connect` จะคืนสถานะข้อมูลตั้งต้นก่อนเริ่มรอบสะอาดอีกครั้ง
+
+ตรวจงานผู้ดูแลระบบทั้งการแก้บัญชี ระงับและเปิดใช้ การสร้างผู้ดูแลระบบ ขอบเขตสิทธิ์ และการซ่อนข้อมูลนอกสิทธิ์ด้วย สคริปต์อ่านค่าฐานข้อมูลจาก `backend/.env` โดยอัตโนมัติและลบบัญชีทดสอบเมื่อเสร็จ:
+
+```powershell
+npm run smoke:admin-operations
+```
+
+ตรวจการแจ้งเตือนครบ flow โดยใช้ PHP และ MySQL ของ XAMPP แต่เปิด API แยกชั่วคราวพร้อมบังคับ `MAIL_ENABLED=false` จึงไม่มีอีเมลจริงออกจากเครื่อง สคริปต์ลบบัญชี การจอง การแจ้งเตือน และไฟล์ทดสอบเมื่อจบ:
+
+```powershell
+npm run smoke:notifications
+```
+
+ตรวจแพ็กเกจ 30 วัน การล็อกพร้อมกันทุกช่วง และการคืนทุกช่วงเมื่อยกเลิกหรือหมดเวลา:
+
+```powershell
+npm run smoke:monthly-booking
+```
 
 ## ย้ายฐานข้อมูลเดิมเพื่อลบจังหวัดและสถานที่นัดฝึก
 
@@ -66,7 +169,7 @@ npm run smoke:trainer-onboarding
 
 ## ตรวจ flow หลังการจองและเปิดดูใน phpMyAdmin
 
-รัน flow เดียวตั้งแต่สร้างการจอง แชต ส่งสลิปสองครั้ง ให้แอดมินตรวจ จบการฝึก และรีวิว:
+รัน flow เดียวตั้งแต่สร้างการจอง แชต ส่งสลิปสองครั้ง ให้ผู้ดูแลระบบตรวจ จบการฝึก และรีวิว:
 
 ```powershell
 npm run smoke:postbooking
@@ -97,3 +200,21 @@ npm run audit:booking -- -BookingId BK-...
 - `admin.demo@fitconnect.local`
 
 อย่านำบัญชี รหัสผ่าน หรือไฟล์สาธิตเหล่านี้ไปใช้บนระบบจริง
+
+## อัปเดตให้ตรงขอบเขตเอกสาร (บทที่ 1 และ 3) — 26 ก.ย. 2569
+
+รันไฟล์นี้กับฐานข้อมูลเดิมหนึ่งครั้ง (รันซ้ำได้ ไม่มีผลเพิ่ม):
+
+```
+mysql -u root fitconnect < backend/database/manual-migrations/20260926_document_scope.sql
+```
+
+| เรื่อง | การเปลี่ยนแปลง |
+|---|---|
+| เวลายืนยันการจอง | `PATCH /v1/bookings/{id}/status` ต้องส่ง `confirmedTime` เป็น `"12:00"` หรือ `"18:00"` (เวลาไทย วันเดียวกับที่สมาชิกขอ ความยาวเท่าเดิม) และระบบกันเวลาชนกับนัดอื่นของเทรนเนอร์ |
+| สลิปเทรนเนอร์ประจำยิม | เทรนเนอร์ของการจองเป็นผู้ยืนยันสลิปทุกแบบ ผู้ดูแลระบบที่มีสิทธิ์ `review_payments` ดูสลิปและรายได้ยิมได้แต่ไม่อนุมัติ |
+| ยกเลิกโดยสมาชิก | `POST /v1/bookings/{id}/cancel` รับ `reason` (ไม่บังคับ ≤500 ตัวอักษร) |
+| บัญชีธนาคาร | `GET/POST /v1/trainer/bank-accounts`, `PATCH/DELETE /v1/trainer/bank-accounts/{id}`, `POST /v1/trainer/bank-accounts/{id}/default` (สูงสุด 5 บัญชี) และบัญชีเริ่มต้นแสดงใน `paymentRecipient.bankAccount` |
+| แชทก่อนจอง | `POST /v1/chat-rooms` `{trainerId}` เปิดห้องสอบถาม, `GET /v1/chat-rooms` รายการห้องสอบถาม (`chat_rooms.booking_id` เป็น NULL ได้) |
+| ชื่อเล่นเทรนเนอร์ | `trainer_profiles.nickname` ค้นหาได้บนหน้าค้นหา |
+| สมาชิกและรีวิวของเทรนเนอร์ | `GET /v1/trainer/members`, `GET /v1/trainer/reviews` |

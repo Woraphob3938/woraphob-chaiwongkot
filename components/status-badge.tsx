@@ -1,21 +1,47 @@
 import { CheckCircle2, Clock3, CircleX, type LucideIcon } from "lucide-react";
-import type { BookingStatus, VerificationStatus } from "@/lib/types";
+import { bookingStatusCopy, bookingStatusLabel, paymentStatusLabel } from "@/lib/payment-copy";
+import type { Booking, BookingStatus, VerificationStatus } from "@/lib/types";
 
-type Status = VerificationStatus | BookingStatus | "reviewing" | "approved" | "rejected";
+/**
+ * One Thai label per status: `lib/payment-copy.ts` owns the booking and payment
+ * words and this badge only decides which of those tables applies. A
+ * verification status (a trainer profile, an application, a certificate) keeps
+ * its own wording, which is why `verified`/`pending` are not routed through the
+ * booking table.
+ *
+ * `rejected` and `approved` are single literals carrying two meanings: a slip
+ * that must be sent again versus a profile that must be corrected, and a slip
+ * that was checked versus an application that was approved. A caller rendering
+ * a payment status says so with `source="payment"`; otherwise the status is
+ * read as verification wording.
+ */
+export type StatusSource = "booking" | "payment" | "verification";
 
-const labels: Record<Status, string> = {
-  verified: "ตรวจคุณสมบัติแล้ว",
-  pending: "รอตรวจคุณสมบัติ",
+type Status = VerificationStatus | BookingStatus | Booking["paymentStatus"];
+
+const verificationLabels: Record<VerificationStatus, string> = {
+  verified: "โปรไฟล์ผ่านการตรวจ",
+  pending: "รอตรวจโปรไฟล์",
   rejected: "ต้องแก้ไข",
-  awaiting_payment: "รอชำระเงิน",
-  payment_review: "รอตรวจสลิป",
-  confirmed: "ยืนยันการชำระแล้ว",
-  completed: "ฝึกเสร็จแล้ว",
-  cancelled: "ยกเลิกแล้ว",
-  expired: "หมดเวลาแล้ว",
-  reviewing: "กำลังตรวจสอบ",
-  approved: "อนุมัติแล้ว",
 };
+
+/** A trainer application is approved; only a slip is "ตรวจสลิปแล้ว". */
+const applicationLabels = { approved: "อนุมัติแล้ว" } as const;
+
+const bookingStatuses: ReadonlySet<string> = new Set(Object.keys(bookingStatusCopy));
+
+function isBookingStatus(status: Status): status is BookingStatus {
+  return bookingStatuses.has(status);
+}
+
+function labelFor(status: Status, source?: StatusSource): string {
+  if (source === "payment") return paymentStatusLabel(status);
+  if (isBookingStatus(status)) return bookingStatusLabel(status);
+  if (status === "approved") return applicationLabels.approved;
+  if (status === "verified" || status === "pending" || status === "rejected") return verificationLabels[status];
+  // `not_submitted` and `reviewing` carry no verification meaning.
+  return paymentStatusLabel(status);
+}
 
 const iconByStatus: Record<Status, LucideIcon> = {
   verified: CheckCircle2,
@@ -23,16 +49,18 @@ const iconByStatus: Record<Status, LucideIcon> = {
   confirmed: CheckCircle2,
   completed: CheckCircle2,
   pending: Clock3,
+  pending_trainer: Clock3,
   awaiting_payment: Clock3,
   payment_review: Clock3,
   reviewing: Clock3,
+  not_submitted: Clock3,
   rejected: CircleX,
   cancelled: CircleX,
   expired: CircleX,
 };
 
-export function StatusBadge({ status }: { status: Status }) {
-  const Icon = iconByStatus[status];
+export function StatusBadge({ status, source }: { status: Status; source?: StatusSource }) {
+  const Icon = iconByStatus[status] ?? Clock3;
   const tone = ["verified", "approved", "confirmed", "completed"].includes(status)
     ? "success"
     : ["rejected", "cancelled", "expired"].includes(status)
@@ -42,7 +70,7 @@ export function StatusBadge({ status }: { status: Status }) {
   return (
     <span className={`status-badge status-badge--${tone}`}>
       <Icon aria-hidden="true" size={15} strokeWidth={2} />
-      {labels[status]}
+      {labelFor(status, source)}
     </span>
   );
 }

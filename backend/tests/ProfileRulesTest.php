@@ -1,0 +1,312 @@
+<?php
+declare(strict_types=1);
+
+require_once __DIR__ . '/../src/Http.php';
+$rulesPath = __DIR__ . '/../src/ProfileRules.php';
+if (is_file($rulesPath)) {
+    require_once $rulesPath;
+}
+
+$tests = [];
+
+function test(string $name, Closure $callback): void
+{
+    global $tests;
+    $tests[$name] = $callback;
+}
+
+function assertSameValue(mixed $expected, mixed $actual): void
+{
+    if ($expected !== $actual) {
+        throw new RuntimeException('Expected ' . var_export($expected, true) . ', got ' . var_export($actual, true));
+    }
+}
+
+function expectHttp(int $status, string $code, Closure $callback, ?string $field = null): void
+{
+    try {
+        $callback();
+    } catch (HttpException $error) {
+        assertSameValue($status, $error->status);
+        assertSameValue($code, $error->errorCode);
+        if ($field !== null && !array_key_exists($field, $error->fields)) {
+            throw new RuntimeException("Expected field error for {$field}");
+        }
+        return;
+    }
+    throw new RuntimeException("Expected HttpException {$status} {$code}");
+}
+
+test('normalizes a member profile', function (): void {
+    assertSameValue([
+        'firstName' => 'สมชาย',
+        'lastName' => 'ใจดี',
+        'phone' => '0812345678',
+        'fitnessGoal' => 'เพิ่มความแข็งแรง',
+        'experienceLevel' => 'beginner',
+        'weight' => 70.5,
+        'height' => 175.0,
+        'birthDate' => null,
+    ], ProfileRules::member([
+        'firstName' => ' สมชาย ',
+        'lastName' => ' ใจดี ',
+        'phone' => ' 0812345678 ',
+        'fitnessGoal' => ' เพิ่มความแข็งแรง ',
+        'experienceLevel' => 'beginner',
+        'weight' => '70.50',
+        'height' => '175',
+    ]));
+});
+
+test('accepts an optional member birth date', function (): void {
+    assertSameValue('1990-05-04', ProfileRules::member([
+        'firstName' => 'สมชาย',
+        'lastName' => 'ใจดี',
+        'birthDate' => ' 1990-05-04 ',
+    ])['birthDate']);
+});
+
+test('rejects a malformed member birth date', function (): void {
+    expectHttp(422, 'VALIDATION_FAILED', fn() => ProfileRules::member([
+        'firstName' => 'สมชาย',
+        'lastName' => 'ใจดี',
+        'birthDate' => '04/05/1990',
+    ]), 'birthDate');
+});
+
+test('rejects a future birth date', function (): void {
+    expectHttp(422, 'VALIDATION_FAILED', fn() => ProfileRules::member([
+        'firstName' => 'สมชาย',
+        'lastName' => 'ใจดี',
+        'birthDate' => gmdate('Y-m-d', strtotime('+1 year')),
+    ]), 'birthDate');
+});
+
+test('rejects ages outside five to one hundred twenty years', function (): void {
+    expectHttp(422, 'VALIDATION_FAILED', fn() => ProfileRules::member([
+        'firstName' => 'สมชาย',
+        'lastName' => 'ใจดี',
+        'birthDate' => gmdate('Y-m-d', strtotime('-3 years')),
+    ]), 'birthDate');
+    expectHttp(422, 'VALIDATION_FAILED', fn() => ProfileRules::member([
+        'firstName' => 'สมชาย',
+        'lastName' => 'ใจดี',
+        'birthDate' => gmdate('Y-m-d', strtotime('-130 years')),
+    ]), 'birthDate');
+});
+
+test('requires both member names', function (): void {
+    expectHttp(422, 'VALIDATION_FAILED', fn() => ProfileRules::member([
+        'firstName' => 'สมชาย',
+        'lastName' => ' ',
+    ]), 'lastName');
+});
+
+test('rejects non-positive body measurements', function (): void {
+    expectHttp(422, 'VALIDATION_FAILED', fn() => ProfileRules::member([
+        'firstName' => 'สมชาย',
+        'lastName' => 'ใจดี',
+        'weight' => '0',
+        'height' => '-1',
+    ]), 'weight');
+});
+
+test('rejects an unsupported experience level', function (): void {
+    expectHttp(422, 'VALIDATION_FAILED', fn() => ProfileRules::member([
+        'firstName' => 'สมชาย',
+        'lastName' => 'ใจดี',
+        'experienceLevel' => 'expert',
+    ]), 'experienceLevel');
+});
+
+test('rejects an invalid member phone', function (): void {
+    expectHttp(422, 'VALIDATION_FAILED', fn() => ProfileRules::member([
+        'firstName' => 'สมชาย',
+        'lastName' => 'ใจดี',
+        'phone' => 'abc',
+    ]), 'phone');
+});
+
+test('normalizes a trainer profile', function (): void {
+    assertSameValue([
+        'displayName' => 'ครูเมย์',
+        'legalName' => 'เมย์ ใจดี',
+        'nickname' => 'เมย์',
+        'phone' => '0899999999',
+        'headline' => 'สร้างความแข็งแรงอย่างเป็นระบบ',
+        'bio' => 'วางแผนตามเป้าหมาย',
+        'yearsExperience' => 6,
+        'serviceMode' => 'both',
+        'gymName' => 'Fit Gym',
+        'priceFrom' => 650.0,
+        'monthlyPrice' => 2400.0,
+        'monthlySessionCount' => 4,
+        'paymentAccountName' => 'เมย์ ใจดี',
+        'promptPayId' => '0899999999',
+        'trainingTypeIds' => [1, 3],
+        'birthDate' => null,
+        'education' => '',
+    ], ProfileRules::trainer([
+        'displayName' => ' ครูเมย์ ',
+        'legalName' => ' เมย์ ใจดี ',
+        'nickname' => '  เมย์ ',
+        'phone' => '0899999999',
+        'paymentAccountName' => ' เมย์ ใจดี ',
+        'promptPayId' => '089-999-9999',
+        'headline' => ' สร้างความแข็งแรงอย่างเป็นระบบ ',
+        'bio' => ' วางแผนตามเป้าหมาย ',
+        'yearsExperience' => '6',
+        'serviceMode' => 'both',
+        'gymName' => ' Fit Gym ',
+        'priceFrom' => '650',
+        'monthlyPrice' => '2400',
+        'monthlySessionCount' => '4',
+        'trainingTypeIds' => [3, 1, 3],
+    ]));
+});
+
+test('rejects a nickname longer than 60 characters', function (): void {
+    try {
+        ProfileRules::trainer([
+            'displayName' => 'ครูเมย์', 'legalName' => 'เมย์ ใจดี', 'nickname' => str_repeat('ก', 61),
+            'paymentAccountName' => 'เมย์ ใจดี', 'promptPayId' => '0899999999', 'yearsExperience' => '1',
+            'serviceMode' => 'freelance', 'trainingTypeIds' => [1],
+        ]);
+    } catch (HttpException $error) {
+        assertSameValue(true, isset($error->fields['nickname']));
+        return;
+    }
+    throw new RuntimeException('Long nickname accepted');
+});
+
+test('accepts trainer birth date and education', function (): void {
+    $profile = ProfileRules::trainer([
+        'displayName' => 'ครูเมย์',
+        'legalName' => 'เมย์ ใจดี',
+        'paymentAccountName' => 'เมย์ ใจดี',
+        'promptPayId' => '0899999999',
+        'serviceMode' => 'freelance',
+        'yearsExperience' => 3,
+        'trainingTypeIds' => [1],
+        'birthDate' => '1994-11-30',
+        'education' => ' วิทยาศาสตร์การกีฬา ',
+    ]);
+    assertSameValue('1994-11-30', $profile['birthDate']);
+    assertSameValue('วิทยาศาสตร์การกีฬา', $profile['education']);
+});
+
+test('rejects trainer education longer than 255 characters', function (): void {
+    expectHttp(422, 'VALIDATION_FAILED', fn() => ProfileRules::trainer([
+        'displayName' => 'ครูเมย์',
+        'legalName' => 'เมย์ ใจดี',
+        'paymentAccountName' => 'เมย์ ใจดี',
+        'promptPayId' => '0899999999',
+        'serviceMode' => 'freelance',
+        'yearsExperience' => 3,
+        'trainingTypeIds' => [1],
+        'education' => str_repeat('ก', 256),
+    ]), 'education');
+});
+
+test('requires monthly price and session count together', function (): void {
+    expectHttp(422, 'VALIDATION_FAILED', fn() => ProfileRules::trainer([
+        'displayName' => 'ครูเมย์',
+        'legalName' => 'เมย์ ใจดี',
+        'paymentAccountName' => 'เมย์ ใจดี',
+        'promptPayId' => '0899999999',
+        'serviceMode' => 'freelance',
+        'yearsExperience' => 3,
+        'monthlyPrice' => 2400,
+        'trainingTypeIds' => [1],
+    ]), 'monthlySessionCount');
+});
+
+test('limits a monthly package to thirty sessions', function (): void {
+    expectHttp(422, 'VALIDATION_FAILED', fn() => ProfileRules::trainer([
+        'displayName' => 'ครูเมย์',
+        'legalName' => 'เมย์ ใจดี',
+        'paymentAccountName' => 'เมย์ ใจดี',
+        'promptPayId' => '0899999999',
+        'serviceMode' => 'freelance',
+        'yearsExperience' => 3,
+        'monthlyPrice' => 2400,
+        'monthlySessionCount' => 31,
+        'trainingTypeIds' => [1],
+    ]), 'monthlySessionCount');
+});
+
+test('allows gym service without a gym name for the single-gym workspace', function (): void {
+    assertSameValue('', ProfileRules::trainer([
+        'displayName' => 'ครูเมย์',
+        'legalName' => 'เมย์ ใจดี',
+        'paymentAccountName' => 'เมย์ ใจดี',
+        'promptPayId' => '0899999999',
+        'serviceMode' => 'gym',
+        'gymName' => '',
+        'yearsExperience' => 3,
+        'trainingTypeIds' => [1],
+    ])['gymName']);
+});
+
+test('requires at least one training type', function (): void {
+    expectHttp(422, 'VALIDATION_FAILED', fn() => ProfileRules::trainer([
+        'displayName' => 'ครูเมย์',
+        'legalName' => 'เมย์ ใจดี',
+        'paymentAccountName' => 'เมย์ ใจดี',
+        'promptPayId' => '0899999999',
+        'serviceMode' => 'freelance',
+        'yearsExperience' => 3,
+        'trainingTypeIds' => [],
+    ]), 'trainingTypeIds');
+});
+
+test('rejects an unsupported trainer service mode', function (): void {
+    expectHttp(422, 'VALIDATION_FAILED', fn() => ProfileRules::trainer([
+        'displayName' => 'ครูเมย์',
+        'legalName' => 'เมย์ ใจดี',
+        'paymentAccountName' => 'เมย์ ใจดี',
+        'promptPayId' => '0899999999',
+        'serviceMode' => 'online',
+        'yearsExperience' => 3,
+        'trainingTypeIds' => [1],
+    ]), 'serviceMode');
+});
+
+test('rejects a negative trainer experience', function (): void {
+    expectHttp(422, 'VALIDATION_FAILED', fn() => ProfileRules::trainer([
+        'displayName' => 'ครูเมย์',
+        'legalName' => 'เมย์ ใจดี',
+        'paymentAccountName' => 'เมย์ ใจดี',
+        'promptPayId' => '0899999999',
+        'serviceMode' => 'freelance',
+        'yearsExperience' => -1,
+        'trainingTypeIds' => [1],
+    ]), 'yearsExperience');
+});
+
+test('rejects a non-positive trainer price', function (): void {
+    expectHttp(422, 'VALIDATION_FAILED', fn() => ProfileRules::trainer([
+        'displayName' => 'ครูเมย์',
+        'legalName' => 'เมย์ ใจดี',
+        'paymentAccountName' => 'เมย์ ใจดี',
+        'promptPayId' => '0899999999',
+        'serviceMode' => 'freelance',
+        'yearsExperience' => 3,
+        'priceFrom' => 0,
+        'trainingTypeIds' => [1],
+    ]), 'priceFrom');
+});
+
+$failures = 0;
+foreach ($tests as $name => $callback) {
+    try {
+        $callback();
+        echo "PASS {$name}\n";
+    } catch (Throwable $error) {
+        $failures++;
+        fwrite(STDERR, "FAIL {$name}: {$error->getMessage()}\n");
+    }
+}
+
+echo count($tests) . " tests, {$failures} failures\n";
+exit($failures === 0 ? 0 : 1);

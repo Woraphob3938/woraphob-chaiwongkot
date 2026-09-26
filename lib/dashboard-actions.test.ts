@@ -44,7 +44,12 @@ describe("getMemberNextAction", () => {
       expiredBooking,
       { ...booking, id: "BK-PAYMENT", status: "payment_review" },
       { ...booking, id: "BK-CONFIRMED", status: "confirmed" },
-    ])).toMatchObject({ href: "/member#booking-BK-PAY", cta: "อัปโหลดสลิป", description: "ส่งสลิปก่อนหมดเวลา · คำขอ BK-PAY", state: "action" });
+    ])).toMatchObject({
+      href: "/member#booking-BK-PAY",
+      cta: "อัปโหลดสลิป",
+      description: expect.stringMatching(`${booking.trainer.displayName}.*คำขอ BK-PAY`),
+      state: "action",
+    });
   });
 
   it("prioritizes an actionable review over all lower member states", () => {
@@ -54,6 +59,27 @@ describe("getMemberNextAction", () => {
       { ...booking, id: "BK-PAYMENT", status: "payment_review" },
       { ...booking, id: "BK-CONFIRMED", status: "confirmed" },
     ])).toMatchObject({ href: "/member#booking-BK-REVIEW", cta: "เขียนรีวิว", state: "action" });
+  });
+
+  it("does not send a pending request to the payment form its panel never renders", () => {
+    // `actions.canPay` can be true while the trainer has not answered yet, and
+    // role-dashboard/payment-panel both hide the upload form for that status.
+    expect(getMemberNextAction([
+      { ...booking, id: "BK-PENDING", status: "pending_trainer", actions: { ...booking.actions, canPay: true, canReview: false } },
+      { ...booking, id: "BK-LATER", status: "payment_review" },
+    ])).toMatchObject({
+      title: "รอเทรนเนอร์ตอบรับคำขอ",
+      href: "/member#booking-BK-PENDING",
+      cta: "ดูสถานะ",
+      state: "waiting",
+    });
+  });
+
+  it("still prefers a payable request over one waiting for the trainer", () => {
+    expect(getMemberNextAction([
+      { ...booking, id: "BK-PENDING", status: "pending_trainer", actions: { ...booking.actions, canPay: true, canReview: false } },
+      { ...booking, id: "BK-PAY", status: "awaiting_payment", actions: { ...booking.actions, canPay: true, canReview: false } },
+    ])).toMatchObject({ href: "/member#booking-BK-PAY", cta: "อัปโหลดสลิป", state: "action" });
   });
 
   it("ignores an expired booking and shows payment review", () => {
@@ -77,6 +103,17 @@ describe("getMemberNextAction", () => {
 });
 
 describe("getTrainerNextAction", () => {
+  it("asks the trainer to answer a pending request before anything but slips", () => {
+    const request: Booking = { ...booking, id: "BK-REQ", status: "pending_trainer" };
+    expect(getTrainerNextAction(workspace, [request])).toMatchObject({ href: "/trainer#request-BK-REQ", cta: "ตอบคำขอ", state: "action" });
+    expect(getTrainerNextAction(workspace, [request], 1)).toMatchObject({ href: "/trainer#payment-review" });
+  });
+
+  it("names the upcoming session by the trainer-confirmed time", () => {
+    const confirmed: Booking = { ...booking, id: "BK-CONF", status: "confirmed", startsAt: "2026-10-01T02:00:00Z", confirmedStartsAt: "2026-10-01T05:00:00Z", actions: { ...booking.actions, canComplete: false } };
+    expect(getTrainerNextAction(workspace, [confirmed]).description).toContain("12:00");
+  });
+
   it("directs a trainer without a professional profile to finish setup", () => {
     expect(getTrainerNextAction(null, [])).toMatchObject({ href: "/trainer/apply", cta: "กรอกข้อมูลวิชาชีพ" });
   });
@@ -91,7 +128,7 @@ describe("getTrainerNextAction", () => {
       profile: { ...workspace.profile!, approvalStatus: "pending" },
       slots: [],
     }, [])).toMatchObject({
-      title: "รอผู้ดูแลตรวจใบสมัคร",
+      title: "รอผู้ดูแลระบบตรวจใบสมัคร",
       href: "/trainer#approval-status",
       cta: "ดูสถานะการสมัคร",
       state: "waiting",
@@ -115,8 +152,67 @@ describe("getTrainerNextAction", () => {
     expect(getTrainerNextAction({ ...workspace, slots: [] }, [])).toMatchObject({ href: "/trainer#availability", state: "action" });
   });
 
+  it("prompts for availability when every slot is already taken", () => {
+    expect(getTrainerNextAction({
+      ...workspace,
+      slots: [{ ...workspace.slots[0], state: "booked" }, { ...workspace.slots[0], id: 2, state: "held" }],
+    }, [])).toMatchObject({ href: "/trainer#availability", state: "action" });
+  });
+
+  it("surfaces slips that are waiting for the trainer's own review", () => {
+    expect(getTrainerNextAction(workspace, [], 2)).toMatchObject({
+      title: "ตรวจสลิปที่รออยู่",
+      description: "2 สลิปจากสมาชิกที่รอผลตรวจ",
+      href: "/trainer#payment-review",
+      cta: "เปิดคิวตรวจสลิป",
+      state: "action",
+    });
+    expect(getTrainerNextAction(workspace, [], 0).href).not.toBe("/trainer#payment-review");
+  });
+
   it("otherwise leads to the current schedule", () => {
     expect(getTrainerNextAction(workspace, [])).toMatchObject({ href: "/trainer#schedule" });
+  });
+
+  it("points to the next confirmed session when nothing is due to complete", () => {
+    expect(getTrainerNextAction(workspace, [{
+      ...booking,
+      id: "BK-NEXT",
+      status: "confirmed",
+      startsAt: "2026-08-14T02:00:00.000Z",
+      member: { displayName: "สมาชิกทดสอบ" },
+      actions: { ...booking.actions, canReadChat: false },
+    }])).toMatchObject({
+      title: "นัดถัดไป · สมาชิกทดสอบ",
+      href: "/trainer#booking-BK-NEXT",
+      cta: "ดูนัดหมาย",
+      state: "waiting",
+    });
+  });
+
+  it("prioritizes completing a due session over adding more availability", () => {
+    expect(getTrainerNextAction(workspace, [{
+      ...booking,
+      id: "BK-DONE",
+      status: "confirmed",
+      member: { displayName: "สมาชิกทดสอบ" },
+      actions: { ...booking.actions, canComplete: true },
+    }])).toMatchObject({
+      href: "/trainer#booking-BK-DONE",
+      cta: "บันทึกผลการฝึก",
+      state: "action",
+    });
+  });
+
+  it("does not offer completion for an invalid appointment time range", () => {
+    expect(getTrainerNextAction(workspace, [{
+      ...booking,
+      id: "BK-BAD-TIME",
+      status: "confirmed",
+      startsAt: "2026-09-12T04:00:00.000Z",
+      endsAt: "2026-09-12T03:00:00.000Z",
+      actions: { ...booking.actions, canComplete: true, canReadChat: false },
+    }])).toMatchObject({ state: "waiting", cta: "ดูนัดหมาย" });
   });
 });
 

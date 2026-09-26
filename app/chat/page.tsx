@@ -9,8 +9,8 @@ export default async function ChatPage({
 }) {
   const { booking } = await searchParams;
   return (
-    <main className="page-shell chat-page">
-      <section className="compact-page-heading"><h1>การสนทนาและรายละเอียดนัดหมาย</h1></section>
+    <main className="chat-page">
+      <h1 className="sr-only">การสนทนา</h1>
       <ChatWorkbench initialBookingId={booking} />
     </main>
   );

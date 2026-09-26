@@ -36,12 +36,22 @@ function env(string $key, ?string $fallback = null): ?string
 return [
     'environment' => env('APP_ENV', 'local'),
     'origin' => env('APP_ORIGIN', 'http://localhost:3000'),
+    'app_url' => rtrim((string) env('APP_URL', 'http://localhost:3000'), '/'),
     'database' => [
         'host' => env('DB_HOST', '127.0.0.1'),
         'port' => env('DB_PORT', '3306'),
         'name' => env('DB_NAME', 'fitconnect'),
         'user' => env('DB_USER', 'root'),
         'pass' => env('DB_PASS', ''),
+    ],
+    'mail' => [
+        'enabled' => filter_var(env('MAIL_ENABLED', 'false'), FILTER_VALIDATE_BOOL),
+        'host' => env('MAIL_HOST', 'smtp.gmail.com'),
+        'port' => (int) env('MAIL_PORT', '587'),
+        'username' => env('MAIL_USERNAME', ''),
+        'app_password' => env('MAIL_APP_PASSWORD', ''),
+        'from_email' => env('MAIL_FROM_EMAIL', ''),
+        'from_name' => env('MAIL_FROM_NAME', 'FitConnect'),
     ],
     'upload_max_bytes' => (int) env('UPLOAD_MAX_BYTES', '5242880'),
 ];

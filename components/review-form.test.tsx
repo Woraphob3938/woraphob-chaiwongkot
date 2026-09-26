@@ -25,6 +25,7 @@ function bookingFixture(overrides: Partial<Booking> = {}): Booking {
       canSendChat: false,
       canComplete: false,
       canReview: true,
+      canCancel: false,
     },
     createdAt: "2026-08-01T00:00:00.000Z",
     demo: false,
@@ -70,6 +71,21 @@ describe("ReviewForm", () => {
     expect(screen.getByText("สอนเข้าใจง่ายและดูแลท่าฝึกดี")).toBeVisible();
     expect(screen.queryByRole("button", { name: "ส่งรีวิว" })).not.toBeInTheDocument();
     expect(screen.queryByLabelText("ความคิดเห็น")).not.toBeInTheDocument();
+  });
+
+  it("never offers a second review when this booking already has one", () => {
+    render(<ReviewForm booking={bookingFixture({
+      review: {
+        rating: 5,
+        comment: "ฝึกเสร็จและรีวิวแล้ว",
+        status: "published",
+        createdAt: "2026-08-10T04:00:00.000Z",
+      },
+      actions: { ...bookingFixture().actions, canReview: true },
+    })} onUpdated={vi.fn()} />);
+
+    expect(screen.getByText("เผยแพร่แล้ว")).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "ส่งรีวิว" })).not.toBeInTheDocument();
   });
 
   it("submits the exact rating and trimmed comment before awaiting refresh", async () => {

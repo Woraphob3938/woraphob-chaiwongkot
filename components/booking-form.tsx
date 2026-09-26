@@ -17,14 +17,31 @@ import {
 } from "@/components/ui/dialog";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
-import { formatDateTime, formatMoney } from "@/lib/format";
+import { BookingProgress } from "@/components/booking-progress";
+import { formatDateTime, formatMoney, formatTimeRange } from "@/lib/format";
 import type { AvailabilitySlot, CreateBookingResponse, Trainer } from "@/lib/types";
 
-export function BookingForm({ trainerSlug, slotId }: { trainerSlug?: string; slotId?: string }) {
+function parseSlotIds(value?: string): number[] {
+  if (!value) return [];
+  return [...new Set(value.split(",").map(Number).filter((id) => Number.isInteger(id) && id > 0))];
+}
+
+export function BookingForm({
+  trainerSlug,
+  slotId,
+  bookingType = "single",
+  slotIds,
+}: {
+  trainerSlug?: string;
+  slotId?: string;
+  bookingType?: "single" | "monthly";
+  slotIds?: string;
+}) {
   const router = useRouter();
   const reviewButtonRef = useRef<HTMLButtonElement>(null);
   const [trainer, setTrainer] = useState<Trainer | null>(null);
   const [selectedSlot, setSelectedSlot] = useState<AvailabilitySlot | null>(null);
+  const [selectedSlots, setSelectedSlots] = useState<AvailabilitySlot[]>([]);
   const [slotUnavailable, setSlotUnavailable] = useState(false);
   const [loading, setLoading] = useState(Boolean(trainerSlug));
   const [loadError, setLoadError] = useState("");
@@ -40,9 +57,14 @@ export function BookingForm({ trainerSlug, slotId }: { trainerSlug?: string; slo
       .then((data) => {
         if (!active) return;
         const freshSlot = data.slots.find((item) => item.id === Number(slotId) && item.available) ?? null;
+        const requestedIds = parseSlotIds(slotIds);
+        const freshSlots = data.slots.filter((item) => requestedIds.includes(item.id) && item.available);
         setTrainer(data);
         setSelectedSlot(freshSlot);
-        setSlotUnavailable(false);
+        setSelectedSlots(freshSlots);
+        setSlotUnavailable(bookingType === "monthly"
+          ? requestedIds.length !== 1 || freshSlots.length !== 1
+          : false);
         setMessage("");
         setLoadError("");
       })
@@ -54,7 +76,7 @@ export function BookingForm({ trainerSlug, slotId }: { trainerSlug?: string; slo
         if (active) setLoading(false);
       });
     return () => { active = false; };
-  }, [slotId, trainerSlug]);
+  }, [bookingType, slotId, slotIds, trainerSlug]);
 
   async function reloadTrainer(showLoading = true) {
     if (!trainerSlug) return;
@@ -63,6 +85,13 @@ export function BookingForm({ trainerSlug, slotId }: { trainerSlug?: string; slo
     try {
       const freshTrainer = await apiRequest<Trainer>(`/v1/trainers/${encodeURIComponent(trainerSlug)}`, { cache: "no-store" });
       setTrainer(freshTrainer);
+      if (bookingType === "monthly") {
+        const requestedIds = parseSlotIds(slotIds);
+        const freshSlots = freshTrainer.slots.filter((item) => requestedIds.includes(item.id) && item.available);
+        setSelectedSlots(freshSlots);
+        setSlotUnavailable(requestedIds.length !== 1 || freshSlots.length !== 1);
+        return;
+      }
       const freshSlot = freshTrainer.slots.find((item) => item.id === Number(slotId) && item.available);
       if (freshSlot) {
         setSelectedSlot(freshSlot);
@@ -79,10 +108,20 @@ export function BookingForm({ trainerSlug, slotId }: { trainerSlug?: string; slo
 
   const preservedSlot = selectedSlot?.id === Number(slotId) ? selectedSlot : null;
   const slot = trainer?.slots.find((item) => item.id === Number(slotId) && item.available) ?? preservedSlot;
+  const monthly = bookingType === "monthly";
+  const selectionRequested = monthly
+    ? parseSlotIds(slotIds).length > 0
+    : Number.isInteger(Number(slotId)) && Number(slotId) > 0;
+  const monthlySelectionValid = Boolean(
+    trainer
+    && trainer.monthlyPrice
+    && trainer.monthlySessionCount
+    && selectedSlots.length === 1,
+  );
 
   async function onSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
-    if (!trainer || !slot || slotUnavailable) return;
+    if (!trainer || slotUnavailable || (monthly ? !monthlySelectionValid : !slot)) return;
 
     const token = typeof window !== "undefined" ? localStorage.getItem("fitconnect_token") : null;
     const userStr = typeof window !== "undefined" ? localStorage.getItem("fitconnect_user") : null;
@@ -104,14 +143,15 @@ export function BookingForm({ trainerSlug, slotId }: { trainerSlug?: string; slo
   }
 
   async function createBooking() {
-    if (!trainer || !slot || slotUnavailable || pending) return;
-
+    if (!trainer || slotUnavailable || pending || (monthly ? !monthlySelectionValid : !slot)) return;
     setPending(true);
     setMessage("");
     try {
       const booking = await authenticatedRequest<CreateBookingResponse>("/v1/bookings", {
         method: "POST",
-        body: JSON.stringify({ trainerId: trainer.id, slotId: slot.id, note }),
+        body: JSON.stringify(monthly
+          ? { trainerId: trainer.id, bookingType: "monthly", slotIds: selectedSlots.map((item) => item.id), note, ...(trainer.serviceMode === "both" ? { paymentServiceMode: "gym" } : {}) }
+          : { trainerId: trainer.id, slotId: slot?.id, note, ...(trainer.serviceMode === "both" ? { paymentServiceMode: "gym" } : {}) }),
       });
       router.push(`/member?booking=${encodeURIComponent(booking.id)}`);
     } catch (error) {
@@ -143,11 +183,15 @@ export function BookingForm({ trainerSlug, slotId }: { trainerSlug?: string; slo
     );
   }
 
-  if (!trainer || !slot) {
+  if (!trainer || (monthly ? !monthlySelectionValid : !slot)) {
     return (
       <div className="selection-missing">
         <CircleAlert aria-hidden="true" size={28} />
-        <h2>{message || trainer ? "ช่วงเวลาที่เลือกถูกเปลี่ยน" : "ยังเลือกเทรนเนอร์และเวลาไม่ครบ"}</h2>
+        <h2>{message || (!trainer
+          ? "ยังเลือกเทรนเนอร์และเวลาไม่ครบ"
+          : selectionRequested
+            ? "ช่วงเวลาที่เลือกถูกเปลี่ยน"
+            : "ยังไม่ได้เลือกเวลา")}</h2>
         {message && <p className="field-error" role="alert">{message}</p>}
         <p>กลับไปที่หน้าค้นหา เลือกโปรไฟล์ที่ผ่านการตรวจ และเลือกช่วงเวลาว่างก่อนส่งคำขอ</p>
         <Link className="button button--dark" href="/trainers"><ArrowLeft aria-hidden="true" size={18} /> กลับไปค้นหา</Link>
@@ -155,23 +199,37 @@ export function BookingForm({ trainerSlug, slotId }: { trainerSlug?: string; slo
     );
   }
 
-  const hasPrice = typeof trainer.priceFrom === "number" && trainer.priceFrom > 0;
+  const bookingPrice = monthly ? trainer.monthlyPrice : trainer.priceFrom;
+  const hasBookingPrice = typeof bookingPrice === "number" && bookingPrice > 0;
 
   return (
     <>
+      <BookingProgress current={0} className="booking-form__progress" />
       <form className="booking-form" aria-label="ยืนยันการจอง" onSubmit={onSubmit}>
         <div className="booking-summary">
           <p className="label">รายละเอียดที่เลือก</p>
-          <h2>จองกับ <span>{trainer.displayName}</span></h2>
+          <h2>{monthly ? "แพ็กเกจ 30 วัน" : "จองกับ"} <span>{trainer.displayName}</span></h2>
           <dl>
-            <div><dt>วันและเวลา</dt><dd>{formatDateTime(slot.startsAt)}</dd></div>
-            <div><dt>ค่าฝึกต่อครั้ง</dt><dd>{hasPrice ? formatMoney(trainer.priceFrom as number) : "ยังไม่กำหนด"}</dd></div>
+            {monthly ? (
+              <>
+                <div><dt>แพ็กเกจ</dt><dd>นัดแรก 1 จาก {trainer.monthlySessionCount} ครั้ง</dd></div>
+                <div><dt>นัดแรก</dt><dd>{formatDateTime(selectedSlots[0].startsAt)} · {formatTimeRange(selectedSlots[0].startsAt, selectedSlots[0].endsAt)}</dd></div>
+                <div><dt>นัดที่เหลือ</dt><dd>อีก {(trainer.monthlySessionCount as number) - 1} นัดจัดเวลาได้หลังการชำระเงินผ่าน</dd></div>
+              </>
+            ) : (
+              <div><dt>เวลาที่ขอ</dt><dd>{formatDateTime((slot as AvailabilitySlot).startsAt)}</dd></div>
+            )}
+            <div><dt>{monthly ? "ราคาแพ็กเกจ" : "ค่าฝึกต่อครั้ง"}</dt><dd>{hasBookingPrice ? formatMoney(bookingPrice as number) : "ยังไม่กำหนด"}</dd></div>
           </dl>
-          <p>เมื่อยืนยัน ระบบจะล็อกช่วงเวลานี้และให้คุณส่งหลักฐานชำระเงินภายใน 10 นาที</p>
+          <ul className="booking-summary__notes">
+            <li>เวลาฝึกเป็นเวลาที่คุณเลือก เทรนเนอร์ตอบรับแล้วระบบจะแจ้งยืนยันให้คุณในรอบ <strong>12:00</strong> หรือ <strong>18:00 น.</strong></li>
+            <li>เมื่อได้รับการยืนยัน คุณมีเวลา 10 นาทีส่งสลิป ถ้าไม่ส่งทันการจองจะหมดอายุและคืนเวลาอัตโนมัติ</li>
+            <li>ยกเลิกได้ก่อนส่งสลิป และยังไม่มีการเก็บเงินจนกว่าเทรนเนอร์ยืนยันเวลา</li>
+          </ul>
         </div>
         <div className="booking-fields">
           <div className="field"><Label htmlFor="booking-note">เป้าหมายหรือข้อจำกัดที่ควรรู้ (ไม่บังคับ)</Label><Textarea id="booking-note" name="note" rows={5} value={note} onChange={(event) => setNote(event.target.value)} placeholder="เช่น ต้องการเริ่มเวทเบื้องต้น มีอาการเจ็บเข่า" /></div>
-          {!hasPrice && (
+          {!hasBookingPrice && (
             <div className="form-message form-message--error" role="alert">
               <CircleAlert aria-hidden="true" size={18} /> เทรนเนอร์ยังไม่ได้กำหนดค่าฝึก
             </div>
@@ -183,11 +241,31 @@ export function BookingForm({ trainerSlug, slotId }: { trainerSlug?: string; slo
               <Link href={`/trainers/${trainer.slug}`}>เลือกเวลาอื่น</Link>
             </div>
           )}
+          <p className="admin-inline-note">{trainer.serviceMode === "gym" || trainer.serviceMode === "both"
+            ? "ชำระค่าบริการของเทรนเนอร์ประจำยิม หลักฐานจะส่งถึงยิม และเทรนเนอร์เป็นผู้ยืนยัน"
+            : "ชำระให้เทรนเนอร์โดยตรง เทรนเนอร์เป็นผู้ตรวจสลิป"}</p>
           <div className="form-message-slot" aria-live="polite">
-            {message && <div className="form-message form-message--error" role="alert"><CircleAlert aria-hidden="true" size={18} /> {message}</div>}
+            {message && (
+              <div className="form-message form-message--error" role="alert">
+                <CircleAlert aria-hidden="true" size={18} />
+                <span>{message}</span>
+                {message === "กรุณาเข้าสู่ระบบเพื่อทำการขอจอง" && (
+                  <Link
+                    className="button button--dark button--sm"
+                    href={`/login?redirect=${encodeURIComponent(
+                      typeof window !== "undefined"
+                        ? `${window.location.pathname}${window.location.search}`
+                        : `/booking?trainer=${encodeURIComponent(trainer?.slug ?? trainerSlug ?? "")}&slot=${encodeURIComponent(slot?.id ?? slotId ?? "")}`,
+                    )}`}
+                  >
+                    เข้าสู่ระบบทันที
+                  </Link>
+                )}
+              </div>
+            )}
           </div>
-          <Button ref={reviewButtonRef} className="button button--accent button--wide" type="submit" disabled={pending || slotUnavailable || !hasPrice}>
-            ตรวจสอบและยืนยัน <ArrowRight aria-hidden="true" size={18} />
+          <Button ref={reviewButtonRef} className="button button--accent button--wide" type="submit" disabled={pending || slotUnavailable || !hasBookingPrice}>
+            ตรวจสอบและส่งคำขอ <ArrowRight aria-hidden="true" size={18} />
           </Button>
         </div>
       </form>
@@ -201,24 +279,26 @@ export function BookingForm({ trainerSlug, slotId }: { trainerSlug?: string; slo
           }}
         >
           <DialogHeader>
-            <DialogTitle>ยืนยันและเริ่มเวลา 10 นาที</DialogTitle>
+            <DialogTitle>ส่งคำขอจองนี้?</DialogTitle>
             <DialogDescription>
-              ตรวจรายละเอียดให้เรียบร้อย เพราะระบบจะเก็บเวลานี้ไว้ 10 นาทีหลังยืนยัน
+              คำขอจะส่งถึงเทรนเนอร์ทันที เมื่อเทรนเนอร์ตอบรับ ระบบจะแจ้งยืนยันให้คุณในรอบ 12:00 หรือ 18:00 น. แล้วเริ่มนับเวลา 10 นาทีสำหรับชำระเงิน
             </DialogDescription>
           </DialogHeader>
           <dl className="booking-confirm-facts">
             <div><dt>เทรนเนอร์</dt><dd>{trainer.displayName}</dd></div>
-            <div><dt>วันและเวลา</dt><dd>{formatDateTime(slot.startsAt)}</dd></div>
-            <div><dt>ค่าฝึกต่อครั้ง</dt><dd>{formatMoney(trainer.priceFrom as number)}</dd></div>
+            {monthly
+              ? <><div><dt>แพ็กเกจ</dt><dd>{trainer.monthlySessionCount} ครั้ง ภายใน 30 วัน</dd></div><div><dt>นัดแรก</dt><dd>{formatDateTime(selectedSlots[0].startsAt)} · {formatTimeRange(selectedSlots[0].startsAt, selectedSlots[0].endsAt)}</dd></div><div><dt>จัดภายหลัง</dt><dd>อีก {(trainer.monthlySessionCount as number) - 1} นัด หลังชำระเงินผ่าน</dd></div></>
+              : <div><dt>เวลาที่ขอ</dt><dd>{formatDateTime((slot as AvailabilitySlot).startsAt)}</dd></div>}
+            <div><dt>{monthly ? "ราคาแพ็กเกจ" : "ค่าฝึกต่อครั้ง"}</dt><dd>{formatMoney(bookingPrice as number)}</dd></div>
           </dl>
           <DialogFooter>
             <DialogClose asChild>
               <Button variant="outline" type="button" disabled={pending}>กลับไปแก้ไข</Button>
             </DialogClose>
-            <Button type="button" disabled={pending} onClick={() => void createBooking()}>
+            <Button className="button button--accent" type="button" disabled={pending} onClick={() => void createBooking()}>
               {pending
-                ? <><LoaderCircle className="spin" aria-hidden="true" /> กำลังจอง…</>
-                : "ยืนยันและเริ่มเวลา 10 นาที"}
+                ? <><LoaderCircle className="spin" aria-hidden="true" /> กำลังส่งคำขอ…</>
+                : "ส่งคำขอจอง"}
             </Button>
           </DialogFooter>
         </DialogContent>

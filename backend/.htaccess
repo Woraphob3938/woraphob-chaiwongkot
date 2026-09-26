@@ -7,6 +7,14 @@ Options -Indexes
 
 <IfModule mod_rewrite.c>
   RewriteEngine On
+
+  # Refuse the server-side source trees outright. htdocs/fitconnect-api is a
+  # junction to backend/, so without this every .php file under them — config,
+  # Handlers, the CLI workers, the test suite — is anonymously reachable and
+  # executed. mod_rewrite above would only rewrite paths that do not exist,
+  # and these do. Must stay ahead of the front-controller rule below.
+  RewriteRule ^(?:src|tests|database|scripts|uploads)/ - [F,L]
+
   RewriteCond %{HTTP:Authorization} .
   RewriteRule .* - [E=HTTP_AUTHORIZATION:%{HTTP:Authorization}]
   RewriteCond %{REQUEST_FILENAME} !-f

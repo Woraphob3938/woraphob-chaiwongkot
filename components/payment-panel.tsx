@@ -1,13 +1,17 @@
 "use client";
 
 import { FormEvent, useEffect, useId, useRef, useState } from "react";
-import { RefreshCw } from "lucide-react";
-import { authenticatedRequest } from "@/lib/api";
+import Image from "next/image";
+import { ChevronDown, Copy, Landmark, RefreshCw, ShieldCheck } from "lucide-react";
+import { QRCodeSVG } from "qrcode.react";
+import { apiAssetUrl, authenticatedRequest } from "@/lib/api";
 import type { Booking } from "@/lib/types";
 import { DisclosureSection } from "@/components/disclosure-section";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import { maskPromptPayId, promptPayPayload } from "@/lib/promptpay";
+import { formatAmount, formatBankAccountNumber, paymentStatusCopy } from "@/lib/payment-copy";
 
 const MAX_SLIP_SIZE = 5 * 1024 * 1024;
 const ACCEPTED_SLIP_TYPES = new Set([
@@ -17,30 +21,20 @@ const ACCEPTED_SLIP_TYPES = new Set([
   "application/pdf",
 ]);
 
-const paymentStatusCopy: Record<Booking["paymentStatus"], string> = {
-  not_submitted: "ยังไม่ส่งหลักฐาน",
-  reviewing: "รอผู้ดูแลตรวจสลิป",
-  approved: "ผู้ดูแลตรวจสลิปแล้ว",
-  rejected: "ผู้ดูแลขอหลักฐานใหม่",
-};
-
-function formatAmount(amount: number | null): string {
-  return amount === null
-    ? "ไม่มียอดที่บันทึก"
-    : `${new Intl.NumberFormat("th-TH", { minimumFractionDigits: 2, maximumFractionDigits: 2 }).format(amount)} บาท`;
-}
-
 type PaymentPanelProps = {
   booking: Booking;
   onUpdated: () => Promise<void> | void;
 };
 
+function isPendingTrainer(booking: { status: string }) {
+  return booking.status === "pending_trainer";
+}
+
 export function PaymentPanel({ booking, onUpdated }: PaymentPanelProps) {
   const amountId = useId();
   const slipId = useId();
-  const [amount, setAmount] = useState("");
   const [slip, setSlip] = useState<File | null>(null);
-  const [fieldErrors, setFieldErrors] = useState<{ amount?: string; slip?: string }>({});
+  const [fieldErrors, setFieldErrors] = useState<{ slip?: string }>({});
   const [requestError, setRequestError] = useState<"upload" | "refresh" | null>(null);
   const [requestMessage, setRequestMessage] = useState("");
   const [notice, setNotice] = useState("");
@@ -48,17 +42,22 @@ export function PaymentPanel({ booking, onUpdated }: PaymentPanelProps) {
   const [uploaded, setUploaded] = useState(false);
   const busyRef = useRef(false);
   const feedbackRef = useRef<HTMLDivElement | HTMLParagraphElement>(null);
+  const [previewUrl, setPreviewUrl] = useState<string | null>(null);
+
+  useEffect(() => {
+    return () => {
+      if (previewUrl && typeof URL?.revokeObjectURL === "function") {
+        URL.revokeObjectURL(previewUrl);
+      }
+    };
+  }, [previewUrl]);
 
   useEffect(() => {
     if (requestMessage || notice) feedbackRef.current?.focus();
   }, [notice, requestMessage]);
 
   function validate(): boolean {
-    const nextErrors: { amount?: string; slip?: string } = {};
-    const numericAmount = Number(amount);
-    if (amount.trim() === "" || !Number.isFinite(numericAmount) || numericAmount <= 0) {
-      nextErrors.amount = "กรุณาระบุยอดที่โอนเป็นจำนวนมากกว่า 0 บาท";
-    }
+    const nextErrors: { slip?: string } = {};
     if (!slip) {
       nextErrors.slip = "กรุณาเลือกไฟล์หลักฐานการโอน";
     } else if (!ACCEPTED_SLIP_TYPES.has(slip.type)) {
@@ -74,6 +73,10 @@ export function PaymentPanel({ booking, onUpdated }: PaymentPanelProps) {
     setNotice("");
     setRequestError(null);
     setRequestMessage("");
+    if (previewUrl && typeof URL?.revokeObjectURL === "function") {
+      URL.revokeObjectURL(previewUrl);
+      setPreviewUrl(null);
+    }
     if (!file) {
       setSlip(null);
       setFieldErrors((current) => ({ ...current, slip: "กรุณาเลือกไฟล์หลักฐานการโอน" }));
@@ -90,6 +93,9 @@ export function PaymentPanel({ booking, onUpdated }: PaymentPanelProps) {
       return;
     }
     setSlip(file);
+    if (file.type.startsWith("image/") && typeof URL?.createObjectURL === "function") {
+      setPreviewUrl(URL.createObjectURL(file));
+    }
     setFieldErrors((current) => ({ ...current, slip: undefined }));
   }
 
@@ -105,13 +111,12 @@ export function PaymentPanel({ booking, onUpdated }: PaymentPanelProps) {
 
     const body = new FormData();
     body.set("bookingId", booking.id);
-    body.set("amount", amount);
     body.set("slip", slip);
 
     try {
       await authenticatedRequest("/v1/payments", { method: "POST", body });
       setUploaded(true);
-      setNotice("ส่งสลิปให้ผู้ดูแลตรวจแล้ว ผู้ดูแลจะตรวจหลักฐานด้วยตนเอง");
+      setNotice("ส่งสลิปให้ผู้รับผิดชอบตรวจแล้ว การชำระเงินจะยืนยันหลังตรวจหลักฐานผ่าน");
     } catch (error) {
       setRequestError("upload");
       setRequestMessage(error instanceof Error ? error.message : "อัปโหลดสลิปไม่สำเร็จ กรุณาลองอีกครั้ง");
@@ -151,11 +156,16 @@ export function PaymentPanel({ booking, onUpdated }: PaymentPanelProps) {
     }
   }
 
-  const amountErrorId = `${amountId}-error`;
   const slipErrorId = `${slipId}-error`;
   const slipGuideId = `${slipId}-guide`;
-  const canUpload = booking.actions.canPay && !uploaded;
+  const canUpload = booking.actions.canPay && !uploaded && booking.paymentRecipient !== null && booking.paymentRecipient !== undefined && booking.quotedPrice !== null;
   const visiblePaymentStatus = uploaded ? paymentStatusCopy.reviewing : paymentStatusCopy[booking.paymentStatus];
+  const qrPayload = canUpload ? promptPayPayload(booking.paymentRecipient!.promptPayId, booking.quotedPrice!) : null;
+  const recipientQrUrl = canUpload ? booking.paymentRecipient!.paymentQrUrl ?? null : null;
+
+  // While the request still waits for the trainer's answer there is nothing to
+  // pay yet: no QR, no upload form, no clock. The whole panel steps aside.
+  if (isPendingTrainer(booking)) return null;
 
   return (
     <section className="payment-panel guided-transaction-panel" aria-labelledby={`${amountId}-title`}>
@@ -163,7 +173,7 @@ export function PaymentPanel({ booking, onUpdated }: PaymentPanelProps) {
         <span>สถานะหลักฐาน</span>
         <strong id={`${amountId}-title`}>{visiblePaymentStatus}</strong>
         {booking.payment?.reviewNote && (
-          <p><span>หมายเหตุจากผู้ดูแล</span>{booking.payment.reviewNote}</p>
+          <p><span>หมายเหตุจากผู้ตรวจสลิป</span>{booking.payment.reviewNote}</p>
         )}
       </div>
 
@@ -171,29 +181,73 @@ export function PaymentPanel({ booking, onUpdated }: PaymentPanelProps) {
         <form className="booking-fields payment-panel__form transaction-primary-action" onSubmit={submit} aria-busy={busy} noValidate>
           <div className="transaction-primary-action__heading">
             <strong>{booking.paymentStatus === "rejected" ? "สลิปไม่ผ่าน กรุณาส่งใหม่ภายใน 10 นาที" : "อัปโหลดสลิปภายใน 10 นาที"}</strong>
-            <span>ผู้ดูแลจะตรวจหลักฐานด้วยตนเอง</span>
+            <span>{booking.paymentServiceMode === "freelance" ? "เทรนเนอร์ตรวจหลักฐานด้วยตนเอง" : booking.paymentServiceMode === "gym" ? "หลักฐานส่งถึงยิม และเทรนเนอร์ประจำยิมเป็นผู้ยืนยัน" : "ผู้รับผิดชอบจะตรวจหลักฐานด้วยตนเอง"}</span>
           </div>
-          <div className="form-grid">
-            <div className="field">
-              <Label htmlFor={amountId}>ยอดที่โอน</Label>
-              <Input
-                id={amountId}
-                type="number"
-                min="0.01"
-                step="0.01"
-                inputMode="decimal"
-                value={amount}
-                disabled={busy}
-                aria-invalid={Boolean(fieldErrors.amount)}
-                aria-describedby={fieldErrors.amount ? amountErrorId : undefined}
-                onChange={(event) => {
-                  setAmount(event.target.value);
-                  setFieldErrors((current) => ({ ...current, amount: undefined }));
-                }}
-              />
-              {fieldErrors.amount && <small className="field-error" id={amountErrorId}>{fieldErrors.amount}</small>}
+          <div className="payment-qr-card">
+            <div className="payment-qr-card__code">
+              {/* The trainer's own uploaded QR leads, because that is the account
+                  they chose to present. The generated QR (amount included) stays
+                  one disclosure away for a member who would rather not type it. */}
+              {recipientQrUrl ? (
+                <Image
+                  src={apiAssetUrl(recipientQrUrl) as string}
+                  alt={`QR รับเงินของ ${booking.paymentRecipient!.accountName}`}
+                  width={184}
+                  height={184}
+                  unoptimized
+                />
+              ) : (
+                <QRCodeSVG value={qrPayload!} size={184} level="M" title={`QR พร้อมเพย์สำหรับ ${booking.paymentRecipient!.accountName}`} />
+              )}
             </div>
-            <div className="field">
+            <div className="payment-qr-card__details">
+              <span>สแกนด้วยแอปธนาคาร</span>
+              <strong>{booking.paymentRecipient!.accountName}</strong>
+              <p>พร้อมเพย์ {maskPromptPayId(booking.paymentRecipient!.promptPayId)}</p>
+              <p className="payment-qr-card__amount">{formatAmount(booking.quotedPrice)}</p>
+              {recipientQrUrl && (
+                <small className="payment-qr-card__note">
+                  QR นี้เป็นภาพที่เทรนเนอร์อัปโหลด ตรวจชื่อผู้รับในแอปให้ตรงก่อนโอน แล้วกรอกยอด {formatAmount(booking.quotedPrice)} เอง
+                </small>
+              )}
+              <Button className="button" type="button" disabled={busy} onClick={() => {
+                void navigator.clipboard.writeText(booking.paymentRecipient!.promptPayId).then(() => setNotice("คัดลอกหมายเลขพร้อมเพย์แล้ว"));
+              }}>
+                <Copy aria-hidden="true" size={16} /> คัดลอกพร้อมเพย์
+              </Button>
+            </div>
+          </div>
+          {booking.paymentRecipient!.bankAccount && (
+            <div className="payment-bank-card" aria-label="โอนเข้าบัญชีธนาคาร">
+              <div className="payment-bank-card__icon" aria-hidden="true"><Landmark size={20} /></div>
+              <div className="payment-bank-card__details">
+                <span>หรือโอนเข้าบัญชีธนาคาร</span>
+                <strong>{booking.paymentRecipient!.bankAccount.bankName}</strong>
+                <p>{booking.paymentRecipient!.bankAccount.accountName}</p>
+                <p className="payment-bank-card__number">{formatBankAccountNumber(booking.paymentRecipient!.bankAccount.accountNumber)}</p>
+              </div>
+              <Button className="button" type="button" disabled={busy} onClick={() => {
+                void navigator.clipboard.writeText(booking.paymentRecipient!.bankAccount!.accountNumber).then(() => setNotice("คัดลอกเลขบัญชีแล้ว"));
+              }}>
+                <Copy aria-hidden="true" size={16} /> คัดลอกเลขบัญชี
+              </Button>
+            </div>
+          )}
+          {recipientQrUrl && (
+            <details className="trainer-disclosure payment-qr-generated">
+              <summary>
+                <span><strong>หรือใช้ QR พร้อมยอดเงิน</strong></span>
+                <small>{formatAmount(booking.quotedPrice)}</small>
+                <ChevronDown className="trainer-disclosure__chevron" aria-hidden="true" size={18} />
+              </summary>
+              <div className="payment-qr-card__code">
+                <QRCodeSVG value={qrPayload!} size={184} level="M" title={`QR พร้อมเพย์สำหรับ ${booking.paymentRecipient!.accountName}`} />
+              </div>
+              <p className="profile-group__hint">QR นี้สร้างจากพร้อมเพย์ของเทรนเนอร์และมียอดเงินในตัว ไม่ต้องกรอกยอดเอง</p>
+            </details>
+          )}
+          <div className="form-grid">
+            <div className="field field--full">
               <Label htmlFor={slipId}>หลักฐานการโอน</Label>
               <Input
                 className="payment-slip-input"
@@ -209,13 +263,24 @@ export function PaymentPanel({ booking, onUpdated }: PaymentPanelProps) {
               <output className="payment-selected-file" htmlFor={slipId}>
                 {slip ? <>ไฟล์ที่เลือก: <strong>{slip.name}</strong></> : "ยังไม่ได้เลือกไฟล์"}
               </output>
+              {previewUrl && (
+                <div className="payment-slip-preview">
+                  {/* eslint-disable-next-line @next/next/no-img-element */}
+                  <img src={previewUrl} alt="ตัวอย่างสลิปที่เลือก" />
+                </div>
+              )}
               {fieldErrors.slip && <small className="field-error" id={slipErrorId}>{fieldErrors.slip}</small>}
             </div>
           </div>
+          <p className="payment-bank-check-note"><ShieldCheck aria-hidden="true" size={18} /> ผู้ตรวจจะยืนยันหลังพบยอดนี้ในรายการเงินจริงของแอปธนาคาร</p>
           <Button className="button button--accent" type="submit" disabled={busy}>
             {busy ? "กำลังส่งสลิป…" : requestError === "upload" ? "ลองส่งอีกครั้ง" : "ส่งสลิปให้ตรวจ"}
           </Button>
         </form>
+      )}
+
+      {booking.actions.canPay && !uploaded && !canUpload && (
+        <div className="workbench-error" role="alert">เทรนเนอร์ยังไม่ได้ตั้งค่าพร้อมเพย์ กรุณาติดต่อเทรนเนอร์ก่อนชำระเงิน</div>
       )}
 
       {!booking.actions.canPay && !uploaded && (
@@ -235,7 +300,7 @@ export function PaymentPanel({ booking, onUpdated }: PaymentPanelProps) {
       <DisclosureSection title="รายละเอียดหลักฐานเดิม" summary={booking.payment ? "มีหลักฐานที่เคยส่ง" : "ยังไม่มีหลักฐานเดิม"}>
         <div className="ledger-row"><span>รหัสคำขอ</span><strong>{booking.id}</strong></div>
         <div className="ledger-row"><span>เทรนเนอร์</span><strong>{booking.trainer.displayName}</strong></div>
-        <div className="ledger-row"><span>ค่าฝึกต่อครั้ง</span><strong>{formatAmount(booking.quotedPrice)}</strong></div>
+        <div className="ledger-row"><span>{booking.bookingType === "monthly" ? "ราคาแพ็กเกจ" : "ค่าฝึกต่อครั้ง"}</span><strong>{formatAmount(booking.quotedPrice)}</strong></div>
         <div className="ledger-row"><span>ยอดที่เคยส่ง</span><strong>{formatAmount(booking.payment?.amount ?? null)}</strong></div>
       </DisclosureSection>
     </section>

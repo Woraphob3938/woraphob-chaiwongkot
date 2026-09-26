@@ -1,20 +1,31 @@
 "use client";
 
 import Image from "next/image";
+import Link from "next/link";
 import { useEffect, useState } from "react";
-import { MessageSquareText, Pencil } from "lucide-react";
+import { ArrowLeft, Award, CalendarClock, Dumbbell, MessageSquareText, Pencil, Star } from "lucide-react";
 import { CredentialCard } from "@/components/credential-card";
-import { DemoNotice } from "@/components/demo-notice";
 import { DisclosureSection } from "@/components/disclosure-section";
 import { ProfileBookingPanel } from "@/components/profile-booking-panel";
 import { StatusBadge } from "@/components/status-badge";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { authenticatedRequest } from "@/lib/api";
-import { formatMoney } from "@/lib/format";
-import type { AvailabilitySlot, Trainer, TrainerWorkspace } from "@/lib/types";
+import { apiAssetUrl, authenticatedRequest } from "@/lib/api";
+import { formatMoney, formatShortDay, formatTrainingTypeName } from "@/lib/format";
+import type { AvailabilitySlot, PublicTrainerReview, Trainer, TrainerWorkspace } from "@/lib/types";
 
-export function TrainerDetail({ trainer, isDemo }: { trainer: Trainer; isDemo: boolean }) {
+function TrainerReview({ review }: { review: PublicTrainerReview }) {
+  return (
+    <article className="trainer-review">
+      <strong>{review.rating} จาก 5 ดาว</strong>
+      <time dateTime={review.createdAt}>{formatShortDay(review.createdAt)}</time>
+      <p>{review.comment}</p>
+    </article>
+  );
+}
+
+export function TrainerDetail({ trainer, returnTo = "/trainers" }: { trainer: Trainer; returnTo?: string }) {
+  const backHref = returnTo === "/trainers" || returnTo.startsWith("/trainers?") ? returnTo : "/trainers";
   const [slot, setSlot] = useState<AvailabilitySlot | null>(null);
   const [priceOverride, setPriceOverride] = useState<{ trainerId: number; value: number } | null>(null);
   const [editingPrice, setEditingPrice] = useState(false);
@@ -23,11 +34,21 @@ export function TrainerDetail({ trainer, isDemo }: { trainer: Trainer; isDemo: b
   const [editableTrainerId, setEditableTrainerId] = useState<number | null>(null);
   const [priceMessage, setPriceMessage] = useState("");
   const [priceError, setPriceError] = useState(false);
+  const [reviewPage, setReviewPage] = useState(1);
+  const [activeIndex, setActiveIndex] = useState(0);
   const headingId = `trainer-profile-heading-${trainer.id}`;
   const currentPrice = priceOverride?.trainerId === trainer.id
     ? priceOverride.value
     : (trainer.priceFrom ?? null);
   const canEditPrice = editableTrainerId === trainer.id;
+  const reviews = trainer.reviews ?? [];
+  const reviewsPerPage = 3;
+  const reviewPageCount = Math.max(1, Math.ceil(reviews.length / reviewsPerPage));
+  const currentReviewPage = Math.min(reviewPage, reviewPageCount);
+  const visibleReviews = reviews.slice((currentReviewPage - 1) * reviewsPerPage, currentReviewPage * reviewsPerPage);
+  const reviewSummary = trainer.reviewCount > 0 && trainer.rating != null
+    ? `${trainer.rating} จาก 5 · ${trainer.reviewCount} รีวิว`
+    : "ยังไม่มีรีวิวจากการฝึกที่เสร็จแล้ว";
 
   useEffect(() => {
     let active = true;
@@ -80,38 +101,88 @@ export function TrainerDetail({ trainer, isDemo }: { trainer: Trainer; isDemo: b
   }
 
   const currentTrainer = { ...trainer, priceFrom: currentPrice };
+  // Live profiles carry a relative `/v1/profile-images/...` path that
+  // `next/image` would resolve against the Next origin and refuse with a 400.
+  const imageUrl = apiAssetUrl(trainer.image ?? null);
+  const gallery = [imageUrl, ...(trainer.photos ?? []).map((photo) => apiAssetUrl(photo.url))]
+    .filter((url): url is string => Boolean(url));
+  const activeImage = gallery[Math.min(activeIndex, gallery.length - 1)] ?? null;
 
   return (
     <>
-      {isDemo && <DemoNotice />}
+      <div className="trainer-detail-toolbar">
+        <Button asChild variant="outline">
+          <Link href={backHref}><ArrowLeft aria-hidden="true" size={17} /> ย้อนกลับ</Link>
+        </Button>
+      </div>
       <div className="trainer-detail-layout trainer-commerce-layout">
         <section className="trainer-detail-media" aria-label={`ภาพโปรไฟล์ของ ${trainer.displayName}`}>
           <div className="trainer-detail-photo">
-            {trainer.image && (
+            {activeImage && (
               <Image
-                src={trainer.image}
-                alt={trainer.demo
-                  ? `ภาพสังเคราะห์ของ${trainer.displayName} ใช้เพื่อสาธิต`
-                  : `ภาพบุคคลของ${trainer.displayName}`}
+                key={activeImage}
+                src={activeImage}
+                alt={activeIndex === 0 ? `รูปโปรไฟล์ของ${trainer.displayName}` : `รูปที่ ${activeIndex + 1} ของ${trainer.displayName}`}
                 fill
-                priority
-                loading="eager"
-                fetchPriority="high"
-                sizes="(max-width: 768px) 50vw, 31vw"
+                priority={activeIndex === 0}
+                loading={activeIndex === 0 ? "eager" : undefined}
+                fetchPriority={activeIndex === 0 ? "high" : undefined}
+                sizes="(max-width: 768px) 90vw, 24vw"
               />
             )}
-            {trainer.demo && <div className="portrait-stamp">ภาพสังเคราะห์ · สาธิต</div>}
+            {trainer.demo && <span className="trainer-demo-label">ภาพสาธิต</span>}
+            {gallery.length > 1 && <span className="trainer-gallery__count">{activeIndex + 1} / {gallery.length}</span>}
           </div>
+          {gallery.length > 1 && (
+            <ul className="trainer-gallery__thumbs" aria-label="รูปทั้งหมดของเทรนเนอร์">
+              {gallery.map((url, index) => (
+                <li key={url}>
+                  <button
+                    type="button"
+                    className={index === activeIndex ? "is-active" : undefined}
+                    aria-label={`ดูรูปที่ ${index + 1}`}
+                    aria-pressed={index === activeIndex}
+                    onClick={() => setActiveIndex(index)}
+                  >
+                    <Image src={url} alt="" fill sizes="80px" />
+                  </button>
+                </li>
+              ))}
+            </ul>
+          )}
         </section>
 
         <section className="trainer-detail-copy trainer-profile-summary" aria-labelledby={headingId}>
-          <p className="profile-id">โปรไฟล์เทรนเนอร์ #{String(trainer.id).padStart(3, "0")}</p>
           <h1 id={headingId}>{trainer.displayName}</h1>
+          {trainer.nickname && <p className="trainer-nickname">ชื่อเล่น {trainer.nickname}</p>}
           <p className="lead">{trainer.headline}</p>
           <p>{trainer.bio}</p>
           <div className="trainer-detail-status"><StatusBadge status={trainer.verification} /></div>
+          {trainer.trainingTypes.length > 0 && (
+            <ul className="trainer-type-chips" aria-label="ความเชี่ยวชาญ">
+              {trainer.trainingTypes.map((type) => (
+                <li key={type.id}>{formatTrainingTypeName(type.nameTh)}</li>
+              ))}
+            </ul>
+          )}
+          <dl className="trainer-quick-facts">
+            <div>
+              <dt><Award aria-hidden="true" size={16} /> ประสบการณ์</dt>
+              <dd>{trainer.yearsExperience} <small>ปี</small></dd>
+            </div>
+            <div>
+              <dt><Star aria-hidden="true" size={16} /> คะแนนรีวิว</dt>
+              <dd>{trainer.reviewCount > 0 && trainer.rating != null ? trainer.rating.toFixed(1) : "–"} <small>{trainer.reviewCount} รีวิว</small></dd>
+            </div>
+            <div>
+              <dt><Dumbbell aria-hidden="true" size={16} /> ใบรับรอง</dt>
+              <dd>{trainer.certificates.length} <small>รายการ</small></dd>
+            </div>
+          </dl>
           <div className="detail-meta">
-            <span><MessageSquareText aria-hidden="true" size={17} /> ยังไม่มีรีวิวจริง</span>
+            {reviews.length > 0
+              ? <a className="trainer-review-jump" href="#trainer-reviews"><MessageSquareText aria-hidden="true" size={17} /> {reviewSummary}</a>
+              : <span><MessageSquareText aria-hidden="true" size={17} /> {reviewSummary}</span>}
             <div className="price-session">
               <span className="label">ค่าฝึกต่อครั้ง</span>
               <div className="price-editor-inline">
@@ -172,6 +243,48 @@ export function TrainerDetail({ trainer, isDemo }: { trainer: Trainer; isDemo: b
 
         <ProfileBookingPanel trainer={currentTrainer} selectedSlot={slot} onSelectSlot={setSlot} />
       </div>
+      <a className="trainer-mobile-booking-action" href="#booking-panel">
+        <CalendarClock aria-hidden="true" /> เลือกเวลาฝึก
+      </a>
+      <section id="trainer-reviews" className="trainer-reviews" aria-labelledby="trainer-reviews-heading">
+          <header className="trainer-reviews__heading">
+            <div>
+              <h2 id="trainer-reviews-heading">รีวิวจากสมาชิก</h2>
+              <p>เฉพาะรีวิวจากการจองที่ฝึกเสร็จแล้ว</p>
+            </div>
+            <strong>{reviewSummary}</strong>
+          </header>
+
+          {reviews.length > 0 ? (
+            <>
+              <div className="trainer-review-list">
+                {visibleReviews.map((review) => (
+                  <TrainerReview key={`${review.createdAt}-${review.comment}`} review={review} />
+                ))}
+              </div>
+              {reviewPageCount > 1 && (
+                <nav className="trainer-review-pagination" aria-label="หน้ารายการรีวิว">
+                  {Array.from({ length: reviewPageCount }, (_, index) => index + 1).map((page) => (
+                    <button
+                      key={page}
+                      type="button"
+                      className={page === currentReviewPage ? "is-current" : undefined}
+                      aria-label={`หน้ารีวิว ${page}`}
+                      aria-current={page === currentReviewPage ? "page" : undefined}
+                      onClick={() => setReviewPage(page)}
+                    >
+                      {page}
+                    </button>
+                  ))}
+                </nav>
+              )}
+            </>
+          ) : (
+            <p className="trainer-reviews__empty">ยังไม่มีรีวิวจากการฝึกที่เสร็จแล้ว</p>
+          )}
+
+          <a className="trainer-reviews__booking-link" href="#booking-panel">กลับไปเลือกเวลา</a>
+      </section>
     </>
   );
 }

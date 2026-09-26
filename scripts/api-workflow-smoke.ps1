@@ -125,6 +125,7 @@ if ($Scenario -in @('booking', 'all')) {
     $acceptedBooking = (
         Invoke-RestMethod -Method Post -Uri "$ApiUrl/v1/bookings" -Headers $memberHeaders -ContentType 'application/json' -Body $bookingBody
     ).data
+    Assert-True ($acceptedBooking.status -eq 'pending_trainer') 'New booking must wait for the trainer decision'
 
     Expect-Status 409 {
         Invoke-RestMethod -Method Delete -Uri "$ApiUrl/v1/availability-slots/$($acceptedSlot.id)" -Headers $trainerHeaders
@@ -137,17 +138,20 @@ if ($Scenario -in @('booking', 'all')) {
     }
 
     $accepted = (
-        Invoke-RestMethod -Method Patch -Uri "$ApiUrl/v1/bookings/$($acceptedBooking.id)/status" -Headers $trainerHeaders -ContentType 'application/json' -Body (@{ status = 'awaiting_payment'; quotedPrice = 1200 } | ConvertTo-Json)
+        Invoke-RestMethod -Method Patch -Uri "$ApiUrl/v1/bookings/$($acceptedBooking.id)/status" -Headers $trainerHeaders -ContentType 'application/json' -Body ([Text.Encoding]::UTF8.GetBytes((@{ status = 'awaiting_payment'; confirmedTime = 'as_requested' } | ConvertTo-Json)))
     ).data
     Assert-True ($accepted.status -eq 'awaiting_payment') 'Trainer acceptance must move booking to awaiting_payment'
-    Assert-True ([decimal]$accepted.quotedPrice -eq 1200) 'Trainer acceptance must save the final quote'
+    Assert-True ([decimal]$accepted.quotedPrice -eq [decimal]$acceptedBooking.quotedPrice) 'Trainer acceptance must keep the snapshotted quote'
+    Assert-True (
+        ([DateTimeOffset]::Parse($accepted.confirmedStartsAt)).ToUniversalTime() -eq ([DateTimeOffset]::Parse($acceptedSlot.startsAt)).ToUniversalTime()
+    ) 'Acceptance as requested must confirm the requested window'
 
     $memberBookings = (Invoke-RestMethod -Method Get -Uri "$ApiUrl/v1/bookings" -Headers $memberHeaders).data
     $memberView = $memberBookings | Where-Object { $_.id -eq $acceptedBooking.id } | Select-Object -First 1
-    Assert-True ([decimal]$memberView.quotedPrice -eq 1200) 'Member booking payload must expose the final quote'
+    Assert-True ([decimal]$memberView.quotedPrice -eq [decimal]$acceptedBooking.quotedPrice) 'Member booking payload must expose the final quote'
     Assert-True ($memberView.chatRoomId -gt 0) 'Booking payload must expose its chat room'
     Assert-True ($memberView.actions.canPay) 'Accepted member booking must allow payment'
-    Expect-Status 409 {
+    Expect-Status 422 {
         Invoke-RestMethod -Method Patch -Uri "$ApiUrl/v1/bookings/$($acceptedBooking.id)/status" -Headers $trainerHeaders -ContentType 'application/json' -Body (@{ status = 'cancelled' } | ConvertTo-Json)
     }
 

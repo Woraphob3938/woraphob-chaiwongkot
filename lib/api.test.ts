@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { API_URL, apiRequest, authHeaders, authenticatedRequest, getLiveTrainerCatalog, getReferenceData, openProtectedFile } from "@/lib/api";
+import { API_URL, apiAssetUrl, apiRequest, authHeaders, authenticatedRequest, getTrainer, getLiveTrainerCatalog, getReferenceData, openProtectedFile } from "@/lib/api";
 import type { Booking } from "@/lib/types";
 
 const expandedBooking: Booking = {
@@ -28,6 +28,7 @@ const expandedBooking: Booking = {
     canSendChat: true,
     canComplete: false,
     canReview: false,
+    canCancel: false,
   },
   createdAt: "2026-08-01T00:00:00.000Z",
   demo: false,
@@ -41,6 +42,18 @@ afterEach(() => {
 });
 
 describe("apiRequest", () => {
+  it("does not substitute a demo trainer when the profile API is offline", async () => {
+    vi.stubGlobal("fetch", vi.fn().mockRejectedValue(new Error("offline")));
+    expect(await getTrainer("demo-trainer-a")).toEqual({
+      data: null, source: "api", error: "โหลดข้อมูลเทรนเนอร์ไม่สำเร็จ กรุณาลองใหม่อีกครั้ง",
+    });
+  });
+
+  it("distinguishes a missing trainer from a failed request", async () => {
+    vi.stubGlobal("fetch", vi.fn().mockResolvedValue({ ok: false, status: 404, json: async () => ({}) }));
+    expect(await getTrainer("demo-trainer-a")).toEqual({ data: null, source: "api" });
+  });
+
   it("keeps the API code and field errors", async () => {
     vi.stubGlobal("fetch", vi.fn().mockResolvedValue({
       ok: false,
@@ -62,6 +75,15 @@ describe("authHeaders", () => {
   it("uses the saved bearer token", () => {
     localStorage.setItem("fitconnect_token", "abc123");
     expect(authHeaders()).toEqual({ Authorization: "Bearer abc123" });
+  });
+});
+
+describe("apiAssetUrl", () => {
+  it("qualifies API image routes without changing frontend public assets", () => {
+    expect(apiAssetUrl("/v1/profile-images/member/4")).toBe(`${API_URL}/v1/profile-images/member/4`);
+    expect(apiAssetUrl("/demo/trainer-a.png")).toBe("/demo/trainer-a.png");
+    expect(apiAssetUrl("https://cdn.example.com/avatar.webp")).toBe("https://cdn.example.com/avatar.webp");
+    expect(apiAssetUrl(null)).toBeNull();
   });
 });
 

@@ -9,6 +9,7 @@ vi.mock("next/navigation", () => ({ useRouter: () => ({ push: vi.fn() }) }));
 
 vi.mock("@/lib/api", () => ({
   authenticatedRequest: vi.fn(),
+  apiAssetUrl: (path: string | null) => (path ? `http://api.test${path}` : null),
   ApiError: class ApiError extends Error {
     constructor(message: string, public status = 500) { super(message); }
   },
@@ -16,7 +17,16 @@ vi.mock("@/lib/api", () => ({
 vi.mock("@/components/admin-review-queue", () => ({ AdminReviewQueue: () => null }));
 vi.mock("@/components/trainer-workbench", () => ({ TrainerWorkbench: () => null }));
 
-function bookingFixture(overrides: Partial<Booking> = {}): Booking {
+function openBooking(summary: HTMLElement) {
+  fireEvent.click(summary);
+}
+
+type FixtureOverrides = Partial<Omit<Booking, "status" | "actions">> & {
+  status?: Booking["status"] | "pending_trainer";
+  actions?: Booking["actions"] & { canAccept?: boolean; canReject?: boolean; canCancelBooking?: boolean };
+};
+
+function bookingFixture(overrides: FixtureOverrides = {}): Booking {
   return {
     id: "BK-PAY-001",
     trainer: { id: 3, slug: "trainer-c", displayName: "เทรนเนอร์ ค." },
@@ -26,6 +36,7 @@ function bookingFixture(overrides: Partial<Booking> = {}): Booking {
     paymentStatus: "not_submitted",
     paymentDeadlineAt: "2026-08-10T02:10:00.000Z",
     quotedPrice: 1_200,
+    paymentRecipient: { accountName: "สมชาย ใจดี", promptPayId: "0812345678" },
     chatRoomId: 7,
     payment: null,
     review: null,
@@ -35,11 +46,12 @@ function bookingFixture(overrides: Partial<Booking> = {}): Booking {
       canSendChat: true,
       canComplete: false,
       canReview: false,
+      canCancel: false,
     },
     createdAt: "2026-08-01T00:00:00.000Z",
     demo: false,
     ...overrides,
-  };
+  } as Booking;
 }
 
 function chooseValidSlip() {
@@ -94,12 +106,13 @@ describe("PaymentPanel", () => {
     expect(screen.getByText("ยังส่งสลิปไม่ได้ตามสถานะการจองนี้")).toBeVisible();
   });
 
-  it("sends the exact booking, raw amount, and selected file before awaiting refresh", async () => {
+  it("shows a fixed-amount QR and sends the slip without a transaction reference", async () => {
     const onUpdated = vi.fn().mockResolvedValue(undefined);
     vi.mocked(authenticatedRequest).mockResolvedValue({ paymentId: 8, status: "reviewing" });
     render(<PaymentPanel booking={bookingFixture()} onUpdated={onUpdated} />);
 
-    fireEvent.change(screen.getByLabelText("ยอดที่โอน"), { target: { value: "1200.00" } });
+    expect(screen.getAllByText("1,200.00 บาท")).toHaveLength(2);
+    expect(screen.getByText("สมชาย ใจดี")).toBeInTheDocument();
     const slip = chooseValidSlip();
     expect(screen.getByText("slip.png")).toBeInTheDocument();
     fireEvent.click(screen.getByRole("button", { name: "ส่งสลิปให้ตรวจ" }));
@@ -110,25 +123,68 @@ describe("PaymentPanel", () => {
     expect(init).toEqual(expect.objectContaining({ method: "POST", body: expect.any(FormData) }));
     const body = init?.body as FormData;
     expect(body.get("bookingId")).toBe("BK-PAY-001");
-    expect(body.get("amount")).toBe("1200.00");
+    expect(body.get("amount")).toBeNull();
+    expect(body.get("transactionRef")).toBeNull();
     expect(body.get("slip")).toBe(slip);
     await waitFor(() => expect(onUpdated).toHaveBeenCalledTimes(1));
-    expect(screen.getByRole("status")).toHaveTextContent("ส่งสลิปให้ผู้ดูแลตรวจแล้ว");
+    expect(screen.getByRole("status")).toHaveTextContent("ส่งสลิปให้ผู้รับผิดชอบตรวจแล้ว");
   });
 
-  it.each(["", "0", "-10", "abc"])("blocks invalid amount %j", async (amount) => {
+  it("offers the trainer's default bank account beside PromptPay", async () => {
+    const writeText = vi.fn().mockResolvedValue(undefined);
+    Object.assign(navigator, { clipboard: { writeText } });
+    render(<PaymentPanel
+      booking={bookingFixture({ paymentRecipient: {
+        accountName: "สมชาย ใจดี",
+        promptPayId: "0812345678",
+        bankAccount: { bankName: "กสิกรไทย", accountName: "สมชาย ใจดี", accountNumber: "1234567890" },
+      } })}
+      onUpdated={vi.fn()}
+    />);
+
+    const bank = screen.getByLabelText("โอนเข้าบัญชีธนาคาร");
+    expect(within(bank).getByText("กสิกรไทย")).toBeInTheDocument();
+    expect(within(bank).getByText("123-4-56789-0")).toBeInTheDocument();
+    fireEvent.click(within(bank).getByRole("button", { name: "คัดลอกเลขบัญชี" }));
+    await waitFor(() => expect(writeText).toHaveBeenCalledWith("1234567890"));
+  });
+
+  it("shows no bank block when the trainer has no bank account", () => {
     render(<PaymentPanel booking={bookingFixture()} onUpdated={vi.fn()} />);
-    fireEvent.change(screen.getByLabelText("ยอดที่โอน"), { target: { value: amount } });
-    chooseValidSlip();
-    fireEvent.click(screen.getByRole("button", { name: "ส่งสลิปให้ตรวจ" }));
-    expect(await screen.findByText("กรุณาระบุยอดที่โอนเป็นจำนวนมากกว่า 0 บาท")).toBeInTheDocument();
-    expect(screen.getByLabelText("ยอดที่โอน")).toHaveAttribute("aria-invalid", "true");
-    expect(authenticatedRequest).not.toHaveBeenCalled();
+    expect(screen.queryByLabelText("โอนเข้าบัญชีธนาคาร")).not.toBeInTheDocument();
+  });
+
+  it("leads with the QR the trainer uploaded and keeps the amount QR one disclosure away", () => {
+    render(<PaymentPanel
+      booking={bookingFixture({ paymentRecipient: { accountName: "สมชาย ใจดี", promptPayId: "0812345678", paymentQrUrl: "/v1/trainer-payment-qr/3" } })}
+      onUpdated={vi.fn()}
+    />);
+
+    // The uploaded image is the primary code, with the amount beside it and a
+    // caution to check the recipient before transferring.
+    const uploaded = screen.getByAltText("QR รับเงินของ สมชาย ใจดี");
+    expect(uploaded).toBeInTheDocument();
+    expect(uploaded.getAttribute("src")).toContain("/v1/trainer-payment-qr/3");
+    expect(screen.getByText(/QR นี้เป็นภาพที่เทรนเนอร์อัปโหลด/)).toBeInTheDocument();
+    expect(screen.getAllByText("1,200.00 บาท").length).toBeGreaterThan(0);
+
+    // The generated, amount-carrying QR is available but not shown by default.
+    const generated = screen.getByText("หรือใช้ QR พร้อมยอดเงิน").closest("details");
+    if (!generated) throw new Error("generated QR disclosure is missing");
+    expect(generated.open).toBe(false);
+    expect(generated.querySelector("svg")).toBeTruthy();
+  });
+
+  it("falls back to the generated QR when the trainer never uploaded one", () => {
+    render(<PaymentPanel booking={bookingFixture()} onUpdated={vi.fn()} />);
+
+    expect(screen.queryByAltText("QR รับเงินของ สมชาย ใจดี")).not.toBeInTheDocument();
+    expect(screen.queryByText("หรือใช้ QR พร้อมยอดเงิน")).not.toBeInTheDocument();
+    expect(document.querySelector(".payment-qr-card__code svg")).toBeTruthy();
   });
 
   it("requires a transfer file", async () => {
     render(<PaymentPanel booking={bookingFixture()} onUpdated={vi.fn()} />);
-    fireEvent.change(screen.getByLabelText("ยอดที่โอน"), { target: { value: "1200" } });
     fireEvent.click(screen.getByRole("button", { name: "ส่งสลิปให้ตรวจ" }));
     expect(await screen.findByText("กรุณาเลือกไฟล์หลักฐานการโอน")).toBeInTheDocument();
     expect(screen.getByLabelText("หลักฐานการโอน")).toHaveAttribute("aria-invalid", "true");
@@ -168,7 +224,6 @@ describe("PaymentPanel", () => {
     vi.mocked(authenticatedRequest).mockImplementation(() => new Promise((resolve) => { resolveUpload = resolve; }));
     const onUpdated = vi.fn().mockResolvedValue(undefined);
     render(<PaymentPanel booking={bookingFixture()} onUpdated={onUpdated} />);
-    fireEvent.change(screen.getByLabelText("ยอดที่โอน"), { target: { value: "1200" } });
     chooseValidSlip();
 
     const submit = screen.getByRole("button", { name: "ส่งสลิปให้ตรวจ" });
@@ -181,18 +236,16 @@ describe("PaymentPanel", () => {
     await waitFor(() => expect(onUpdated).toHaveBeenCalledTimes(1));
   });
 
-  it("retries a failed upload without losing the entered amount or filename", async () => {
+  it("retries a failed upload without losing the filename", async () => {
     vi.mocked(authenticatedRequest)
       .mockRejectedValueOnce(new Error("เครือข่ายขัดข้อง"))
       .mockResolvedValueOnce({ paymentId: 8, status: "reviewing" });
     const onUpdated = vi.fn().mockResolvedValue(undefined);
     render(<PaymentPanel booking={bookingFixture()} onUpdated={onUpdated} />);
-    fireEvent.change(screen.getByLabelText("ยอดที่โอน"), { target: { value: "1200" } });
     chooseValidSlip();
     fireEvent.click(screen.getByRole("button", { name: "ส่งสลิปให้ตรวจ" }));
 
     expect(await screen.findByRole("alert")).toHaveTextContent("เครือข่ายขัดข้อง");
-    expect(screen.getByLabelText("ยอดที่โอน")).toHaveValue(1200);
     expect(screen.getByText("slip.png")).toBeInTheDocument();
     fireEvent.click(screen.getByRole("button", { name: "ลองส่งอีกครั้ง" }));
     await waitFor(() => expect(authenticatedRequest).toHaveBeenCalledTimes(2));
@@ -205,7 +258,6 @@ describe("PaymentPanel", () => {
       .mockRejectedValueOnce(new Error("โหลดรายการไม่สำเร็จ"))
       .mockResolvedValueOnce(undefined);
     render(<PaymentPanel booking={bookingFixture()} onUpdated={onUpdated} />);
-    fireEvent.change(screen.getByLabelText("ยอดที่โอน"), { target: { value: "1200" } });
     chooseValidSlip();
     fireEvent.click(screen.getByRole("button", { name: "ส่งสลิปให้ตรวจ" }));
 
@@ -230,6 +282,21 @@ describe("PaymentPanel", () => {
     })} onUpdated={vi.fn()} />);
     expect(screen.getByText("ชื่อบัญชีในสลิปไม่ตรง กรุณาส่งไฟล์ใหม่")).toBeInTheDocument();
     expect(screen.getByText("ไม่มียอดที่บันทึก")).toBeInTheDocument();
+  });
+
+  it("steps aside completely while the request waits for the trainer's answer", () => {
+    const { container } = render(<PaymentPanel booking={bookingFixture({
+      status: "pending_trainer",
+      // Even a stale canPay must not open the payment step while the booking
+      // is still pending_trainer.
+      actions: { ...bookingFixture().actions, canPay: true },
+    })} onUpdated={vi.fn()} />);
+
+    expect(container.querySelector(".payment-panel")).toBeNull();
+    expect(screen.queryByText("สถานะหลักฐาน")).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "ส่งสลิปให้ตรวจ" })).not.toBeInTheDocument();
+    expect(screen.queryByText("สมชาย ใจดี")).not.toBeInTheDocument();
+    expect(screen.queryByLabelText("หลักฐานการโอน")).not.toBeInTheDocument();
   });
 });
 
@@ -259,7 +326,7 @@ describe("member booking ledger", () => {
 
     const summaries = await screen.findAllByTestId("booking-summary");
     expect(summaries.map((summary) => summary.id)).toEqual(["booking-BK-SECOND", "booking-BK-FIRST"]);
-    summaries.forEach((summary) => fireEvent.click(within(summary).getByText("ดูรายละเอียด")));
+    summaries.forEach((summary) => openBooking(summary));
     const chatLinks = screen.getAllByRole("link", { name: "เปิดการสนทนา" });
     expect(chatLinks).toHaveLength(1);
     expect(chatLinks[0]).toHaveAttribute("href", "/chat?booking=BK-FIRST");

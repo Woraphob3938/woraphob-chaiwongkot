@@ -24,7 +24,26 @@ describe("navigationFor", () => {
       expect.objectContaining({ href: "/trainer", label: "พื้นที่เทรนเนอร์" }),
     ]));
     expect(navigationFor("admin")).toEqual(expect.arrayContaining([
-      expect.objectContaining({ href: "/admin", label: "พื้นที่แอดมิน" }),
+      expect.objectContaining({ href: "/admin", label: "พื้นที่ผู้ดูแลระบบ" }),
     ]));
+  });
+
+  it("adds the shared profile destination only for members and trainers", () => {
+    expect(navigationFor("member")).toContainEqual(expect.objectContaining({
+      href: "/profile", label: "โปรไฟล์", icon: "profile",
+    }));
+    expect(navigationFor("trainer")).toContainEqual(expect.objectContaining({
+      href: "/profile", label: "โปรไฟล์", icon: "profile",
+    }));
+    expect(navigationFor("admin")).not.toContainEqual(expect.objectContaining({ href: "/profile" }));
+  });
+
+  it("adds notifications for every signed-in role", () => {
+    for (const role of ["member", "trainer", "admin"] as const) {
+      expect(navigationFor(role)).toContainEqual(expect.objectContaining({
+        href: "/notifications", label: "การแจ้งเตือน", icon: "notifications",
+      }));
+    }
+    expect(navigationFor(null)).not.toContainEqual(expect.objectContaining({ href: "/notifications" }));
   });
 });

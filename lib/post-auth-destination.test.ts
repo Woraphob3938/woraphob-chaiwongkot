@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from "vitest";
-import { resolvePostAuthDestination } from "@/lib/post-auth-destination";
+import { resolveAuthRedirect, resolvePostAuthDestination, sanitizeRedirectPath } from "@/lib/post-auth-destination";
 import type { AuthenticatedUser, TrainerWorkspace } from "@/lib/types";
 
 const user = (role: AuthenticatedUser["role"]): AuthenticatedUser => ({
@@ -50,4 +50,41 @@ describe("resolvePostAuthDestination", () => {
       expect(destination).toBe("/trainer");
     },
   );
+});
+
+describe("sanitizeRedirectPath", () => {
+  it("keeps an internal path so a booking survives the sign-in detour", () => {
+    expect(sanitizeRedirectPath("/booking?trainer=demo-trainer-a&slot=101"))
+      .toBe("/booking?trainer=demo-trainer-a&slot=101");
+    expect(sanitizeRedirectPath("/member#booking-BK-1")).toBe("/member#booking-BK-1");
+  });
+
+  it.each([
+    ["//evil.example.com", "protocol-relative host"],
+    ["https://evil.example.com", "absolute URL"],
+    ["/\\evil.example.com", "backslash escape"],
+    ["javascript:alert(1)", "non-path scheme"],
+    ["relative/path", "path without a leading slash"],
+    ["", "empty value"],
+  ])("rejects %s (%s)", (value) => {
+    expect(sanitizeRedirectPath(value)).toBeNull();
+  });
+
+  it("rejects non-string input", () => {
+    expect(sanitizeRedirectPath(undefined)).toBeNull();
+    expect(sanitizeRedirectPath(["a", "b"])).toBeNull();
+  });
+});
+
+describe("resolveAuthRedirect", () => {
+  it("lets an explicit destination win for every role, not only members", () => {
+    expect(resolveAuthRedirect("/booking?slot=101", "/member")).toBe("/booking?slot=101");
+    expect(resolveAuthRedirect("/booking?slot=101", "/trainer/apply")).toBe("/booking?slot=101");
+    expect(resolveAuthRedirect("/booking?slot=101", "/admin")).toBe("/booking?slot=101");
+  });
+
+  it("falls back to the role destination when nothing was requested", () => {
+    expect(resolveAuthRedirect(null, "/trainer")).toBe("/trainer");
+    expect(resolveAuthRedirect(undefined, "/member")).toBe("/member");
+  });
 });

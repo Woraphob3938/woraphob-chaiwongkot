@@ -1,6 +1,6 @@
 import type { UserRole } from "@/lib/types";
 
-export type NavigationIcon = "home" | "search" | "bookings" | "workspace" | "chat" | "login" | "register";
+export type NavigationIcon = "home" | "search" | "bookings" | "workspace" | "notifications" | "chat" | "profile" | "login" | "register";
 
 export type RoleNavigationItem = {
   href: string;
@@ -17,19 +17,21 @@ const navigationByAudience: Record<"guest" | UserRole, RoleNavigationItem[]> = {
     { href: "/register", label: "สมัครสมาชิก", icon: "register", desktop: false, mobile: true },
   ],
   member: [
-    { href: "/", label: "หน้าแรก", icon: "home", desktop: false, mobile: true },
     { href: "/trainers", label: "ค้นหาเทรนเนอร์", icon: "search", desktop: true, mobile: true },
     { href: "/member", label: "การจองของฉัน", icon: "bookings", desktop: true, mobile: true },
-    { href: "/chat", label: "แชต", icon: "chat", desktop: false, mobile: true },
+    { href: "/notifications", label: "การแจ้งเตือน", icon: "notifications", desktop: true, mobile: true },
+    { href: "/chat", label: "แชต", icon: "chat", desktop: true, mobile: true },
+    { href: "/profile", label: "โปรไฟล์", icon: "profile", desktop: true, mobile: true },
   ],
   trainer: [
-    { href: "/", label: "หน้าแรก", icon: "home", desktop: false, mobile: true },
     { href: "/trainer", label: "พื้นที่เทรนเนอร์", icon: "workspace", desktop: true, mobile: true },
-    { href: "/chat", label: "แชต", icon: "chat", desktop: false, mobile: true },
+    { href: "/notifications", label: "การแจ้งเตือน", icon: "notifications", desktop: true, mobile: true },
+    { href: "/chat", label: "แชต", icon: "chat", desktop: true, mobile: true },
+    { href: "/profile", label: "โปรไฟล์", icon: "profile", desktop: true, mobile: true },
   ],
   admin: [
-    { href: "/", label: "หน้าแรก", icon: "home", desktop: false, mobile: true },
-    { href: "/admin", label: "พื้นที่แอดมิน", icon: "workspace", desktop: true, mobile: true },
+    { href: "/admin", label: "พื้นที่ผู้ดูแลระบบ", icon: "workspace", desktop: true, mobile: true },
+    { href: "/notifications", label: "การแจ้งเตือน", icon: "notifications", desktop: true, mobile: true },
   ],
 };
 

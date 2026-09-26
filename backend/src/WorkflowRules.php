@@ -67,6 +67,81 @@ final class WorkflowRules
         }
     }
 
+    /**
+     * Accepting and rejecting a booking request are only decisions while the
+     * request is still waiting for the trainer.
+     */
+    public static function assertTrainerDecision(string $current, string $decision): void
+    {
+        if (!in_array($decision, ['accept', 'reject'], true)) {
+            throw new HttpException(422, 'การตอบรับคำขอไม่ถูกต้อง', 'VALIDATION_FAILED', ['status' => 'เลือกตอบรับหรือปฏิเสธ']);
+        }
+        if ($current !== 'pending_trainer') {
+            throw new HttpException(409, 'คำขอนี้ได้รับการตอบรับหรือปิดไปแล้ว', 'INVALID_BOOKING_TRANSITION');
+        }
+    }
+
+    /** The two daily rounds at which accepted requests reach members (Asia/Bangkok). */
+    public const CONFIRMATION_TIMES = ['12:00', '18:00'];
+
+    /** Minutes the member has to pay once the confirmation reaches them. */
+    public const PAYMENT_WINDOW_MINUTES = 10;
+
+    /**
+     * บทที่ 1: the trainer accepts a request and picks the 12:00 or 18:00
+     * round. At that round the system confirms the booking to the member, who
+     * then has ten minutes to pay. The training time itself stays exactly as
+     * the member requested it.
+     *
+     * Returns the release instant in UTC: the next occurrence of the chosen
+     * round after `$now`. The member must still be able to pay before the
+     * session starts, so a round that lands too late is refused.
+     */
+    public static function confirmationRelease(
+        string $value,
+        DateTimeImmutable $now,
+        DateTimeImmutable $sessionStart
+    ): DateTimeImmutable {
+        if (!in_array($value, self::CONFIRMATION_TIMES, true)) {
+            throw new HttpException(
+                422,
+                'รอบยืนยันไม่ถูกต้อง',
+                'VALIDATION_FAILED',
+                ['confirmedTime' => 'เลือกรอบยืนยัน 12:00 น. หรือ 18:00 น.']
+            );
+        }
+        $bangkok = new DateTimeZone('Asia/Bangkok');
+        $utc = new DateTimeZone('UTC');
+        [$hour, $minute] = array_map('intval', explode(':', $value));
+        $release = $now->setTimezone($bangkok)->setTime($hour, $minute, 0);
+        if ($release <= $now->setTimezone($bangkok)) {
+            $release = $release->modify('+1 day');
+        }
+        $release = $release->setTimezone($utc);
+        $paymentClosesAt = $release->modify('+' . self::PAYMENT_WINDOW_MINUTES . ' minutes');
+        if ($paymentClosesAt > $sessionStart) {
+            throw new HttpException(
+                422,
+                'รอบยืนยันนี้ถึงหลังเวลาฝึกแล้ว',
+                'CONFIRMATION_ROUND_TOO_LATE',
+                ['confirmedTime' => "รอบ {$value} น. ถัดไปจะถึงหลังเวลาเริ่มฝึก สมาชิกจะชำระเงินไม่ทัน"]
+            );
+        }
+        return $release;
+    }
+
+    /**
+     * A trainer may cancel any booking that is not closed yet, from the moment
+     * the request arrives until the session is completed. The reason itself is
+     * required by the handler, which owns the request body.
+     */
+    public static function assertTrainerCancellation(string $current): void
+    {
+        if (!in_array($current, ['pending_trainer', 'awaiting_payment', 'payment_review', 'confirmed'], true)) {
+            throw new HttpException(409, 'การจองนี้ปิดงานแล้ว จึงยกเลิกไม่ได้', 'BOOKING_CANCELLATION_NOT_ALLOWED');
+        }
+    }
+
     public static function isPaymentDeadlineExpired(
         DateTimeImmutable $deadline,
         DateTimeImmutable $now
@@ -107,6 +182,44 @@ final class WorkflowRules
         return number_format((float) $raw, 2, '.', '');
     }
 
+    public static function availabilityEnd(DateTimeImmutable $startsAt): DateTimeImmutable
+    {
+        return $startsAt->modify('+1 hour');
+    }
+
+    public static function assertMonthlyBookingStart(array $slots, int $packageSessionCount): void
+    {
+        if ($packageSessionCount < 2 || $packageSessionCount > 30 || count($slots) !== 1) {
+            throw new HttpException(
+                422,
+                'กรุณาเลือกเวลานัดแรกหนึ่งช่วง',
+                'VALIDATION_FAILED',
+                ['slotIds' => 'เลือกเวลานัดแรกเพียงหนึ่งช่วง นัดที่เหลือจัดภายหลัง']
+            );
+        }
+    }
+
+    public static function assertMonthlySessionScheduling(
+        string $bookingStatus,
+        string $paymentStatus,
+        int $scheduledCount,
+        int $packageSessionCount,
+        DateTimeImmutable $periodStart,
+        DateTimeImmutable $periodEnd,
+        DateTimeImmutable $startsAt,
+        DateTimeImmutable $endsAt
+    ): void {
+        if ($bookingStatus !== 'confirmed' || $paymentStatus !== 'approved') {
+            throw new HttpException(409, 'จัดเวลาที่เหลือได้หลังการชำระเงินผ่าน', 'MONTHLY_SCHEDULING_NOT_READY');
+        }
+        if ($scheduledCount >= $packageSessionCount) {
+            throw new HttpException(409, 'จัดเวลาครบตามแพ็กเกจแล้ว', 'MONTHLY_PACKAGE_FULL');
+        }
+        if ($startsAt < $periodStart || $endsAt > $periodEnd) {
+            throw new HttpException(422, 'เวลาฝึกต้องอยู่ภายใน 30 วัน', 'VALIDATION_FAILED', ['slotId' => 'เลือกช่วงเวลาภายใน 30 วันนับจากนัดแรก']);
+        }
+    }
+
     public static function assertPaymentDecision(
         string $paymentStatus,
         string $bookingStatus,
@@ -123,22 +236,60 @@ final class WorkflowRules
 
     public static function assertChatWritable(string $bookingStatus): void
     {
-        if (!in_array($bookingStatus, ['awaiting_payment', 'payment_review', 'confirmed', 'completed'], true)) {
+        if (!in_array($bookingStatus, ['awaiting_payment', 'payment_review', 'confirmed'], true)) {
             throw new HttpException(409, 'ห้องสนทนานี้ส่งข้อความเพิ่มไม่ได้', 'CHAT_READ_ONLY');
         }
     }
 
+    public static function assertMemberCancellation(string $bookingStatus, string $paymentStatus): void
+    {
+        // A request may be withdrawn while it still waits for the trainer, and
+        // an accepted request only until payment evidence is submitted.
+        $cancelable = $bookingStatus === 'pending_trainer'
+            || ($bookingStatus === 'awaiting_payment' && in_array($paymentStatus, ['not_submitted', 'rejected'], true));
+        if (!$cancelable) {
+            throw new HttpException(
+                409,
+                'ยกเลิกได้ก่อนส่งหลักฐานการชำระเงินเท่านั้น',
+                'MEMBER_CANCELLATION_NOT_ALLOWED'
+            );
+        }
+    }
+
+    /**
+     * An availability slot may be moved only while it is free and its window
+     * has not started.
+     */
+    public static function assertSlotEditable(string $state, DateTimeImmutable $startsAt, DateTimeImmutable $now): void
+    {
+        if ($state !== 'available' || $startsAt <= $now) {
+            throw new HttpException(409, 'แก้ไขได้เฉพาะช่วงเวลาว่างในอนาคต', 'SLOT_NOT_EDITABLE');
+        }
+    }
+
+
+    /**
+     * Completion compares against the trainer-confirmed end when the booking
+     * has one (`confirmed_ends_at`); callers pass `confirmed_ends_at ?? ends_at`.
+     */
     public static function assertTrainerCompletion(
         string $bookingStatus,
         string $paymentStatus,
         DateTimeImmutable $endsAt,
-        DateTimeImmutable $now
+        DateTimeImmutable $now,
+        int $scheduledCount = 1,
+        int $requiredCount = 1,
+        ?DateTimeImmutable $periodEnd = null
     ): void {
         if ($bookingStatus !== 'confirmed' || $paymentStatus !== 'approved') {
             throw new HttpException(409, 'การจองนี้ยังปิดงานไม่ได้', 'BOOKING_NOT_COMPLETABLE');
         }
         if ($now <= $endsAt) {
             throw new HttpException(409, 'ปิดงานได้หลังเวลานัดสิ้นสุด', 'BOOKING_END_NOT_REACHED');
+        }
+        $isPeriodExpired = $periodEnd !== null && $now > $periodEnd;
+        if ($scheduledCount < $requiredCount && !$isPeriodExpired) {
+            throw new HttpException(409, 'ยังจัดเวลาไม่ครบตามแพ็กเกจ', 'MONTHLY_SESSIONS_INCOMPLETE');
         }
     }
 

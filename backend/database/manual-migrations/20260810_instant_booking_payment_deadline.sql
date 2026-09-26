@@ -1,5 +1,9 @@
+-- NOTE: the "instant booking" flow this file is named after was retired; it now
+-- *removes* pending_trainer from the enum, and 20260922_document_compliance.sql
+-- adds it back. Filename order is therefore load-bearing — apply these files in
+-- name order. ADD COLUMN is guarded so replaying the file is a no-op.
 ALTER TABLE bookings
-  ADD COLUMN payment_deadline_at DATETIME NULL AFTER payment_status;
+  ADD COLUMN IF NOT EXISTS payment_deadline_at DATETIME NULL AFTER payment_status;
 
 ALTER TABLE bookings
   MODIFY status ENUM(

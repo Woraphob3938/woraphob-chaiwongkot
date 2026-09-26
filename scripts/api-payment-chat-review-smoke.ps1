@@ -99,12 +99,11 @@ if ($Scenario -eq 'all') {
     }
 
     function Submit-AllFlowPayment {
-        param([string]$BookingId, [decimal]$Amount)
+        param([string]$BookingId)
         $paymentJson = & curl.exe --silent --show-error --fail-with-body `
             --max-time 20 `
             -H "Authorization: Bearer $($member.token)" `
             -F "bookingId=$BookingId" `
-            -F "amount=$Amount" `
             -F "slip=@$evidencePath;type=image/png" `
             "$ApiUrl/v1/payments"
         Assert-True ($LASTEXITCODE -eq 0) "Payment upload failed: $paymentJson"
@@ -133,9 +132,15 @@ if ($Scenario -eq 'all') {
         Invoke-RestMethod -Method Post -Uri "$ApiUrl/v1/bookings" -Headers $memberHeaders -ContentType 'application/json' -Body ([Text.Encoding]::UTF8.GetBytes($bookingBody))
     ).data
     Assert-True ($booking.id -match '^BK-[A-Z0-9-]{3,32}$') 'Created booking must expose a safe public booking id'
-    Assert-Equal 'awaiting_payment' $booking.status 'New booking must start in awaiting_payment'
+    Assert-Equal 'pending_trainer' $booking.status 'New booking must wait for the trainer decision'
     Assert-True ([decimal]$booking.quotedPrice -gt 0) 'New booking must snapshot a positive trainer price'
-    Assert-True ([DateTime]::Parse($booking.paymentDeadlineAt).ToUniversalTime() -gt [DateTime]::UtcNow) 'New booking deadline must be in the future'
+    Assert-True ($null -eq $booking.paymentDeadlineAt) 'New booking must not start the payment clock before acceptance'
+
+    $acceptedFlows = (
+        Invoke-RestMethod -Method Patch -Uri "$ApiUrl/v1/bookings/$($booking.id)/status" -Headers $trainerHeaders -ContentType 'application/json' -Body ([Text.Encoding]::UTF8.GetBytes((@{ status = 'awaiting_payment'; confirmedTime = 'as_requested' } | ConvertTo-Json)))
+    ).data
+    Assert-Equal 'awaiting_payment' $acceptedFlows.status 'Trainer acceptance must move the booking to awaiting_payment'
+    Assert-True ([DateTime]::Parse($acceptedFlows.paymentDeadlineAt).ToUniversalTime() -gt [DateTime]::UtcNow) 'Acceptance must start the 10-minute payment deadline'
 
     $memberBookings = (Invoke-RestMethod -Method Get -Uri "$ApiUrl/v1/bookings" -Headers $memberHeaders).data
     $createdBooking = $memberBookings | Where-Object { $_.id -eq $booking.id } | Select-Object -First 1
@@ -158,7 +163,7 @@ if ($Scenario -eq 'all') {
     Assert-True ($attachmentMessage.id -gt $textMessage.id) 'Member image message must follow the text message'
     Assert-True ($attachmentMessage.attachment.name -eq $evidenceFile.Name) 'Member image metadata must preserve its safe name'
 
-    Submit-AllFlowPayment $booking.id ([decimal]$booking.quotedPrice) | Out-Null
+    Submit-AllFlowPayment $booking.id | Out-Null
     $firstQueuePayment = Get-AllFlowQueuePayment $booking.id
     Assert-True ($null -ne $firstQueuePayment) 'First payment must appear in the admin queue'
     $rejectionReason = 'ยอดและหลักฐานไม่ตรงกัน กรุณาส่งใหม่'
@@ -169,11 +174,11 @@ if ($Scenario -eq 'all') {
     Assert-True ($rejected.bookingStatus -eq 'awaiting_payment') 'Admin rejection must return the booking to awaiting_payment'
     Assert-True ([DateTime]::Parse($rejected.paymentDeadlineAt).ToUniversalTime() -gt [DateTime]::UtcNow) 'First rejection must grant one fresh 10-minute deadline'
 
-    Submit-AllFlowPayment $booking.id ([decimal]$booking.quotedPrice) | Out-Null
+    Submit-AllFlowPayment $booking.id | Out-Null
     $secondQueuePayment = Get-AllFlowQueuePayment $booking.id
     Assert-True ($secondQueuePayment.id -ne $firstQueuePayment.id) 'Second payment must create a new attempt'
     $approved = (
-        Invoke-RestMethod -Method Post -Uri "$ApiUrl/v1/admin/payments/$($secondQueuePayment.id)/approve" -Headers $adminHeaders -ContentType 'application/json' -Body ([Text.Encoding]::UTF8.GetBytes((@{ note = 'หลักฐานรอบที่สองถูกต้อง' } | ConvertTo-Json)))
+        Invoke-RestMethod -Method Post -Uri "$ApiUrl/v1/admin/payments/$($secondQueuePayment.id)/approve" -Headers $adminHeaders -ContentType 'application/json' -Body ([Text.Encoding]::UTF8.GetBytes((@{ note = 'หลักฐานรอบที่สองถูกต้อง'; bankConfirmed = $true } | ConvertTo-Json)))
     ).data
     Assert-True ($approved.status -eq 'approved') 'Admin approval must approve the second payment'
     Assert-True ($approved.bookingStatus -eq 'confirmed') 'Admin approval must confirm the booking'
@@ -187,25 +192,34 @@ if ($Scenario -eq 'all') {
     $expiryBooking = (
         Invoke-RestMethod -Method Post -Uri "$ApiUrl/v1/bookings" -Headers $memberHeaders -ContentType 'application/json' -Body ([Text.Encoding]::UTF8.GetBytes($expiryBookingBody))
     ).data
-    Assert-Equal 'awaiting_payment' $expiryBooking.status 'Expiry fixture must start in awaiting_payment'
+    Assert-Equal 'pending_trainer' $expiryBooking.status 'Expiry fixture must wait for the trainer decision'
     Assert-True ([decimal]$expiryBooking.quotedPrice -gt 0) 'Expiry fixture must snapshot a positive trainer price'
-    Assert-True ([DateTime]::Parse($expiryBooking.paymentDeadlineAt).ToUniversalTime() -gt [DateTime]::UtcNow) 'Expiry fixture deadline must start in the future'
+    $expiryAccepted = (
+        Invoke-RestMethod -Method Patch -Uri "$ApiUrl/v1/bookings/$($expiryBooking.id)/status" -Headers $trainerHeaders -ContentType 'application/json' -Body ([Text.Encoding]::UTF8.GetBytes((@{ status = 'awaiting_payment'; confirmedTime = 'as_requested' } | ConvertTo-Json)))
+    ).data
+    Assert-Equal 'awaiting_payment' $expiryAccepted.status 'Expiry fixture must reach awaiting_payment through trainer acceptance'
+    Assert-True ([DateTime]::Parse($expiryAccepted.paymentDeadlineAt).ToUniversalTime() -gt [DateTime]::UtcNow) 'Expiry fixture deadline must start in the future'
 
     $expirySetup = @(Invoke-AllFlowSql "UPDATE bookings SET payment_deadline_at = DATE_SUB(UTC_TIMESTAMP(), INTERVAL 1 SECOND) WHERE public_id = '$($expiryBooking.id)' AND status = 'awaiting_payment'; SELECT ROW_COUNT();")
     Assert-True ([int]$expirySetup[-1] -eq 1) 'Expiry setup must update exactly one awaiting-payment booking'
-    $expiredBookings = (Invoke-RestMethod -Method Get -Uri "$ApiUrl/v1/bookings" -Headers $memberHeaders).data
-    $expiredBooking = $expiredBookings | Where-Object { $_.id -eq $expiryBooking.id } | Select-Object -First 1
-    Assert-Equal 'expired' $expiredBooking.status 'Reading bookings must expire the overdue hold'
+    $phpExe = (Resolve-Path 'C:\xampp\php\php.exe').Path
+    $expiryCommand = (Resolve-Path (Join-Path $PSScriptRoot '..\backend\scripts\expire-bookings.php')).Path
+    $expiryCommandOutput = @(& $phpExe $expiryCommand 2>&1)
+    Assert-True ($LASTEXITCODE -eq 0) "Booking expiry command failed: $expiryCommandOutput"
+    $expiryCommandResult = ([string]$expiryCommandOutput[-1]) | ConvertFrom-Json
+    Assert-True ([int]$expiryCommandResult.expired -ge 1) 'Booking expiry command must expire at least the overdue fixture'
 
     $expiryAuditSql = @"
 SELECT
+  (SELECT status FROM bookings WHERE public_id = '$($expiryBooking.id)'),
   (SELECT COUNT(*) FROM booking_status_history h JOIN bookings b ON b.id = h.booking_id WHERE b.public_id = '$($expiryBooking.id)' AND h.from_status = 'awaiting_payment' AND h.to_status = 'expired'),
   (SELECT s.state FROM availability_slots s WHERE s.id = $($expirySlot.id));
 "@
     $expiryAuditOutput = @(Invoke-AllFlowSql $expiryAuditSql)
     $expiryAudit = ([string]$expiryAuditOutput[-1]) -split "`t"
-    Assert-True ([int]$expiryAudit[0] -eq 1) 'Expiry must write exactly one awaiting_payment to expired history row'
-    Assert-Equal 'available' $expiryAudit[1] 'Expiry must release the original slot'
+    Assert-Equal 'expired' $expiryAudit[0] 'Background command must expire the overdue booking'
+    Assert-True ([int]$expiryAudit[1] -eq 1) 'Expiry must write exactly one awaiting_payment to expired history row'
+    Assert-Equal 'available' $expiryAudit[2] 'Expiry must release the original slot'
 
     $rebookBody = @{
         trainerId = 1
@@ -215,14 +229,44 @@ SELECT
     $rebookedBooking = (
         Invoke-RestMethod -Method Post -Uri "$ApiUrl/v1/bookings" -Headers $secondMemberHeaders -ContentType 'application/json' -Body ([Text.Encoding]::UTF8.GetBytes($rebookBody))
     ).data
-    Assert-Equal 'awaiting_payment' $rebookedBooking.status 'Another member must be able to hold the released slot'
+    Assert-Equal 'pending_trainer' $rebookedBooking.status 'Another member must be able to hold the released slot'
     Assert-True ($rebookedBooking.id -ne $expiryBooking.id) 'Rebooking must create a distinct booking'
+    $rebookAccepted = (
+        Invoke-RestMethod -Method Patch -Uri "$ApiUrl/v1/bookings/$($rebookedBooking.id)/status" -Headers $trainerHeaders -ContentType 'application/json' -Body ([Text.Encoding]::UTF8.GetBytes((@{ status = 'awaiting_payment'; confirmedTime = 'as_requested' } | ConvertTo-Json)))
+    ).data
+    Assert-Equal 'awaiting_payment' $rebookAccepted.status 'Rebooked booking must reach awaiting_payment through trainer acceptance'
     $rebookSlotOutput = @(Invoke-AllFlowSql "SELECT state FROM availability_slots WHERE id = $($expirySlot.id);")
     Assert-Equal 'held' ([string]$rebookSlotOutput[-1]) 'Rebooked slot must be held by the new booking'
 
+    Expect-Status 404 {
+        Invoke-RestMethod -Method Post -Uri "$ApiUrl/v1/bookings/$($rebookedBooking.id)/cancel" -Headers $memberHeaders
+    }
+    $cancelledRebooking = (
+        Invoke-RestMethod -Method Post -Uri "$ApiUrl/v1/bookings/$($rebookedBooking.id)/cancel" -Headers $secondMemberHeaders
+    ).data
+    Assert-Equal 'cancelled' $cancelledRebooking.status 'The member must be able to cancel their unpaid booking'
+
+    $cancellationAuditOutput = @(Invoke-AllFlowSql @"
+SELECT
+  b.status,
+  IF(b.payment_deadline_at IS NULL, 1, 0),
+  b.cancellation_reason,
+  s.state,
+  (SELECT COUNT(*) FROM booking_status_history h WHERE h.booking_id = b.id AND h.from_status = 'awaiting_payment' AND h.to_status = 'cancelled')
+FROM bookings b
+JOIN availability_slots s ON s.id = b.availability_slot_id
+WHERE b.public_id = '$($rebookedBooking.id)';
+"@)
+    $cancellationAudit = ([string]$cancellationAuditOutput[-1]) -split "`t"
+    Assert-Equal 'cancelled' $cancellationAudit[0] 'Cancellation must persist the cancelled status'
+    Assert-Equal 1 ([int]$cancellationAudit[1]) 'Cancellation must clear the payment deadline'
+    Assert-Equal 'สมาชิกยกเลิกก่อนส่งหลักฐานการชำระเงิน' $cancellationAudit[2] 'Cancellation must store its reason'
+    Assert-Equal 'available' $cancellationAudit[3] 'Cancellation must release the held slot'
+    Assert-Equal 1 ([int]$cancellationAudit[4]) 'Cancellation must write one history row'
+
     $completed = $null
     try {
-        $endUpdateOutput = @(Invoke-AllFlowSql "SET GLOBAL check_constraint_checks = OFF; SET SESSION check_constraint_checks = OFF; UPDATE bookings SET ends_at = DATE_SUB(UTC_TIMESTAMP(), INTERVAL 1 MINUTE) WHERE public_id = '$($booking.id)'; SELECT ROW_COUNT();")
+        $endUpdateOutput = @(Invoke-AllFlowSql "SET GLOBAL check_constraint_checks = OFF; SET SESSION check_constraint_checks = OFF; UPDATE bookings SET ends_at = DATE_SUB(UTC_TIMESTAMP(), INTERVAL 1 MINUTE), confirmed_ends_at = DATE_SUB(UTC_TIMESTAMP(), INTERVAL 1 MINUTE) WHERE public_id = '$($booking.id)'; SELECT ROW_COUNT();")
         Assert-True ([int]$endUpdateOutput[-1] -eq 1) 'Test setup must move only this booking end time into the past'
         $completed = (
             Invoke-RestMethod -Method Patch -Uri "$ApiUrl/v1/bookings/$($booking.id)/status" -Headers $trainerHeaders -ContentType 'application/json' -Body ([Text.Encoding]::UTF8.GetBytes((@{ status = 'completed'; note = 'ฝึกเสร็จตามนัด' } | ConvertTo-Json)))
@@ -294,10 +338,10 @@ if ($Scenario -in @('payment', 'all')) {
         $publicId = "BK-LEGACY-$([Guid]::NewGuid().ToString('N').Substring(0, 10).ToUpperInvariant())"
         $sql = @"
 INSERT INTO bookings
-    (public_id, member_user_id, trainer_profile_id, starts_at, ends_at, member_note, quoted_price, status, payment_status, is_demo)
+    (public_id, member_user_id, trainer_profile_id, starts_at, ends_at, member_note, quoted_price, payment_service_mode, status, payment_status, is_demo)
 VALUES
     ('$publicId', 1, 1, DATE_ADD(UTC_TIMESTAMP(), INTERVAL 7 DAY), DATE_ADD(UTC_TIMESTAMP(), INTERVAL 7 DAY) + INTERVAL 1 HOUR,
-     'legacy payment regression fixture', NULL, 'payment_review', 'reviewing', 0);
+     'legacy payment regression fixture', NULL, 'gym', 'payment_review', 'reviewing', 0);
 SET @legacy_booking_id = LAST_INSERT_ID();
 INSERT INTO payments
     (booking_id, submitted_by_user_id, amount, slip_path, mime_type, status, submitted_at)
@@ -337,21 +381,21 @@ VALUES
         $booking = (
             Invoke-RestMethod -Method Post -Uri "$ApiUrl/v1/bookings" -Headers $memberHeaders -ContentType 'application/json' -Body ([Text.Encoding]::UTF8.GetBytes($bookingBody))
         ).data
-        $accepted = (
-            Invoke-RestMethod -Method Patch -Uri "$ApiUrl/v1/bookings/$($booking.id)/status" -Headers $trainerHeaders -ContentType 'application/json' -Body (@{ status = 'awaiting_payment'; quotedPrice = 1200 } | ConvertTo-Json)
+        Assert-True ($booking.status -eq 'pending_trainer') 'New booking must wait for the trainer decision'
+        $acceptance = (
+            Invoke-RestMethod -Method Patch -Uri "$ApiUrl/v1/bookings/$($booking.id)/status" -Headers $trainerHeaders -ContentType 'application/json' -Body ([Text.Encoding]::UTF8.GetBytes((@{ status = 'awaiting_payment'; confirmedTime = 'as_requested' } | ConvertTo-Json)))
         ).data
-        Assert-True ($accepted.status -eq 'awaiting_payment') 'Trainer acceptance must move booking to awaiting_payment'
-        Assert-True ([decimal]$accepted.quotedPrice -eq 1200) 'Trainer acceptance must save quotedPrice 1200'
+        Assert-True ($acceptance.status -eq 'awaiting_payment') 'Trainer acceptance must move the booking to awaiting_payment'
+        Assert-True ([decimal]$booking.quotedPrice -gt 0) 'Instant booking must snapshot the trainer price'
         return [pscustomobject]@{ booking = $booking; slot = $slot }
     }
 
     function Submit-Payment {
         param([string]$BookingId)
-    $paymentJson = & curl.exe --silent --show-error --fail-with-body `
+        $paymentJson = & curl.exe --silent --show-error --fail-with-body `
             --max-time 20 `
             -H "Authorization: Bearer $($member.token)" `
             -F "bookingId=$BookingId" `
-            -F 'amount=1200' `
             -F "slip=@$slipPath;type=image/png" `
             "$ApiUrl/v1/payments"
         Assert-True ($LASTEXITCODE -eq 0) "Payment upload failed: $paymentJson"
@@ -369,8 +413,8 @@ VALUES
     function Assert-PaymentQueueDetails {
         param([object]$QueuePayment, [object]$Case)
         Assert-True ($null -ne $QueuePayment) 'Submitted payment must appear in the admin queue'
-        Assert-True ([decimal]$QueuePayment.amount -eq 1200) 'Admin queue must show the transferred amount'
-        Assert-True ([decimal]$QueuePayment.quotedPrice -eq 1200) 'Admin queue must show the quote'
+        Assert-True ([decimal]$QueuePayment.amount -eq [decimal]$Case.booking.quotedPrice) 'Admin queue must show the server-locked amount'
+        Assert-True ([decimal]$QueuePayment.quotedPrice -eq [decimal]$Case.booking.quotedPrice) 'Admin queue must show the quote'
         Assert-True ([decimal]$QueuePayment.difference -eq 0) 'Admin queue must show the numeric payment difference'
         Assert-True ($QueuePayment.trainerName -eq 'เทรนเนอร์สาธิต ก.') 'Admin queue must show the trainer'
         Assert-True (
@@ -400,8 +444,12 @@ VALUES
     $approvalQueuePayment = Get-QueuePayment $approvalCase.booking.id
     Assert-PaymentQueueDetails $approvalQueuePayment $approvalCase
 
+    Expect-ApiError 422 'BANK_CONFIRMATION_REQUIRED' {
+        Invoke-RestMethod -Method Post -Uri "$ApiUrl/v1/admin/payments/$($approvalQueuePayment.id)/approve" -Headers $adminHeaders -ContentType 'application/json' -Body '{}'
+    }
+
     $approved = (
-        Invoke-RestMethod -Method Post -Uri "$ApiUrl/v1/admin/payments/$($approvalQueuePayment.id)/approve" -Headers $adminHeaders -ContentType 'application/json' -Body ([Text.Encoding]::UTF8.GetBytes((@{ note = 'หลักฐานถูกต้อง' } | ConvertTo-Json)))
+        Invoke-RestMethod -Method Post -Uri "$ApiUrl/v1/admin/payments/$($approvalQueuePayment.id)/approve" -Headers $adminHeaders -ContentType 'application/json' -Body ([Text.Encoding]::UTF8.GetBytes((@{ note = 'หลักฐานถูกต้อง'; bankConfirmed = $true } | ConvertTo-Json)))
     ).data
     Assert-True ($approved.status -eq 'approved') 'Approved payment must become approved'
     Assert-True ($approved.bookingStatus -eq 'confirmed') 'Approved payment must confirm the booking'
@@ -440,7 +488,7 @@ VALUES
     Assert-PaymentQueueDetails $retryQueuePayment $rejectionCase
     Assert-True ($retryQueuePayment.id -ne $rejectionQueuePayment.id) 'Retry must insert a new payment row'
     $retryApproved = (
-        Invoke-RestMethod -Method Post -Uri "$ApiUrl/v1/admin/payments/$($retryQueuePayment.id)/approve" -Headers $adminHeaders -ContentType 'application/json' -Body ([Text.Encoding]::UTF8.GetBytes((@{ note = 'หลักฐานใหม่ถูกต้อง' } | ConvertTo-Json)))
+        Invoke-RestMethod -Method Post -Uri "$ApiUrl/v1/admin/payments/$($retryQueuePayment.id)/approve" -Headers $adminHeaders -ContentType 'application/json' -Body ([Text.Encoding]::UTF8.GetBytes((@{ note = 'หลักฐานใหม่ถูกต้อง'; bankConfirmed = $true } | ConvertTo-Json)))
     ).data
     Assert-True ($retryApproved.bookingStatus -eq 'confirmed') 'Approved retry must confirm the booking'
 }
@@ -508,7 +556,7 @@ if ($Scenario -in @('chat', 'all')) {
     $booking = (
         Invoke-RestMethod -Method Post -Uri "$ApiUrl/v1/bookings" -Headers $memberHeaders -ContentType 'application/json' -Body ([Text.Encoding]::UTF8.GetBytes($bookingBody))
     ).data
-    Invoke-RestMethod -Method Patch -Uri "$ApiUrl/v1/bookings/$($booking.id)/status" -Headers $trainerHeaders -ContentType 'application/json' -Body (@{ status = 'awaiting_payment'; quotedPrice = 1200 } | ConvertTo-Json) | Out-Null
+    Invoke-RestMethod -Method Patch -Uri "$ApiUrl/v1/bookings/$($booking.id)/status" -Headers $trainerHeaders -ContentType 'application/json' -Body ([Text.Encoding]::UTF8.GetBytes((@{ status = 'awaiting_payment'; confirmedTime = 'as_requested' } | ConvertTo-Json))) | Out-Null
 
     $memberBookings = (Invoke-RestMethod -Method Get -Uri "$ApiUrl/v1/bookings" -Headers $memberHeaders).data
     $acceptedBooking = $memberBookings | Where-Object { $_.id -eq $booking.id } | Select-Object -First 1
@@ -756,6 +804,16 @@ VALUES
     Assert-True ($reviewedBooking.review.comment -eq $trimmedComment) 'Booking aggregate must expose the persisted trimmed comment'
     Assert-True ($reviewedBooking.review.status -eq 'published') 'Booking aggregate must expose the published review status'
     Assert-True ($reviewedBooking.actions.canReview -eq $false) 'Member must not be able to review again after publication'
+
+    $publicTrainer = (Invoke-RestMethod -Method Get -Uri "$ApiUrl/v1/trainers/demo-trainer-a").data
+    Assert-True ($publicTrainer.reviews.Count -eq $publicTrainer.reviewCount) 'Public trainer review detail count must match the aggregate'
+    Assert-True ($publicTrainer.reviews.Count -gt 0) 'Public trainer detail must expose completed-booking reviews'
+    $latestPublicReview = $publicTrainer.reviews[0]
+    Assert-True ($latestPublicReview.comment -eq $trimmedComment) 'Newest public review must be ordered first'
+    Assert-True ($latestPublicReview.rating -eq 5) 'Public review must expose its numeric rating'
+    Assert-True (-not [string]::IsNullOrWhiteSpace($latestPublicReview.createdAt)) 'Public review must expose its creation date'
+    $publicReviewFields = @($latestPublicReview.PSObject.Properties.Name | Sort-Object)
+    Assert-True (($publicReviewFields -join ',') -eq 'comment,createdAt,rating') 'Public reviews must not expose internal IDs or member identity'
 
     Write-Host "Review smoke fixtures: completed=$completedBookingId confirmed=$confirmedBookingId outsider=review.outsider@fitconnect.local"
 }

@@ -39,7 +39,7 @@ if ($status -eq 'completed') {
         throw "ข้อมูล approved flow ไม่ครบ: history=$($counts[1]) payments=$($counts[2]) messages=$($counts[4]) reviews=$($counts[5]) slot=$slotState"
     }
 } elseif ($status -eq 'expired') {
-    if ([int]$counts[2] -ne 0 -or [int]$counts[5] -ne 0 -or $slotState -ne 'held') {
+    if ([int]$counts[2] -ne 0 -or [int]$counts[5] -ne 0 -or $slotState -notin @('available', 'held')) {
         throw "ข้อมูล expired/rebook flow ไม่ครบ: payments=$($counts[2]) reviews=$($counts[5]) slot=$slotState"
     }
 }

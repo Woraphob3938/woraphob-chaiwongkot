@@ -2,10 +2,13 @@ USE fitconnect;
 SET NAMES utf8mb4;
 SET time_zone = '+00:00';
 
+-- ประเภทการฝึกชุดนี้ต้องตรงกับแถวที่ฐานข้อมูลจริงใช้อยู่ เพราะ id ถูกอ้างจาก
+-- trainer_training_types และ frontend ใช้ slug/ชื่อไทยเป็นคีย์ตัวกรอง
 INSERT INTO training_types (id, slug, name_th, sort_order) VALUES
-  (1, 'strength', 'เวทเทรนนิง', 10), (2, 'weight-loss', 'ลดไขมัน', 20), (3, 'mobility', 'การเคลื่อนไหว', 30),
-  (4, 'functional', 'ฟังก์ชันนัล', 40), (5, 'running', 'วิ่ง', 50), (6, 'rehab', 'ฟื้นฟูร่างกาย', 60)
-ON DUPLICATE KEY UPDATE name_th = VALUES(name_th), sort_order = VALUES(sort_order), active = 1;
+  (1, 'hypertrophy', 'สร้างกล้ามเนื้อ', 10), (2, 'weight-loss', 'ลดน้ำหนัก', 20), (3, 'yoga', 'โยคะ', 30),
+  (4, 'Pilates', 'พิลาทิส', 40), (5, 'Specific to each sport', 'เฉพาะแต่ละกีฬา', 50),
+  (6, 'physical therapy', 'กายภาพบำบัด', 60), (7, 'Weight Training', 'เวทเทรนนิ่ง', 70)
+ON DUPLICATE KEY UPDATE slug = VALUES(slug), name_th = VALUES(name_th), sort_order = VALUES(sort_order), active = 1;
 
 -- บัญชีทั้งหมดด้านล่างเป็นข้อมูลสาธิต รหัสผ่านคือ password และห้ามใช้ในระบบจริง
 INSERT INTO users (id, email, password_hash, display_name, role, status) VALUES
@@ -13,18 +16,22 @@ INSERT INTO users (id, email, password_hash, display_name, role, status) VALUES
   (2, 'trainer.a@fitconnect.local', '$2y$10$UAHptYudXBuQG5HZCuzvLufSI45l0ElKtaw591f2fyLcR/4RWTmOu', 'เทรนเนอร์สาธิต ก.', 'trainer', 'active'),
   (3, 'trainer.b@fitconnect.local', '$2y$10$UAHptYudXBuQG5HZCuzvLufSI45l0ElKtaw591f2fyLcR/4RWTmOu', 'เทรนเนอร์สาธิต ข.', 'trainer', 'active'),
   (4, 'trainer.c@fitconnect.local', '$2y$10$UAHptYudXBuQG5HZCuzvLufSI45l0ElKtaw591f2fyLcR/4RWTmOu', 'เทรนเนอร์สาธิต ค.', 'trainer', 'active'),
-  (5, 'admin.demo@fitconnect.local', '$2y$10$UAHptYudXBuQG5HZCuzvLufSI45l0ElKtaw591f2fyLcR/4RWTmOu', 'แอดมินสาธิต', 'admin', 'active')
+  (5, 'admin.demo@fitconnect.local', '$2y$10$UAHptYudXBuQG5HZCuzvLufSI45l0ElKtaw591f2fyLcR/4RWTmOu', 'ผู้ดูแลระบบสาธิต', 'admin', 'active')
 ON DUPLICATE KEY UPDATE password_hash = VALUES(password_hash), display_name = VALUES(display_name), role = VALUES(role), status = 'active';
+
+INSERT INTO admin_permissions (user_id, manage_users, review_trainers, manage_bookings, review_payments)
+VALUES (5, 1, 1, 1, 1)
+ON DUPLICATE KEY UPDATE manage_users = 1, review_trainers = 1, manage_bookings = 1, review_payments = 1;
 
 INSERT INTO member_profiles (user_id, goals) VALUES (1, 'ข้อมูลสาธิตสำหรับตรวจขั้นตอนจอง')
 ON DUPLICATE KEY UPDATE goals = VALUES(goals);
 
 INSERT INTO trainer_profiles
-  (id, user_id, slug, legal_name, phone, headline, bio, years_experience, service_mode, gym_name, price_from, image_path, approval_status, reviewed_by_user_id, reviewed_at, is_demo)
+  (id, user_id, slug, legal_name, phone, headline, bio, years_experience, service_mode, gym_name, price_from, payment_account_name, promptpay_id, image_path, approval_status, reviewed_by_user_id, reviewed_at, is_demo)
 VALUES
-  (1, 2, 'demo-trainer-a', 'เทรนเนอร์สาธิต ก.', '0000000000', 'วางรากฐานความแข็งแรงอย่างเป็นระบบ', 'โปรไฟล์สาธิตสำหรับทดสอบระบบ FitConnect', 6, 'both', 'สถานที่ฝึกสาธิต', 650, '/demo/trainer-a.png', 'approved', 5, UTC_TIMESTAMP(), 1),
-  (2, 3, 'demo-trainer-b', 'เทรนเนอร์สาธิต ข.', '0000000000', 'ขยับดีขึ้นก่อนเพิ่มความหนัก', 'โปรไฟล์สาธิตสำหรับทดสอบระบบ FitConnect', 4, 'freelance', NULL, 550, '/demo/trainer-b.png', 'approved', 5, UTC_TIMESTAMP(), 1),
-  (3, 4, 'demo-trainer-c', 'เทรนเนอร์สาธิต ค.', '0000000000', 'แผนวิ่งและความฟิตที่เข้ากับชีวิตจริง', 'โปรไฟล์สาธิตสำหรับทดสอบคิวอนุมัติ', 5, 'freelance', NULL, NULL, '/demo/trainer-c.png', 'pending', NULL, NULL, 1)
+  (1, 2, 'demo-trainer-a', 'เทรนเนอร์สาธิต ก.', '0000000000', 'วางรากฐานความแข็งแรงอย่างเป็นระบบ', 'โปรไฟล์สาธิตสำหรับทดสอบระบบ FitConnect', 6, 'both', 'สถานที่ฝึกสาธิต', 650, 'บัญชีสาธิต ห้ามโอนเงินจริง', '0000000000', '/demo/trainer-a.png', 'approved', 5, UTC_TIMESTAMP(), 1),
+  (2, 3, 'demo-trainer-b', 'เทรนเนอร์สาธิต ข.', '0000000000', 'ขยับดีขึ้นก่อนเพิ่มความหนัก', 'โปรไฟล์สาธิตสำหรับทดสอบระบบ FitConnect', 4, 'freelance', NULL, 550, 'บัญชีสาธิต ห้ามโอนเงินจริง', '0000000000', '/demo/trainer-b.png', 'approved', 5, UTC_TIMESTAMP(), 1),
+  (3, 4, 'demo-trainer-c', 'เทรนเนอร์สาธิต ค.', '0000000000', 'แผนวิ่งและความฟิตที่เข้ากับชีวิตจริง', 'โปรไฟล์สาธิตสำหรับทดสอบคิวอนุมัติ', 5, 'freelance', NULL, NULL, 'บัญชีสาธิต ห้ามโอนเงินจริง', '0000000000', '/demo/trainer-c.png', 'pending', NULL, NULL, 1)
 ON DUPLICATE KEY UPDATE headline = VALUES(headline), bio = VALUES(bio), approval_status = VALUES(approval_status), is_demo = 1;
 
 INSERT IGNORE INTO trainer_training_types (trainer_profile_id, training_type_id) VALUES

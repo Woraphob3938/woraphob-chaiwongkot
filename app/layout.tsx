@@ -33,9 +33,14 @@ export const metadata: Metadata = {
 
 const contract = "IMPECCABLE CONTRACT · THESIS: verified trainer credentials + real availability → continuous booking · OWN-WORLD: Thai athlete-accreditation desk · STORY: discover → inspect → schedule → request → verify payment → chat/review · FIRST VIEWPORT: working three-zone discovery bench · FORM: concept seed e330335f, approved #3 + booking strip #2 · FINISH: unreviewed and undocumented is unfinished; this build ends with the finish review, the verdict, and DESIGN.md";
 
+const sessionBootstrapScript = `(function(){try{var t=localStorage.getItem("fitconnect_token"),u=localStorage.getItem("fitconnect_user");document.documentElement.dataset.fitconnectSession=t&&u?"authenticated":"guest"}catch(e){document.documentElement.dataset.fitconnectSession="guest"}})()`;
+
 export default function RootLayout({ children }: Readonly<{ children: React.ReactNode }>) {
   return (
-    <html lang="th" data-scroll-behavior="smooth" className={`${chakra.variable} ${bai.variable} ${jetbrains.variable}`}>
+    <html lang="th" data-scroll-behavior="smooth" data-fitconnect-session="guest" suppressHydrationWarning className={`${chakra.variable} ${bai.variable} ${jetbrains.variable}`}>
+      <head>
+        <script dangerouslySetInnerHTML={{ __html: sessionBootstrapScript }} />
+      </head>
       <body data-concept-seed="e330335f">
         <template data-impeccable-contract dangerouslySetInnerHTML={{ __html: `<!-- ${contract} -->` }} />
         <a className="skip-link" href="#main-content">ข้ามไปเนื้อหาหลัก</a>

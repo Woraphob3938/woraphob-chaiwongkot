@@ -8,7 +8,6 @@ export default async function HomePage() {
       <HomeOverview
         trainers={trainerResult.data}
         trainingTypes={reference.trainingTypes}
-        isDemo={trainerResult.source === "demo" || reference.source === "demo" || trainerResult.data.some((trainer) => trainer.demo)}
       />
     </main>
   );

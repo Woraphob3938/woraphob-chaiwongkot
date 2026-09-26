@@ -1,7 +1,8 @@
 import Image from "next/image";
 import Link from "next/link";
-import { BadgeCheck } from "lucide-react";
-import { formatMoney, initials } from "@/lib/format";
+import { BadgeCheck, UserRound } from "lucide-react";
+import { apiAssetUrl } from "@/lib/api";
+import { formatMoney, formatTrainingTypeName } from "@/lib/format";
 import type { Trainer } from "@/lib/types";
 
 type TrainerPreviewCardProps = {
@@ -10,7 +11,10 @@ type TrainerPreviewCardProps = {
 };
 
 export function TrainerPreviewCard({ trainer, priority = false }: TrainerPreviewCardProps) {
-  const specialty = trainer.trainingTypes[0]?.nameTh ?? "การฝึกส่วนบุคคล";
+  const specialty = formatTrainingTypeName(trainer.trainingTypes[0]?.nameTh ?? "การฝึกส่วนบุคคล");
+  // The API returns a relative `/v1/profile-images/...` path; without the API
+  // origin `next/image` asks the Next server for it and gets a 400.
+  const imageUrl = apiAssetUrl(trainer.image ?? null);
   const price = trainer.priceFrom == null
     ? "สอบถามราคา"
     : `เริ่มต้น ${formatMoney(trainer.priceFrom)} / ครั้ง`;
@@ -18,21 +22,25 @@ export function TrainerPreviewCard({ trainer, priority = false }: TrainerPreview
   return (
     <article className="trainer-preview-card" data-testid="trainer-preview">
       <div className="trainer-preview-card__media">
-        {trainer.image ? (
+        {imageUrl ? (
           <Image
-            src={trainer.image}
-            alt={trainer.demo
-              ? `ภาพสังเคราะห์ของ${trainer.displayName} ใช้เพื่อสาธิต`
-              : `ภาพบุคคลของ${trainer.displayName}`}
+            src={imageUrl}
+            alt={`รูปโปรไฟล์ของ${trainer.displayName}`}
             width={320}
             height={240}
             priority={priority}
             sizes="(max-width: 38rem) 100vw, 20rem"
           />
         ) : (
-          <span className="trainer-preview-card__initials" aria-hidden="true">{initials(trainer.displayName)}</span>
+          <span
+            aria-label={`ยังไม่มีรูปโปรไฟล์ของ${trainer.displayName}`}
+            className="trainer-preview-card__placeholder"
+            role="img"
+          >
+            <UserRound aria-hidden="true" />
+          </span>
         )}
-        {trainer.demo && <span className="trainer-preview-card__demo">ภาพสังเคราะห์ · สาธิต</span>}
+        {trainer.demo && <span className="trainer-demo-label">ภาพสาธิต</span>}
       </div>
 
       <div className="trainer-preview-card__body">
@@ -41,7 +49,7 @@ export function TrainerPreviewCard({ trainer, priority = false }: TrainerPreview
           <h3>{trainer.displayName}</h3>
         </div>
         <div className="trainer-preview-card__facts">
-          {trainer.verification === "verified" && <span><BadgeCheck aria-hidden="true" size={16} />ตรวจคุณสมบัติแล้ว</span>}
+          {trainer.verification === "verified" && <span><BadgeCheck aria-hidden="true" size={16} />โปรไฟล์ผ่านการตรวจ</span>}
         </div>
         <strong className="trainer-preview-card__price">{price}</strong>
         <Link className="trainer-preview-card__action" href={`/trainers/${trainer.slug}`}>ดูโปรไฟล์</Link>

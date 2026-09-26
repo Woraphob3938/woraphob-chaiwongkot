@@ -3,6 +3,7 @@ node_modules/
 out/
 output/playwright/
 output/smoke/
+output/browser/
 .playwright-cli/
 .codex/
 .worktrees/
@@ -17,5 +18,8 @@ backend/uploads/*
 !backend/uploads/.htaccess
 .impeccable/questions/
 .claude/settings.local.json
-.cursor/hooks.json
+.agents/
+.cursor/
+graphify-out/
+.superpowers/
 Thumbs.db

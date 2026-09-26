@@ -3,51 +3,65 @@ import Link from "next/link";
 import { ArrowUpRight, BadgeCheck, CalendarClock, Star } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
+import { apiAssetUrl } from "@/lib/api";
 import { formatDay, formatMoney, formatTime, initials } from "@/lib/format";
 import type { Trainer } from "@/lib/types";
 
 export function TrainerMarketplaceCard({
   trainer,
   priority = false,
+  returnTo,
 }: {
   trainer: Trainer;
   priority?: boolean;
+  returnTo?: string;
 }) {
   const firstSlot = trainer.slots[0];
+  // Live profiles carry a relative `/v1/profile-images/...` path that `next/image`
+  // would resolve against the Next origin and refuse with a 400; the API origin
+  // is what actually serves the file.
+  const imageUrl = apiAssetUrl(trainer.image ?? null);
+  const profileHref = `/trainers/${trainer.slug}${returnTo && returnTo !== "/trainers" ? `?returnTo=${encodeURIComponent(returnTo)}` : ""}`;
+  const canChooseTime = firstSlot !== undefined && trainer.priceFrom != null;
+  const monthlyPrice = typeof trainer.monthlyPrice === "number" && trainer.monthlyPrice > 0
+    && typeof trainer.monthlySessionCount === "number" && trainer.monthlySessionCount >= 2
+    ? trainer.monthlyPrice
+    : null;
 
   return (
     <li className="trainer-marketplace-card">
-      <div className="trainer-marketplace-card__media">
-        {trainer.image ? (
+      <Link
+        className="trainer-marketplace-card__media"
+        href={profileHref}
+        aria-label={`ดูโปรไฟล์ของ${trainer.displayName}`}
+      >
+        {imageUrl ? (
           <Image
-            src={trainer.image}
-            alt={trainer.demo
-              ? `ภาพสังเคราะห์ของ${trainer.displayName} ใช้เพื่อสาธิต`
-              : `ภาพบุคคลของ${trainer.displayName}`}
+            src={imageUrl}
+            alt={`รูปโปรไฟล์ของ${trainer.displayName}`}
             fill
             priority={priority}
-            sizes="(max-width: 47.99rem) 100vw, (max-width: 75rem) 50vw, 33vw"
+            sizes="(max-width: 40rem) 120px, (max-width: 75rem) 50vw, (max-width: 90rem) 33vw, 25vw"
           />
         ) : (
           <span aria-hidden="true">{initials(trainer.displayName)}</span>
         )}
-        {trainer.demo && (
-          <span className="trainer-marketplace-card__demo">ภาพสังเคราะห์ · ข้อมูลสาธิต</span>
-        )}
-      </div>
+        {trainer.demo && <span className="trainer-demo-label">ภาพสาธิต</span>}
+      </Link>
 
       <div className="trainer-marketplace-card__body">
         <div className="trainer-marketplace-card__eyebrow">
           <span>{trainer.trainingTypes[0]?.nameTh ?? "การฝึกส่วนบุคคล"}</span>
           {trainer.verification === "verified" && (
             <span className="trainer-marketplace-card__verified">
-              <BadgeCheck aria-hidden="true" /> ตรวจคุณสมบัติแล้ว
+              <BadgeCheck aria-hidden="true" /> โปรไฟล์ผ่านการตรวจ
             </span>
           )}
         </div>
 
         <div>
-          <h2>{trainer.displayName}</h2>
+          <h2><Link href={profileHref}>{trainer.displayName}</Link></h2>
+          {trainer.nickname && <p className="trainer-nickname">ชื่อเล่น {trainer.nickname}</p>}
           <p className="trainer-marketplace-card__headline">{trainer.headline}</p>
         </div>
 
@@ -55,6 +69,9 @@ export function TrainerMarketplaceCard({
           <span>ประสบการณ์ {trainer.yearsExperience} ปี</span>
           {trainer.reviewCount > 0 && trainer.rating !== undefined && (
             <span><Star aria-hidden="true" /> {trainer.rating} ({trainer.reviewCount} รีวิว)</span>
+          )}
+          {(trainer.reviewCount === 0 || trainer.rating === undefined) && (
+            <span><Star aria-hidden="true" /> ยังไม่มีรีวิว</span>
           )}
           <span>
             <CalendarClock aria-hidden="true" />
@@ -67,11 +84,20 @@ export function TrainerMarketplaceCard({
         <div className="trainer-marketplace-card__footer">
           <div>
             <span>ค่าฝึกต่อครั้ง</span>
-            <strong>{trainer.priceFrom == null ? "ยังไม่กำหนด" : formatMoney(trainer.priceFrom)}</strong>
+            <strong className={trainer.priceFrom == null ? "is-unavailable" : undefined}>
+              {trainer.priceFrom == null ? "ยังไม่กำหนด" : formatMoney(trainer.priceFrom)}
+            </strong>
+            {/* The price alone hides half the offer, and this fact is already on
+                the trainer's own profile, so comparing means opening each one. */}
+            <small className={monthlyPrice == null ? "is-unavailable" : undefined}>
+              {monthlyPrice == null
+                ? "ยังไม่เปิดแพ็กเกจ 30 วัน"
+                : `แพ็กเกจ 30 วัน ${formatMoney(monthlyPrice)} · ${trainer.monthlySessionCount} ครั้ง`}
+            </small>
           </div>
-          <Button asChild>
-            <Link href={`/trainers/${trainer.slug}`}>
-              ดูโปรไฟล์และเลือกเวลา <ArrowUpRight aria-hidden="true" />
+          <Button asChild variant={canChooseTime ? "default" : "outline"}>
+            <Link href={profileHref}>
+              {canChooseTime ? "ดูโปรไฟล์และเลือกเวลา" : "ดูโปรไฟล์"} <ArrowUpRight aria-hidden="true" />
             </Link>
           </Button>
         </div>

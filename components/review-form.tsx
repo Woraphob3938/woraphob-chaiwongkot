@@ -56,7 +56,7 @@ export function ReviewForm({ booking, onUpdated }: ReviewFormProps) {
 
   async function submit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
-    if (busyRef.current || submitted || !booking.actions.canReview) return;
+    if (busyRef.current || submitted || booking.review || !booking.actions.canReview) return;
     const trimmedComment = validate();
     if (trimmedComment === null || rating === null) return;
 
@@ -115,7 +115,7 @@ export function ReviewForm({ booking, onUpdated }: ReviewFormProps) {
   const ratingErrorId = `${formId}-rating-error`;
   const commentErrorId = `${formId}-comment-error`;
   const commentGuideId = `${formId}-comment-guide`;
-  const showForm = booking.actions.canReview && !submitted;
+  const showForm = booking.actions.canReview && !booking.review && !submitted;
   const visibleReviewStatus = submitted
     ? reviewStatusCopy.published
     : booking.review

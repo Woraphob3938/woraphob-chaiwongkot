@@ -1,7 +1,8 @@
 import { render, screen } from "@testing-library/react";
 import { describe, expect, it } from "vitest";
-import { trainers } from "@/lib/demo-data";
 import { TrainerPreviewCard } from "@/components/trainer-preview-card";
+import { API_URL } from "@/lib/api";
+import { trainers } from "@/lib/demo-data";
 
 describe("TrainerPreviewCard", () => {
   it("shows a compact verified trainer profile without the biography", () => {
@@ -11,7 +12,7 @@ describe("TrainerPreviewCard", () => {
 
     expect(screen.getByRole("heading", { name: trainer.displayName })).toBeInTheDocument();
     expect(screen.queryByText(/สกลนคร|นครพนม/)).not.toBeInTheDocument();
-    expect(screen.getByText("ตรวจคุณสมบัติแล้ว")).toBeInTheDocument();
+    expect(screen.getByText("โปรไฟล์ผ่านการตรวจ")).toBeInTheDocument();
     expect(screen.getByRole("link", { name: "ดูโปรไฟล์" })).toHaveAttribute("href", `/trainers/${trainer.slug}`);
     expect(screen.queryByText(trainer.bio)).not.toBeInTheDocument();
   });
@@ -23,16 +24,34 @@ describe("TrainerPreviewCard", () => {
     expect(screen.queryByText(/฿0/)).not.toBeInTheDocument();
   });
 
-  it("uses synthetic portrait wording only for demonstration trainers", () => {
+  it("marks a demonstration portrait and leaves a live profile unmarked", () => {
     const demoTrainer = trainers[0];
     const liveTrainer = { ...trainers[1], demo: false };
 
     const { rerender } = render(<TrainerPreviewCard trainer={demoTrainer} />);
-    expect(screen.getByRole("img", { name: `ภาพสังเคราะห์ของ${demoTrainer.displayName} ใช้เพื่อสาธิต` })).toBeInTheDocument();
-    expect(screen.getByText("ภาพสังเคราะห์ · สาธิต")).toBeInTheDocument();
+    expect(screen.getByRole("img", { name: `รูปโปรไฟล์ของ${demoTrainer.displayName}` })).toBeInTheDocument();
+    expect(screen.getByText("ภาพสาธิต")).toBeInTheDocument();
 
     rerender(<TrainerPreviewCard trainer={liveTrainer} />);
-    expect(screen.getByRole("img", { name: `ภาพบุคคลของ${liveTrainer.displayName}` })).toBeInTheDocument();
-    expect(screen.queryByText("ภาพสังเคราะห์ · สาธิต")).not.toBeInTheDocument();
+    expect(screen.getByRole("img", { name: `รูปโปรไฟล์ของ${liveTrainer.displayName}` })).toBeInTheDocument();
+    expect(screen.queryByText("ภาพสาธิต")).not.toBeInTheDocument();
+  });
+
+  it("uses one accessible profile placeholder when a trainer has no portrait", () => {
+    const trainer = { ...trainers[0], image: undefined };
+
+    const { container } = render(<TrainerPreviewCard trainer={trainer} />);
+
+    expect(screen.getByRole("img", { name: `ยังไม่มีรูปโปรไฟล์ของ${trainer.displayName}` })).toBeInTheDocument();
+    expect(container.querySelector(".trainer-preview-card__initials")).not.toBeInTheDocument();
+  });
+
+  it("resolves a live profile image against the API origin, not the Next origin", () => {
+    const trainer = { ...trainers[0], image: "/v1/profile-images/trainer/2" };
+
+    render(<TrainerPreviewCard trainer={trainer} />);
+
+    const image = screen.getByRole("img", { name: `รูปโปรไฟล์ของ${trainer.displayName}` });
+    expect(decodeURIComponent(image.getAttribute("src") ?? "")).toContain(`${API_URL}/v1/profile-images/trainer/2`);
   });
 });

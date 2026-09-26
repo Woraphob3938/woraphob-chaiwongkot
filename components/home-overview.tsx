@@ -1,55 +1,95 @@
 import Link from "next/link";
+import { ArrowRight, BadgeCheck, CalendarClock, Dumbbell, HeartPulse, MessagesSquare, ReceiptText, Search, Star } from "lucide-react";
 import { TrainerPreviewCard } from "@/components/trainer-preview-card";
+import { formatTrainingTypeName } from "@/lib/format";
 import type { Trainer, TrainingType } from "@/lib/types";
 
 type HomeOverviewProps = {
   trainers: Trainer[];
   trainingTypes: TrainingType[];
-  isDemo: boolean;
 };
 
+// บทที่ 1: the member sends a request, the trainer accepts, the system
+// confirms it to the member at the 12:00 or 18:00 round,
+// the member transfers within 10 minutes and the trainer checks the slip.
 const journeySteps = [
   {
     title: "ค้นหาเทรนเนอร์",
-    description: "เลือกจากประเภทการฝึก รูปแบบบริการ ราคา และข้อมูลที่เทรนเนอร์ระบุ",
+    description: "กรองตามประเภทการฝึก รูปแบบบริการ และราคา แล้วเปิดดูโปรไฟล์",
+    icon: Search,
   },
   {
-    title: "ตรวจคุณสมบัติ",
-    description: "ดูสถานะการตรวจ ใบรับรอง ประสบการณ์ และช่วงเวลาที่เปิดให้จอง",
+    title: "ส่งคำขอจอง",
+    description: "เลือกวันที่ต้องการฝึก ส่งคำขอพร้อมหมายเหตุถึงเทรนเนอร์",
+    icon: CalendarClock,
   },
   {
-    title: "เลือกเวลา",
-    description: "เลือกช่วงเวลาว่างแล้วส่งคำขอให้เทรนเนอร์พิจารณา",
+    title: "เทรนเนอร์ตอบรับ",
+    description: "ระบบแจ้งผลการตอบรับให้คุณในรอบ 12:00 หรือ 18:00 น. เวลาฝึกยังเป็นเวลาที่คุณเลือก",
+    icon: BadgeCheck,
   },
   {
-    title: "ยืนยันการชำระ",
-    description: "เมื่อคำขอได้รับการตอบรับ สมาชิกอัปโหลดสลิปให้ผู้ดูแลตรวจ",
+    title: "ชำระเงินภายใน 10 นาที",
+    description: "โอนเงินตามบัญชีหรือ QR ของเทรนเนอร์ แล้วอัปโหลดสลิปให้เทรนเนอร์ตรวจ",
+    icon: ReceiptText,
   },
   {
     title: "ฝึกและรีวิว",
-    description: "เข้าฝึกตามนัดและเขียนรีวิวหลังจบการฝึก",
+    description: "แชทนัดหมายกับเทรนเนอร์ เข้าฝึกตามเวลา แล้วเขียนรีวิวหลังจบการฝึก",
+    icon: Star,
   },
 ] as const;
 
-export function HomeOverview({ trainers, trainingTypes, isDemo }: HomeOverviewProps) {
+export function HomeOverview({ trainers, trainingTypes }: HomeOverviewProps) {
   const featuredTrainers = trainers.slice(0, 4);
   const priorityTrainerId = featuredTrainers.find((trainer) => trainer.image)?.id;
+  const heroTrainers = trainers.filter((trainer) => trainer.image).slice(0, 2);
+  const lowestPrice = trainers
+    .map((trainer) => trainer.priceFrom)
+    .filter((price): price is number => typeof price === "number" && price > 0)
+    .sort((left, right) => left - right)[0];
 
   return (
     <div className="home-overview">
-      <section className="home-hero" aria-labelledby="home-title">
-        <div className="home-hero__copy">
-          <h1 id="home-title">เริ่มต้นสุขภาพที่ดีกับคนที่เหมาะกับคุณ</h1>
-        </div>
-        <div className="home-hero__action">
-          <p>ดูภาพรวมบริการก่อนเปรียบเทียบเทรนเนอร์ที่ผ่านการตรวจสอบ</p>
-          <Link className="button button--accent" href="/trainers">ค้นหาเทรนเนอร์</Link>
-        </div>
-        {isDemo && (
-          <p className="home-demo-notice">
-            ข้อมูลสาธิตใช้เพื่อแสดงขั้นตอนและหน้าตาระบบ โปรดตรวจข้อมูลจริงก่อนส่งคำขอ
+      <section className="home-intro" aria-labelledby="home-intro-title">
+        <div className="home-intro__copy">
+          <p className="home-intro__eyebrow"><Dumbbell aria-hidden="true" size={16} /> แพลตฟอร์มจองเทรนเนอร์ส่วนตัว</p>
+          <h1 id="home-intro-title">หาเทรนเนอร์ที่ใช่<br />จองเวลาฝึกได้ในที่เดียว</h1>
+          <p className="home-intro__lead">
+            ดูโปรไฟล์ที่ผ่านการตรวจใบรับรอง ส่งคำขอจอง รอเทรนเนอร์ยืนยันเวลา ชำระเงิน และคุยกันในระบบ ตั้งแต่ครั้งแรกจนถึงรีวิว
           </p>
-        )}
+          <div className="home-intro__actions">
+            <Link className="button button--accent" href="/trainers">เริ่มหาเทรนเนอร์ <ArrowRight aria-hidden="true" size={18} /></Link>
+            <Link className="button button--outline" href="/register">สมัครเป็นเทรนเนอร์</Link>
+          </div>
+          <dl className="home-intro__facts">
+            <div><dt>เทรนเนอร์ที่ผ่านการตรวจ</dt><dd>{trainers.length} คน</dd></div>
+            <div><dt>ประเภทการฝึก</dt><dd>{trainingTypes.length} แบบ</dd></div>
+            <div><dt>ค่าฝึกเริ่มต้น</dt><dd>{lowestPrice ? `฿${lowestPrice.toLocaleString("th-TH")}` : "—"}</dd></div>
+          </dl>
+        </div>
+
+        <div className="home-intro__visual" aria-hidden="true">
+          <div className="home-intro__frame">
+            {heroTrainers.length > 0 ? (
+              heroTrainers.map((trainer, index) => (
+                // A background, not an <img>: a missing upload leaves the tinted
+                // frame instead of a broken-image icon.
+                <div key={trainer.id} className={`home-intro__photo home-intro__photo--${index}`} style={{ backgroundImage: `url("${trainer.image}")` }} />
+              ))
+            ) : (
+              <div className="home-intro__placeholder"><HeartPulse size={64} /></div>
+            )}
+          </div>
+          <div className="home-intro__note home-intro__note--top">
+            <BadgeCheck size={18} />
+            <span><strong>เทรนเนอร์ตอบรับแล้ว</strong><small>แจ้งผลรอบ 18:00 น.</small></span>
+          </div>
+          <div className="home-intro__note home-intro__note--bottom">
+            <MessagesSquare size={18} />
+            <span><strong>แชทกับเทรนเนอร์</strong><small>ถามก่อนจองได้</small></span>
+          </div>
+        </div>
       </section>
 
       <section className="home-training-types" aria-labelledby="training-goals-title">
@@ -59,10 +99,15 @@ export function HomeOverview({ trainers, trainingTypes, isDemo }: HomeOverviewPr
         </header>
         {trainingTypes.length > 0 ? (
           <ul className="home-training-types__list" aria-label="ประเภทการฝึก">
-            {trainingTypes.map((type) => (
-              <li key={type.id}>
+            {trainingTypes.map((type, index) => (
+              <li
+                className={index === trainingTypes.length - 1 && trainingTypes.length % 2 === 1
+                  ? "home-training-types__item--wide"
+                  : undefined}
+                key={type.id}
+              >
                 <Link href={`/trainers?type=${type.slug}`}>
-                  <span>{type.nameTh}</span>
+                  <span>{formatTrainingTypeName(type.nameTh)}</span>
                   <span aria-hidden="true">→</span>
                 </Link>
               </li>
@@ -101,22 +146,26 @@ export function HomeOverview({ trainers, trainingTypes, isDemo }: HomeOverviewPr
           <p>ดูเส้นทางตั้งแต่เลือกเทรนเนอร์ ส่งคำขอ อัปโหลดสลิป จนถึงเขียนรีวิวหลังการฝึก</p>
         </div>
         <ol className="home-journey__steps">
-          {journeySteps.map((step, index) => (
-            <li key={step.title}>
-              <span>ขั้นที่ {index + 1}</span>
-              <div>
-                <h3>{step.title}</h3>
-                <p>{step.description}</p>
-              </div>
-            </li>
-          ))}
+          {journeySteps.map((step, index) => {
+            const Icon = step.icon;
+            return (
+              <li key={step.title}>
+                <span className="home-journey__icon" aria-hidden="true"><Icon size={20} /></span>
+                <span className="home-journey__index">ขั้นที่ {index + 1}</span>
+                <div>
+                  <h3>{step.title}</h3>
+                  <p>{step.description}</p>
+                </div>
+              </li>
+            );
+          })}
         </ol>
       </section>
 
       <section className="home-trust" aria-labelledby="trust-title">
         <h2 id="trust-title">ตรวจโดยคน เห็นสถานะชัดเจน</h2>
         <div>
-          <p>ผู้ดูแลตรวจหลักฐานด้วยตนเอง ทั้งใบรับรองของเทรนเนอร์และหลักฐานการโอนของสมาชิก</p>
+          <p>ผู้ดูแลระบบตรวจใบรับรอง ส่วนสลิปการชำระเงินเทรนเนอร์ของการจองเป็นผู้ยืนยัน ทั้งแบบฟรีแลนซ์และประจำยิม</p>
           <p>FitConnect แสดงผลการตรวจตามสถานะจริง ไม่ได้อนุมัติเอกสารหรือการชำระเงินอัตโนมัติ</p>
         </div>
       </section>
