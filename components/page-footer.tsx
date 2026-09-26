@@ -6,7 +6,7 @@ export function PageFooter() {
       <div className="footer-rule" />
       <div className="footer-line">
         <strong>FITCONNECT</strong>
-        <p>ค้นหา ตรวจสอบ และจองเทรนเนอร์ในเส้นทางเดียว</p>
+        <p>ค้นหา ตรวจสอบ และจองเทรนเนอร์ในเส้นทางเดียว · ให้บริการในจังหวัดสกลนคร</p>
         <nav aria-label="เมนูส่วนท้าย">
           <Link href="/trainers">เทรนเนอร์</Link>
           {/* Points at registration: /trainer/apply needs a signed-in trainer, so

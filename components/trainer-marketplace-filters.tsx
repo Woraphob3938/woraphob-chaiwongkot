@@ -7,6 +7,23 @@ import type { Trainer, TrainingType } from "@/lib/types";
 
 export type TrainerPriceRange = "all" | "under_700" | "701_1000" | "over_1000";
 export type TrainerRatingFilter = "all" | "4_plus" | "4_5_plus";
+export type TrainerExperienceFilter = "all" | "under_2" | "2_5" | "over_5";
+
+/** บทที่ 1: members filter trainers by experience level. */
+export const experienceFilterOptions: { value: TrainerExperienceFilter; label: string }[] = [
+  { value: "all", label: "ทุกระดับประสบการณ์" },
+  { value: "under_2", label: "น้อยกว่า 2 ปี" },
+  { value: "2_5", label: "2–5 ปี" },
+  { value: "over_5", label: "มากกว่า 5 ปี" },
+];
+
+export function matchExperience(trainer: Trainer, experience: TrainerExperienceFilter) {
+  if (experience === "all") return true;
+  const years = trainer.yearsExperience ?? 0;
+  if (experience === "under_2") return years < 2;
+  if (experience === "2_5") return years >= 2 && years <= 5;
+  return years > 5;
+}
 
 export const priceRangeOptions: { value: TrainerPriceRange; label: string }[] = [
   { value: "all", label: "ทุกช่วงราคา" },
@@ -39,6 +56,7 @@ export function matchesQuery(trainer: Trainer, query: string) {
   if (!normalized) return true;
   return [
     trainer.displayName,
+    trainer.nickname ?? "",
     trainer.headline,
     ...trainer.trainingTypes.map((type) => type.nameTh),
   ].join(" ").toLocaleLowerCase("th-TH").includes(normalized);
@@ -49,6 +67,8 @@ export type TrainerFilterState = {
   trainingType: string;
   priceRange: TrainerPriceRange;
   ratingFilter: TrainerRatingFilter;
+  /** Optional so older callers keep working; missing means every level. */
+  experience?: TrainerExperienceFilter;
   verifiedOnly: boolean;
   availableOnly: boolean;
 };
@@ -59,6 +79,7 @@ function matchesAll(trainer: Trainer, filters: TrainerFilterState, overrides: Pa
     && (!state.trainingType || trainer.trainingTypes.some((type) => type.slug === state.trainingType))
     && matchPrice(trainer, state.priceRange)
     && matchRating(trainer, state.ratingFilter)
+    && matchExperience(trainer, state.experience ?? "all")
     && (!state.verifiedOnly || trainer.verification === "verified")
     && (!state.availableOnly || trainer.slots.length > 0);
 }
@@ -98,7 +119,18 @@ export function countByRating(trainers: Trainer[], filters: TrainerFilterState) 
   return counts;
 }
 
+export function countByExperience(trainers: Trainer[], filters: TrainerFilterState) {
+  const counts = new Map<TrainerExperienceFilter, number>();
+  for (const option of experienceFilterOptions) {
+    counts.set(option.value, filterTrainers(trainers, { ...filters, experience: option.value }).length);
+  }
+  return counts;
+}
+
 type TrainerMarketplaceFiltersProps = {
+  experience?: TrainerExperienceFilter;
+  onExperienceChange?: (value: TrainerExperienceFilter) => void;
+  experienceCounts?: Map<TrainerExperienceFilter, number>;
   ratingFilter?: TrainerRatingFilter;
   onRatingFilterChange?: (value: TrainerRatingFilter) => void;
   idPrefix: "desktop" | "mobile";
@@ -128,6 +160,9 @@ export function TrainerMarketplaceFilters({
   trainingType,
   priceRange,
   ratingFilter,
+  experience,
+  onExperienceChange,
+  experienceCounts,
   verifiedOnly,
   availableOnly,
   trainingTypeCounts,
@@ -189,6 +224,23 @@ export function TrainerMarketplaceFilters({
             {ratingFilterOptions.map((option) => (
               <NativeSelectOption key={option.value} value={option.value}>
                 {withCount(option.label, ratingCounts?.get(option.value))}
+              </NativeSelectOption>
+            ))}
+          </NativeSelect>
+        </div>
+      )}
+
+      {onExperienceChange && (
+        <div className="field">
+          <Label htmlFor={`${idPrefix}-experience-filter`}>ระดับประสบการณ์</Label>
+          <NativeSelect
+            id={`${idPrefix}-experience-filter`}
+            value={experience ?? "all"}
+            onChange={(event) => onExperienceChange(event.target.value as TrainerExperienceFilter)}
+          >
+            {experienceFilterOptions.map((option) => (
+              <NativeSelectOption key={option.value} value={option.value}>
+                {withCount(option.label, experienceCounts?.get(option.value))}
               </NativeSelectOption>
             ))}
           </NativeSelect>

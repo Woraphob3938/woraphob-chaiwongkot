@@ -13,6 +13,7 @@ export type VerificationStatus = "verified" | "pending" | "rejected";
 export type TrainerApprovalStatus = "pending" | "approved" | "rejected";
 export type SlotState = "available" | "held" | "booked" | "blocked";
 export type BookingStatus =
+  | "pending_trainer"
   | "awaiting_payment"
   | "payment_review"
   | "confirmed"
@@ -43,6 +44,12 @@ export type BookingActions = {
   canReview: boolean;
   canCancel: boolean;
   canScheduleSession?: boolean;
+  /** Trainer: accept a `pending_trainer` request. */
+  canAccept?: boolean;
+  /** Trainer: reject a `pending_trainer` request (reason required). */
+  canReject?: boolean;
+  /** Trainer: cancel an open booking (reason required). */
+  canCancelBooking?: boolean;
 };
 
 export type AccountUser = {
@@ -72,6 +79,8 @@ export type MemberAccountProfile = {
     experienceLevel: string;
     weight: number | null;
     height: number | null;
+    /** `YYYY-MM-DD` or null. */
+    birthDate?: string | null;
   };
 };
 
@@ -81,7 +90,13 @@ export type TrainerAccountProfile = {
   imageUrl: string | null;
   trainer: {
     legalName: string;
+    /** Optional nickname members can search by. */
+    nickname?: string;
     phone: string;
+    /** `YYYY-MM-DD` or null. */
+    birthDate?: string | null;
+    /** Education background, free text ≤255 or null. */
+    education?: string | null;
     headline: string;
     bio: string;
     yearsExperience: number;
@@ -113,6 +128,14 @@ export type ChatMessage = {
   id: number;
   message: string;
   attachment: ChatAttachment | null;
+  /** Inline image endpoint (`?kind=image`) or null. */
+  imageUrl?: string | null;
+  imageName?: string | null;
+  imageSize?: number | null;
+  /** File attachment endpoint (`?kind=file`) or null. */
+  attachmentUrl?: string | null;
+  attachmentName?: string | null;
+  attachmentSize?: number | null;
   createdAt: string;
   readAt: string | null;
   sender: { id: number; displayName: string };
@@ -196,6 +219,8 @@ export type Trainer = {
   id: number;
   slug: string;
   displayName: string;
+  /** The trainer's nickname, searchable alongside the display name. */
+  nickname?: string | null;
   headline: string;
   bio: string;
   yearsExperience: number;
@@ -213,6 +238,8 @@ export type Trainer = {
   certificates: Certificate[];
   slots: AvailabilitySlot[];
   image?: string;
+  /** Extra gallery photos the trainer uploaded, shown on the profile page. */
+  photos?: TrainerPhoto[];
   demo: boolean;
 };
 
@@ -288,6 +315,8 @@ export type AdminOperationsData = {
     paidSessions: number;
     revenue: number;
   }>;
+  /** Monthly salary accrual for gym/both trainers (latest 12 months). */
+  gymSalaries?: GymSalaryRow[];
   pagination: {
     pageSize: number;
     users: { page: number; total: number };
@@ -305,15 +334,29 @@ export type PublicTrainerReview = {
 };
 
 export type Booking = {
+  /** True for a pre-booking chat room opened from a trainer's profile. */
+  inquiry?: boolean;
   paymentServiceMode?: "freelance" | "gym" | null;
   paymentRecipient?: {
     accountName: string;
     promptPayId: string;
+    /** The QR image the trainer uploaded; null falls back to a generated one. */
+    paymentQrUrl?: string | null;
+    /** The trainer's default bank account, for a member who transfers instead. */
+    bankAccount?: BankAccountDetails | null;
   } | null;
   id: string;
   trainer: Pick<Trainer, "id" | "displayName" | "slug"> & { imageUrl?: string | null };
   startsAt: string;
   endsAt: string;
+  /** Trainer-confirmed window, or null while still `pending_trainer`. */
+  confirmedStartsAt?: string | null;
+  confirmedEndsAt?: string | null;
+  /** Trainer view only: the 12:00 / 18:00 round at which an accepted request reaches the member. */
+  confirmationReleaseAt?: string | null;
+  /** The originally requested window (`startsAt` before any confirmation change). */
+  requestedStartsAt?: string | null;
+  cancellationReason?: string | null;
   bookingType?: "single" | "monthly";
   sessionCount?: number;
   periodStart?: string | null;
@@ -343,9 +386,9 @@ export type Booking = {
 
 export type CreateBookingResponse = {
   id: string;
-  status: "awaiting_payment";
+  status: BookingStatus;
   quotedPrice: number;
-  paymentDeadlineAt: string;
+  paymentDeadlineAt: string | null;
 };
 
 export type NotificationCategory = "all" | "booking" | "payment" | "appointment";
@@ -404,3 +447,66 @@ export type ApiErrorEnvelope = {
     fields?: Record<string, string>;
   };
 };
+
+/** `YYYY-MM` month bucket. */
+export type MonthKey = string;
+
+export type GymSalaryRow = {
+  trainerId: number;
+  trainerName: string;
+  month: MonthKey;
+  sessions: number;
+  amount: number;
+};
+
+export type AdminReports = {
+  year: number;
+  /** 12 buckets for `year`, `01`..`12` in month order. */
+  bookingsByMonth: Array<{
+    month: MonthKey;
+    total: number;
+    byStatus: Record<BookingStatus, number>;
+  }>;
+  /** Sum of `payments.amount` for `approved` payments. */
+  incomeByMonth: Array<{ month: MonthKey; amount: number }>;
+  paymentsByMonth: Array<{
+    month: MonthKey;
+    submitted: number;
+    approved: number;
+    rejected: number;
+  }>;
+  /** One row per role, per CONTRACT §5.1 (the reports tab iterates rows). */
+  usersByRole: Array<{ role: "member" | "trainer" | "admin"; count: number }>;
+  totals: {
+    bookings: number;
+    income: number;
+    paymentsSubmitted: number;
+    paymentsApproved: number;
+    paymentsRejected: number;
+    users: number;
+  };
+};
+
+export type TrainerStats = {
+  year: number;
+  /** 12 buckets for `year`. */
+  bookingsByMonth: Array<{ month: MonthKey; total: number }>;
+  incomeByMonth: Array<{ month: MonthKey; amount: number }>;
+  totals: { bookings: number; income: number };
+  /** Only for `serviceMode` gym/both; null for freelance trainers. */
+  salarySummary: Array<{ month: MonthKey; sessions: number; amount: number }> | null;
+};
+
+export type BankAccountDetails = {
+  bankName: string;
+  accountName: string;
+  accountNumber: string;
+};
+
+export type TrainerBankAccount = BankAccountDetails & {
+  id: number;
+  isDefault: boolean;
+  createdAt: string;
+};
+
+export type TrainerPhoto = { id: number; url: string };

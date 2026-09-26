@@ -1,7 +1,7 @@
 "use client";
 
 import { FormEvent, useEffect, useState } from "react";
-import { LoaderCircle, Save } from "lucide-react";
+import { Dumbbell, LoaderCircle, Save, UserRound } from "lucide-react";
 import { Input } from "@/components/ui/input";
 import { NativeSelect, NativeSelectOption } from "@/components/ui/native-select";
 import { Textarea } from "@/components/ui/textarea";
@@ -21,6 +21,33 @@ export function profileFieldErrors(error: unknown) {
     : {};
 }
 
+/** `birthDate` lands in `lib/types.ts` with the backend change; read it defensively. */
+type MemberRecord = MemberAccountProfile["member"] & { birthDate?: string | null };
+
+/**
+ * Optional `YYYY-MM-DD` birth date: past-only, age 5–120, matching the server's
+ * `ProfileRules` so the member sees the rejection before the round trip.
+ */
+export function validateBirthDate(value: string): string {
+  if (!value) return "";
+  const match = /^(\d{4})-(\d{2})-(\d{2})$/.exec(value);
+  if (!match) return "กรอกวันเกิดให้ถูกต้อง";
+  const year = Number(match[1]);
+  const month = Number(match[2]);
+  const day = Number(match[3]);
+  const birth = new Date(year, month - 1, day);
+  if (birth.getFullYear() !== year || birth.getMonth() !== month - 1 || birth.getDate() !== day) {
+    return "กรอกวันเกิดให้ถูกต้อง";
+  }
+  const today = new Date();
+  if (birth.getTime() > today.getTime()) return "วันเกิดต้องเป็นวันที่ผ่านมาแล้ว";
+  let age = today.getFullYear() - birth.getFullYear();
+  const monthDiff = today.getMonth() - birth.getMonth();
+  if (monthDiff < 0 || (monthDiff === 0 && today.getDate() < birth.getDate())) age -= 1;
+  if (age < 5 || age > 120) return "อายุต้องอยู่ระหว่าง 5 ถึง 120 ปี";
+  return "";
+}
+
 function snapshot(profile: MemberAccountProfile) {
   // An account with no stored name gets the display name as `firstName` (a legacy
   // fallback). Presenting that as field input made the form look pre-filled and
@@ -30,6 +57,7 @@ function snapshot(profile: MemberAccountProfile) {
     firstName: profile.member.nameFromDisplayName ? "" : profile.member.firstName,
     lastName: profile.member.lastName,
     phone: profile.member.phone,
+    birthDate: (profile.member as MemberRecord).birthDate ?? "",
     fitnessGoal: profile.member.fitnessGoal,
     experienceLevel: profile.member.experienceLevel,
     weight: profile.member.weight?.toString() ?? "",
@@ -41,11 +69,19 @@ const fieldIds: Record<string, string> = {
   firstName: "member-first-name",
   lastName: "member-last-name",
   phone: "member-phone",
+  birthDate: "member-birth-date",
   fitnessGoal: "member-goal",
   experienceLevel: "member-experience",
   weight: "member-weight",
   height: "member-height",
 };
+
+function bmiLabel(value: number) {
+  if (value < 18.5) return "น้ำหนักน้อย";
+  if (value < 23) return "ปกติ";
+  if (value < 25) return "น้ำหนักเกิน";
+  return "อ้วน";
+}
 
 export function MemberProfileForm({ profile, onSaved, onDirtyChange }: MemberProfileFormProps) {
   const [saved, setSaved] = useState(() => snapshot(profile));
@@ -77,6 +113,8 @@ export function MemberProfileForm({ profile, onSaved, onDirtyChange }: MemberPro
     const nextFields: Record<string, string> = {};
     if (!values.firstName.trim()) nextFields.firstName = "กรุณากรอกชื่อ";
     if (!values.lastName.trim()) nextFields.lastName = "กรุณากรอกนามสกุล";
+    const birthDateError = validateBirthDate(values.birthDate);
+    if (birthDateError) nextFields.birthDate = birthDateError;
     if (values.weight !== "" && Number(values.weight) <= 0) nextFields.weight = "น้ำหนักต้องมากกว่าศูนย์";
     if (values.height !== "" && Number(values.height) <= 0) nextFields.height = "ส่วนสูงต้องมากกว่าศูนย์";
     if (Object.keys(nextFields).length > 0) {
@@ -95,6 +133,7 @@ export function MemberProfileForm({ profile, onSaved, onDirtyChange }: MemberPro
           firstName: values.firstName.trim(),
           lastName: values.lastName.trim(),
           phone: values.phone.trim(),
+          birthDate: values.birthDate === "" ? null : values.birthDate,
           fitnessGoal: values.fitnessGoal.trim(),
           experienceLevel: values.experienceLevel,
           weight: values.weight === "" ? null : Number(values.weight),
@@ -121,6 +160,9 @@ export function MemberProfileForm({ profile, onSaved, onDirtyChange }: MemberPro
   }
 
   const dirty = JSON.stringify(values) !== JSON.stringify(saved);
+  const weightKg = Number(values.weight);
+  const heightM = Number(values.height) / 100;
+  const bmi = weightKg > 0 && heightM > 0.5 ? weightKg / (heightM * heightM) : null;
   // The API falls back to the display name when no name is stored; show that
   // fallback as a hint instead of as a value the member appears to have saved.
   const nameFromDisplayName = profile.member.nameFromDisplayName && !saved.firstName;
@@ -129,9 +171,13 @@ export function MemberProfileForm({ profile, onSaved, onDirtyChange }: MemberPro
     <section className="profile-section" aria-labelledby="member-details-title">
       <div className="profile-section__heading">
         <h2 id="member-details-title">รายละเอียดสมาชิก</h2>
-        <p>ชื่อและนามสกุลจะกลายเป็นชื่อที่แสดงในระบบ ({profile.user.displayName}) ส่วนเบอร์ใช้กับการจอง เป้าหมาย น้ำหนัก และส่วนสูงอยู่เฉพาะในบัญชีนี้ ไม่ขึ้นหน้าร้านสาธารณะ</p>
+        <p>ชื่อและนามสกุลจะกลายเป็นชื่อที่แสดงในระบบ ({profile.user.displayName}) ส่วนข้อมูลการฝึกช่วยให้เทรนเนอร์เตรียมแผนได้ตรงเป้า เห็นเฉพาะเทรนเนอร์ที่คุณจองเท่านั้น ไม่ขึ้นหน้าสาธารณะ</p>
       </div>
       <form onSubmit={submit} noValidate>
+        <fieldset className="profile-card">
+          <legend className="profile-card__title">
+            <UserRound aria-hidden="true" size={18} /> ข้อมูลส่วนตัว
+          </legend>
         <div className="profile-form-grid">
           <div className="field">
             <label htmlFor="member-first-name">ชื่อ</label>
@@ -149,6 +195,19 @@ export function MemberProfileForm({ profile, onSaved, onDirtyChange }: MemberPro
             <Input id="member-phone" inputMode="tel" value={values.phone} aria-invalid={Boolean(fields.phone)} aria-describedby={fieldDescribedBy("member-phone", fields.phone)} onChange={(event) => change("phone", event.target.value)} />
             {fields.phone && <small className="profile-field-error" id="member-phone-error">{fields.phone}</small>}
           </div>
+          <div className="field">
+            <label htmlFor="member-birth-date">วันเกิด</label>
+            <Input id="member-birth-date" type="date" value={values.birthDate} aria-invalid={Boolean(fields.birthDate)} aria-describedby={fieldDescribedBy("member-birth-date", fields.birthDate) ?? "member-birth-date-hint"} onChange={(event) => change("birthDate", event.target.value)} />
+            <small id="member-birth-date-hint">ไม่บังคับ</small>
+            {fields.birthDate && <small className="profile-field-error" id="member-birth-date-error">{fields.birthDate}</small>}
+          </div>
+        </div>
+        </fieldset>
+        <fieldset className="profile-card">
+          <legend className="profile-card__title">
+            <Dumbbell aria-hidden="true" size={18} /> ข้อมูลการฝึกและเป้าหมาย
+          </legend>
+        <div className="profile-form-grid">
           <div className="field">
             <label htmlFor="member-experience">ระดับประสบการณ์</label>
             <NativeSelect className="profile-select" id="member-experience" value={values.experienceLevel} onChange={(event) => change("experienceLevel", event.target.value)}>
@@ -172,9 +231,17 @@ export function MemberProfileForm({ profile, onSaved, onDirtyChange }: MemberPro
           </div>
           <div className="field field--full">
             <label htmlFor="member-goal">เป้าหมายการออกกำลังกาย</label>
-            <Textarea id="member-goal" rows={3} value={values.fitnessGoal} onChange={(event) => change("fitnessGoal", event.target.value)} />
+            <Textarea id="member-goal" rows={3} value={values.fitnessGoal} placeholder="เช่น ลดไขมัน 5 กก. ใน 3 เดือน หรือ เริ่มเล่นเวทอย่างถูกท่า" onChange={(event) => change("fitnessGoal", event.target.value)} />
           </div>
         </div>
+        {bmi !== null && (
+          <p className="profile-bmi" aria-live="polite">
+            <span>ดัชนีมวลกาย (BMI)</span>
+            <strong>{bmi.toFixed(1)}</strong>
+            <small>{bmiLabel(bmi)} · คำนวณจากน้ำหนักและส่วนสูงที่กรอก</small>
+          </p>
+        )}
+        </fieldset>
         {error && <p className="profile-form-error" role="alert">{error}</p>}
         {message && <p className="profile-success" role="status">{message}</p>}
         {dirty && (

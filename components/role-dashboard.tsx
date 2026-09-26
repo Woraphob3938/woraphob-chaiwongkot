@@ -16,6 +16,7 @@ import {
 import { AdminOperations } from "@/components/admin-operations";
 import { DashboardSection, NextActionCard } from "@/components/dashboard-primitives";
 import { DisclosureSection } from "@/components/disclosure-section";
+import { BookingProgress, bookingStepIndex } from "@/components/booking-progress";
 import {
   Dialog,
   DialogClose,
@@ -36,7 +37,7 @@ import { StatusBadge } from "@/components/status-badge";
 import { TrainerWorkbench } from "@/components/trainer-workbench";
 import { authenticatedRequest } from "@/lib/api";
 import { getMemberNextAction } from "@/lib/dashboard-actions";
-import { formatDateTime } from "@/lib/format";
+import { formatDateTime, formatTime } from "@/lib/format";
 import { formatAmount, paymentStatusCopy } from "@/lib/payment-copy";
 import type { Booking, UserRole } from "@/lib/types";
 
@@ -48,22 +49,49 @@ const roleCopy = {
 
 const paymentCopy = paymentStatusCopy;
 
+// The trainer-decision fields arrive in lib/types.ts in parallel with this
+// surface, so they are read through one narrow view that works before and
+// after that change instead of editing the shared file here.
+type BookingDecisionView = {
+  status: string;
+  confirmedStartsAt?: string | null;
+  confirmedEndsAt?: string | null;
+  cancellationReason?: string | null;
+};
+
+function decisionView(booking: Booking): BookingDecisionView {
+  return booking as unknown as BookingDecisionView;
+}
+
+function isPendingTrainer(booking: { status: string }) {
+  return booking.status === "pending_trainer";
+}
+
+/** "ช่วงเวลาที่ยืนยัน" as one readable range, or null before the trainer answered. */
+function confirmedPeriodLabel(booking: Booking): string | null {
+  const view = decisionView(booking);
+  if (!view.confirmedStartsAt) return null;
+  return `${formatDateTime(view.confirmedStartsAt)} – ${formatTime(view.confirmedEndsAt ?? view.confirmedStartsAt)} น.`;
+}
+
 function nextStepCopy(booking: Booking): string {
   if (booking.review) return "รีวิวนี้เผยแพร่แล้ว";
-  if (booking.actions.canPay) return "ส่งหลักฐานให้ผู้รับผิดชอบตรวจภายในเวลาที่เหลือ";
+  if (isPendingTrainer(booking)) return "รอเทรนเนอร์ตอบรับ ระบบจะแจ้งผลให้คุณในรอบ 12:00 หรือ 18:00 น. แล้วจึงชำระเงินได้ เวลาฝึกยังเป็นเวลาที่คุณขอ";
+  if (booking.actions.canPay) return "เทรนเนอร์ยืนยันเวลาแล้ว โอนเงินและส่งสลิปภายในเวลาที่เหลือ";
   if (booking.actions.canReview) return "เขียนรีวิวหลังการฝึก";
-  if (booking.status === "payment_review") return "รอผู้รับผิดชอบตรวจหลักฐานด้วยตนเอง";
+  if (booking.status === "payment_review") return "ส่งสลิปแล้ว รอเทรนเนอร์ตรวจและยืนยันการชำระเงิน";
   if (booking.status === "confirmed") return "เตรียมตัวตามวันและเวลานัด";
   if (booking.status === "cancelled") return "คำขอนี้สิ้นสุดแล้ว";
   if (booking.status === "expired") return "การจองหมดเวลา ช่วงเวลานี้ถูกคืนแล้ว";
   return "ยังไม่มีขั้นตอนที่ต้องทำในขณะนี้";
 }
 
-type BookingFilter = "all" | "awaiting_payment" | "payment_review" | "confirmed" | "completed" | "closed";
+type BookingFilter = "all" | "pending_trainer" | "awaiting_payment" | "payment_review" | "confirmed" | "completed" | "closed";
 const bookingsPerPage = 10;
 
 const bookingFilters: { id: BookingFilter; label: string; match: (booking: Booking) => boolean }[] = [
   { id: "all", label: "ทั้งหมด", match: () => true },
+  { id: "pending_trainer", label: "รอเทรนเนอร์ตอบรับ", match: (booking) => isPendingTrainer(booking) },
   { id: "awaiting_payment", label: "รอชำระ", match: (booking) => booking.status === "awaiting_payment" },
   { id: "payment_review", label: "รอตรวจการชำระ", match: (booking) => booking.status === "payment_review" },
   { id: "confirmed", label: "ยืนยันนัดแล้ว", match: (booking) => booking.status === "confirmed" },
@@ -91,13 +119,19 @@ function BookingCancellationAction({
   const [open, setOpen] = useState(false);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
+  const [reason, setReason] = useState("");
+  const reasonId = `cancel-reason-${booking.id}`;
 
   async function cancelBooking() {
     if (busy) return;
     setBusy(true);
     setError("");
     try {
-      await authenticatedRequest(`/v1/bookings/${encodeURIComponent(booking.id)}/cancel`, { method: "POST" });
+      const trimmed = reason.trim();
+      await authenticatedRequest(`/v1/bookings/${encodeURIComponent(booking.id)}/cancel`, {
+        method: "POST",
+        body: JSON.stringify(trimmed ? { reason: trimmed } : {}),
+      });
       setOpen(false);
       await onUpdated();
     } catch (requestError) {
@@ -111,7 +145,10 @@ function BookingCancellationAction({
     <Dialog open={open} onOpenChange={(nextOpen) => {
       if (busy) return;
       setOpen(nextOpen);
-      if (nextOpen) setError("");
+      if (nextOpen) {
+        setError("");
+        setReason("");
+      }
     }}>
       <DialogTrigger asChild>
         <button className="button button--danger" type="button">
@@ -126,6 +163,18 @@ function BookingCancellationAction({
             <span>คำสั่งนี้ใช้ได้ก่อนส่งหลักฐานการชำระเงินเท่านั้น</span>
           </DialogDescription>
         </DialogHeader>
+        <label className="field" htmlFor={reasonId}>
+          <span>เหตุผลการยกเลิก <small>(ไม่บังคับ เทรนเนอร์จะเห็นข้อความนี้)</small></span>
+          <textarea
+            id={reasonId}
+            value={reason}
+            maxLength={500}
+            rows={3}
+            placeholder="เช่น ติดธุระในวันนัด"
+            disabled={busy}
+            onChange={(event) => setReason(event.target.value)}
+          />
+        </label>
         {error && <p className="form-error" role="alert">{error}</p>}
         <DialogFooter>
           <DialogClose asChild>
@@ -226,10 +275,33 @@ export function RoleDashboard({
   const renderBookingFactsAndActions = (booking: Booking) => {
     const sessions = booking.sessions ?? [];
     const showSessions = booking.bookingType === "monthly" && sessions.length > 0;
+    const confirmedLabel = confirmedPeriodLabel(booking);
+    const cancellationReason = decisionView(booking).cancellationReason;
 
     return (
       <>
+        {bookingStepIndex(booking) >= 0 && (
+          <BookingProgress current={bookingStepIndex(booking)} className="booking-progress--compact" />
+        )}
         <p className="booking-next-step">{nextStepCopy(booking)}</p>
+        {/* Once the trainer has answered, the confirmed period is what both
+            sides keep, so it leads the facts even when it moved. */}
+        {confirmedLabel && (
+          <div className="ledger-row booking-confirmed-time"><span>ช่วงเวลาที่ยืนยัน</span><strong>{confirmedLabel}</strong></div>
+        )}
+        {/* When money is owed the job leads: the QR and the slip upload come
+            first, and the facts a member already knows move below them. Reading
+            five ledger rows before the upload cost 830px of scrolling on a
+            desktop and 1210px on a phone while the ten-minute clock ran. */}
+        {booking.actions.canPay && !isPendingTrainer(booking) && booking.paymentDeadlineAt && (
+          <div className="payment-deadline-row">
+            <span>{booking.paymentStatus === "rejected" ? "ส่งสลิปใหม่ภายใน" : "เวลาที่เหลือสำหรับส่งสลิป"}</span>
+            <PaymentDeadline deadlineAt={booking.paymentDeadlineAt} onExpired={() => void loadMemberBookings()} />
+          </div>
+        )}
+        {/* Nothing about money appears while the request still waits for the
+            trainer: the payment clock does not run yet. */}
+        {booking.actions.canPay && !isPendingTrainer(booking) && <PaymentPanel booking={booking} onUpdated={loadMemberBookings} />}
         {showSessions && (
           <div className="monthly-booking-sessions">
             <strong>แพ็กเกจ 30 วัน · {booking.sessionCount ?? sessions.length} ครั้ง</strong>
@@ -241,7 +313,10 @@ export function RoleDashboard({
           </div>
         )}
         {!showSessions && (
-          <div className="ledger-row"><span>นัดหมาย</span><strong>{formatDateTime(booking.startsAt)}</strong></div>
+          <div className="ledger-row"><span>{confirmedLabel ? "เวลาที่ขอไว้" : "เวลาที่ขอ"}</span><strong>{formatDateTime(booking.startsAt)}</strong></div>
+        )}
+        {cancellationReason && (
+          <div className="ledger-row"><span>เหตุผลที่ยกเลิก</span><strong>{cancellationReason}</strong></div>
         )}
         <div className="ledger-row"><span>{booking.bookingType === "monthly" ? "ราคาแพ็กเกจ" : "ค่าฝึกต่อครั้ง"}</span><strong>{formatAmount(booking.quotedPrice)}</strong></div>
         <div className="ledger-row"><span>การชำระ</span><strong>{paymentCopy[booking.paymentStatus]}</strong></div>
@@ -249,15 +324,8 @@ export function RoleDashboard({
           <div className="ledger-row"><span>ยอดที่โอน</span><strong>{formatAmount(booking.payment.amount)}</strong></div>
         )}
         {booking.payment?.status === "rejected" && booking.payment.reviewNote && (
-          <div className="ledger-row"><span>หมายเหตุจากผู้ดูแลระบบ</span><strong>{booking.payment.reviewNote}</strong></div>
+          <div className="ledger-row"><span>หมายเหตุจากผู้ตรวจสลิป</span><strong>{booking.payment.reviewNote}</strong></div>
         )}
-        {booking.actions.canPay && booking.paymentDeadlineAt && (
-          <div className="payment-deadline-row">
-            <span>{booking.paymentStatus === "rejected" ? "ส่งสลิปใหม่ภายใน" : "เวลาที่เหลือสำหรับส่งสลิป"}</span>
-            <PaymentDeadline deadlineAt={booking.paymentDeadlineAt} onExpired={() => void loadMemberBookings()} />
-          </div>
-        )}
-        {booking.actions.canPay && <PaymentPanel booking={booking} onUpdated={loadMemberBookings} />}
         {booking.actions.canScheduleSession && <MonthlySessionScheduler booking={booking} onUpdated={loadMemberBookings} />}
         {booking.actions.canReview && (
           <DisclosureSection
@@ -302,7 +370,7 @@ export function RoleDashboard({
         <span>คำขอ {booking.id}</span>
       </span>
       <span className="member-booking-summary__meta">
-        <span className="member-booking-summary__appointment">{formatDateTime(booking.startsAt)}</span>
+        <span className="member-booking-summary__appointment">{formatDateTime(booking.confirmedStartsAt ?? booking.startsAt)}</span>
         <StatusBadge status={booking.status} />
       </span>
       <span className="member-booking-summary__action">ดูรายละเอียด <ChevronRight aria-hidden="true" size={16} /></span>
@@ -441,7 +509,7 @@ export function RoleDashboard({
                   <DialogHeader>
                     <DialogTitle>{selectedBooking.trainer.displayName}</DialogTitle>
                     <DialogDescription>
-                      คำขอ {selectedBooking.id} · {formatDateTime(selectedBooking.startsAt)}
+                      คำขอ {selectedBooking.id} · {formatDateTime(selectedBooking.confirmedStartsAt ?? selectedBooking.startsAt)}
                     </DialogDescription>
                     <StatusBadge status={selectedBooking.status} />
                   </DialogHeader>

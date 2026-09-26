@@ -88,7 +88,7 @@ test('a passed deadline is reported as expired when reading', function () use ($
     assertTrue(
         str_contains(
             $handlers,
-            "\$status = \$row['status'] === 'awaiting_payment' && \$deadlinePassed ? 'expired' : \$row['status'];"
+            "\$status = \$rawStatus === 'awaiting_payment' && \$deadlinePassed ? 'expired' : \$rawStatus;"
         ),
         'bookingPayload must derive an effective status'
     );
@@ -186,6 +186,105 @@ test('unexpected failures never return the raw exception', function () use ($ent
         str_contains($entry, 'รหัสอ้างอิง'),
         'the client should receive a reference id that matches the server log'
     );
+});
+
+// ---------------------------------------------------------------------------
+// Document compliance: the pending_trainer decision flow and the endpoints
+// that grew around it.
+// ---------------------------------------------------------------------------
+
+test('a new booking waits for the trainer instead of starting the payment clock', function () use ($handlers): void {
+    $body = methodBody($handlers, 'createBooking');
+    assertTrue(
+        str_contains($body, '"pending_trainer", "not_submitted", NULL)'),
+        'creation must start pending_trainer with a null payment deadline'
+    );
+    assertFalse(
+        str_contains($body, 'DATE_ADD(UTC_TIMESTAMP(), INTERVAL 10 MINUTE)'),
+        'the ten minute clock must not start at creation'
+    );
+});
+
+test('completion compares against the confirmed end when the trainer gave one', function () use ($handlers): void {
+    assertTrue(
+        str_contains(methodBody($handlers, 'updateBookingStatus'), "(\$booking['confirmed_ends_at'] ?? \$booking['ends_at'])"),
+        'assertTrainerCompletion must receive confirmed_ends_at ?? ends_at'
+    );
+});
+
+test('administrators can cancel a request at every open stage', function () use ($handlers): void {
+    $body = methodBody($handlers, 'updateBookingStatus');
+    assertTrue(
+        str_contains($body, "'pending_trainer' => ['cancelled']"),
+        'admin transitions must include the request stage'
+    );
+});
+
+test('the booking payload reports the confirmed window and trainer decisions', function () use ($handlers): void {
+    $payload = methodBody($handlers, 'bookingPayload');
+    foreach (["'confirmedStartsAt'", "'confirmedEndsAt'", "'requestedStartsAt'", "'cancellationReason'"] as $field) {
+        assertTrue(str_contains($payload, $field), $field . ' must be in the booking payload');
+    }
+    preg_match('/\'actions\' => \[(.*?)\n            \],/s', $payload, $matches);
+    $actions = $matches[1] ?? '';
+    foreach (["'canAccept'", "'canReject'", "'canCancelBooking'"] as $action) {
+        assertTrue(str_contains($actions, $action), $action . ' must be in the booking actions');
+    }
+});
+
+test('user search also matches stored phone numbers and hides deleted accounts', function () use ($handlers): void {
+    $body = methodBody($handlers, 'adminOperations');
+    assertTrue(str_contains($body, 'mp.phone LIKE ?'), 'member phones must be searchable');
+    assertTrue(str_contains($body, 'tp.phone LIKE ?'), 'trainer phones must be searchable');
+    assertTrue(str_contains($body, 'LEFT JOIN member_profiles mp ON mp.user_id = u.id'), 'member profiles must join for the search');
+    assertTrue(str_contains($body, 'u.status <> "deleted"'), 'deleted accounts must leave the lists');
+    assertTrue(str_contains($body, "'pending_trainer', 'awaiting_payment'"), 'the request stage must be a filterable booking status');
+});
+
+test('gym salaries aggregate approved gym payments by session month', function () use ($handlers): void {
+    $body = methodBody($handlers, 'adminOperations');
+    assertTrue(str_contains($body, 'payment_service_mode = "gym"'), 'salary rows are gym-routed only');
+    assertTrue(str_contains($body, 'b.status IN ("confirmed", "completed")'), 'only settled bookings accrue salary');
+    assertTrue(str_contains($body, 'DATE_FORMAT(b.starts_at, "%Y-%m") AS month'), 'salary buckets by session month');
+    assertTrue(str_contains($body, "'gymSalaries' => \$gymSalaries"), 'operations must publish the salary rows');
+});
+
+test('reports and trainer stats exist behind their permission checks', function () use ($handlers, $entry): void {
+    $reports = methodBody($handlers, 'adminReports');
+    assertTrue($reports !== '', 'adminReports should exist');
+    assertTrue(str_contains($reports, "'manageBookings'"), 'reports require manageBookings or reviewPayments');
+    assertTrue(str_contains($reports, "'reviewPayments'"), 'reports require manageBookings or reviewPayments');
+    $stats = methodBody($handlers, 'trainerStats');
+    assertTrue($stats !== '', 'trainerStats should exist');
+    assertTrue(str_contains($stats, 'salarySummary'), 'gym trainers must get a salary summary');
+    assertTrue(str_contains($entry, "\$handlers->adminReports()"), 'the route must exist');
+    assertTrue(str_contains($entry, "\$handlers->trainerStats()"), 'the route must exist');
+    assertTrue(str_contains($entry, "\$handlers->deleteUser("), 'the delete user route must exist');
+    assertTrue(str_contains($entry, "\$handlers->updateAvailabilitySlot("), 'the slot edit route must exist');
+});
+
+test('a chat message can carry an image and a file at the same time', function () use ($handlers): void {
+    $body = methodBody($handlers, 'sendMessage');
+    assertTrue(str_contains($body, "'image',"), 'the image field must be accepted');
+    assertTrue(str_contains($body, "'file',"), 'the file field must be accepted');
+    assertTrue(str_contains($body, 'image_path'), 'images must land in the image columns');
+    assertTrue(str_contains($body, 'attachment_path'), 'files must land in the attachment columns');
+    assertTrue(str_contains($body, 'NotificationRules::MESSAGE_RECEIVED'), 'the peer learns about the message');
+    $payload = methodBody($handlers, 'messagePayload');
+    foreach (["'imageUrl'", "'imageName'", "'imageSize'", "'attachmentUrl'", "'attachmentName'", "'attachmentSize'"] as $field) {
+        assertTrue(str_contains($payload, $field), $field . ' must be in the message payload');
+    }
+    assertTrue(str_contains($payload, "'attachment' =>"), 'the legacy attachment key must survive');
+    $attachment = methodBody($handlers, 'chatAttachment');
+    assertTrue(str_contains($attachment, "kind === 'image'"), 'images must be served by kind');
+    assertTrue(str_contains($attachment, "kind === 'file'"), 'files must be served by kind');
+});
+
+test('deleting a user is a guarded soft delete that revokes sessions', function () use ($handlers): void {
+    $body = methodBody($handlers, 'deleteUser');
+    assertTrue(str_contains($body, 'UserAdminRules::assertDeletionAllowed'), 'self and last-manager guards must run first');
+    assertTrue(str_contains($body, 'UPDATE users SET status = "deleted"'), 'the account must be soft deleted');
+    assertTrue(str_contains($body, 'UPDATE auth_tokens SET revoked_at = UTC_TIMESTAMP()'), 'every session must be revoked');
 });
 
 $failures = 0;

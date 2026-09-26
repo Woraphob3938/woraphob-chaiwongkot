@@ -61,6 +61,27 @@ describe("getMemberNextAction", () => {
     ])).toMatchObject({ href: "/member#booking-BK-REVIEW", cta: "เขียนรีวิว", state: "action" });
   });
 
+  it("does not send a pending request to the payment form its panel never renders", () => {
+    // `actions.canPay` can be true while the trainer has not answered yet, and
+    // role-dashboard/payment-panel both hide the upload form for that status.
+    expect(getMemberNextAction([
+      { ...booking, id: "BK-PENDING", status: "pending_trainer", actions: { ...booking.actions, canPay: true, canReview: false } },
+      { ...booking, id: "BK-LATER", status: "payment_review" },
+    ])).toMatchObject({
+      title: "รอเทรนเนอร์ตอบรับคำขอ",
+      href: "/member#booking-BK-PENDING",
+      cta: "ดูสถานะ",
+      state: "waiting",
+    });
+  });
+
+  it("still prefers a payable request over one waiting for the trainer", () => {
+    expect(getMemberNextAction([
+      { ...booking, id: "BK-PENDING", status: "pending_trainer", actions: { ...booking.actions, canPay: true, canReview: false } },
+      { ...booking, id: "BK-PAY", status: "awaiting_payment", actions: { ...booking.actions, canPay: true, canReview: false } },
+    ])).toMatchObject({ href: "/member#booking-BK-PAY", cta: "อัปโหลดสลิป", state: "action" });
+  });
+
   it("ignores an expired booking and shows payment review", () => {
     expect(getMemberNextAction([
       { ...booking, id: "BK-PAYMENT", status: "payment_review" },
@@ -82,6 +103,17 @@ describe("getMemberNextAction", () => {
 });
 
 describe("getTrainerNextAction", () => {
+  it("asks the trainer to answer a pending request before anything but slips", () => {
+    const request: Booking = { ...booking, id: "BK-REQ", status: "pending_trainer" };
+    expect(getTrainerNextAction(workspace, [request])).toMatchObject({ href: "/trainer#request-BK-REQ", cta: "ตอบคำขอ", state: "action" });
+    expect(getTrainerNextAction(workspace, [request], 1)).toMatchObject({ href: "/trainer#payment-review" });
+  });
+
+  it("names the upcoming session by the trainer-confirmed time", () => {
+    const confirmed: Booking = { ...booking, id: "BK-CONF", status: "confirmed", startsAt: "2026-10-01T02:00:00Z", confirmedStartsAt: "2026-10-01T05:00:00Z", actions: { ...booking.actions, canComplete: false } };
+    expect(getTrainerNextAction(workspace, [confirmed]).description).toContain("12:00");
+  });
+
   it("directs a trainer without a professional profile to finish setup", () => {
     expect(getTrainerNextAction(null, [])).toMatchObject({ href: "/trainer/apply", cta: "กรอกข้อมูลวิชาชีพ" });
   });

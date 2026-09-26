@@ -6,18 +6,22 @@ import { Filter, Search } from "lucide-react";
 import { TrainerMarketplaceCard } from "@/components/trainer-marketplace-card";
 import {
   TrainerMarketplaceFilters,
+  countByExperience,
   countByPriceRange,
   countByRating,
   countByTrainingType,
   filterTrainers,
   priceRangeOptions,
   ratingFilterOptions,
+  experienceFilterOptions,
+  type TrainerExperienceFilter,
   type TrainerFilterState,
   type TrainerPriceRange,
   type TrainerRatingFilter,
 } from "@/components/trainer-marketplace-filters";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import { formatTrainingTypeName } from "@/lib/format";
 import { Label } from "@/components/ui/label";
 import { NativeSelect, NativeSelectOption } from "@/components/ui/native-select";
 import {
@@ -45,6 +49,7 @@ type SortMode = "availability" | "price_asc" | "price_desc" | "rating_desc";
 const sortModes: SortMode[] = ["availability", "price_asc", "price_desc", "rating_desc"];
 const priceRanges: TrainerPriceRange[] = priceRangeOptions.map((option) => option.value);
 const ratingFilters: TrainerRatingFilter[] = ratingFilterOptions.map((option) => option.value);
+const experienceFilters: TrainerExperienceFilter[] = experienceFilterOptions.map((option) => option.value);
 
 export function TrainerDiscovery({
   initialTrainers,
@@ -65,6 +70,11 @@ export function TrainerDiscovery({
       ? initialFilters.rating as TrainerRatingFilter
       : "all",
   );
+  const [experience, setExperience] = useState<TrainerExperienceFilter>(
+    typeof initialFilters.experience === "string" && experienceFilters.includes(initialFilters.experience as TrainerExperienceFilter)
+      ? initialFilters.experience as TrainerExperienceFilter
+      : "all",
+  );
   const [verifiedOnly, setVerifiedOnly] = useState(initialFilters.verified === "1");
   const [availableOnly, setAvailableOnly] = useState(initialFilters.available === "1");
   const [sortMode, setSortMode] = useState<SortMode>(
@@ -77,6 +87,7 @@ export function TrainerDiscovery({
   if (trainingType) search.set("type", trainingType);
   if (priceRange !== "all") search.set("price", priceRange);
   if (ratingFilter !== "all") search.set("rating", ratingFilter);
+  if (experience !== "all") search.set("experience", experience);
   if (verifiedOnly) search.set("verified", "1");
   if (availableOnly) search.set("available", "1");
   if (sortMode !== "availability") search.set("sort", sortMode);
@@ -86,6 +97,7 @@ export function TrainerDiscovery({
     Boolean(trainingType),
     priceRange !== "all",
     ratingFilter !== "all",
+    experience !== "all",
     verifiedOnly,
     availableOnly,
   ].filter(Boolean).length;
@@ -96,6 +108,7 @@ export function TrainerDiscovery({
     setTrainingType("");
     setPriceRange("all");
     setRatingFilter("all");
+    setExperience("all");
     setVerifiedOnly(false);
     setAvailableOnly(false);
   };
@@ -103,8 +116,8 @@ export function TrainerDiscovery({
   // Memoised so the counts below can depend on the object instead of listing the
   // same six values three more times.
   const filters: TrainerFilterState = useMemo(
-    () => ({ query, trainingType, priceRange, ratingFilter, verifiedOnly, availableOnly }),
-    [availableOnly, priceRange, query, ratingFilter, trainingType, verifiedOnly],
+    () => ({ query, trainingType, priceRange, ratingFilter, experience, verifiedOnly, availableOnly }),
+    [availableOnly, experience, priceRange, query, ratingFilter, trainingType, verifiedOnly],
   );
 
   // Each option reports how many trainers it would leave, holding every other
@@ -120,6 +133,10 @@ export function TrainerDiscovery({
   );
   const ratingCounts = useMemo(
     () => countByRating(initialTrainers, filters),
+    [filters, initialTrainers],
+  );
+  const experienceCounts = useMemo(
+    () => countByExperience(initialTrainers, filters),
     [filters, initialTrainers],
   );
 
@@ -151,6 +168,9 @@ export function TrainerDiscovery({
     trainingTypeCounts,
     priceCounts,
     ratingCounts,
+    experience,
+    experienceCounts,
+    onExperienceChange: setExperience,
     resultCount: visibleTrainers.length,
     onTrainingTypeChange: setTrainingType,
     onPriceRangeChange: setPriceRange,
@@ -176,11 +196,11 @@ export function TrainerDiscovery({
                 type="search"
                 value={query}
                 onChange={(event) => setQuery(event.target.value)}
-                placeholder="ชื่อหรือความเชี่ยวชาญ"
+                placeholder="ชื่อ ชื่อเล่น หรือความเชี่ยวชาญ"
                 aria-describedby="trainer-marketplace-query-hint"
               />
             </div>
-            <span className="sr-only" id="trainer-marketplace-query-hint">ค้นได้จากชื่อเทรนเนอร์และความเชี่ยวชาญ</span>
+            <span className="sr-only" id="trainer-marketplace-query-hint">ค้นได้จากชื่อ ชื่อเล่น และความเชี่ยวชาญของเทรนเนอร์</span>
           </div>
 
           <Sheet>
@@ -231,6 +251,32 @@ export function TrainerDiscovery({
             </NativeSelect>
           </div>
         </div>
+
+        {/* One tap narrows the list to a training goal; the same choice stays
+            in the filter rail so both controls always agree. */}
+        {trainingTypes.length > 0 && (
+          <div className="marketplace-type-chips" role="group" aria-label="เลือกประเภทการฝึกแบบเร็ว">
+            <button
+              type="button"
+              className="marketplace-type-chip"
+              aria-pressed={trainingType === ""}
+              onClick={() => setTrainingType("")}
+            >
+              ทั้งหมด
+            </button>
+            {trainingTypes.map((type) => (
+              <button
+                key={type.id}
+                type="button"
+                className="marketplace-type-chip"
+                aria-pressed={trainingType === type.slug}
+                onClick={() => setTrainingType(trainingType === type.slug ? "" : type.slug)}
+              >
+                {formatTrainingTypeName(type.nameTh)}
+              </button>
+            ))}
+          </div>
+        )}
 
         <div className="trainer-marketplace__layout">
           {/* Sticky so the choice stays visible while the results scroll past it. */}

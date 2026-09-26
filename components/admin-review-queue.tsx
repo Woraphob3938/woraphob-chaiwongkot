@@ -59,7 +59,7 @@ export function TrainerPaymentReview({ pendingSlips, open = false, onQueueLoaded
     onToggle={(event) => setOpenState(event.currentTarget.open)}
   >
     <summary>
-      <span><ShieldCheck aria-hidden="true" size={20} /><strong>ตรวจสลิปการจองฟรีแลนซ์ของฉัน</strong></span>
+      <span><ShieldCheck aria-hidden="true" size={20} /><strong>ตรวจสลิปการจองของฉัน</strong></span>
       <small>{pendingSlips === null ? "ยังโหลดจำนวนไม่ได้" : `${pendingSlips} สลิป`}</small>
     </summary>
     {openState && <AdminReviewQueue reviewer="trainer" onQueueLoaded={onQueueLoaded} />}
@@ -330,14 +330,14 @@ export function AdminReviewQueue({ reviewer = "admin", onQueueLoaded }: {
 
       <section className="admin-summary" aria-label="สรุปคิวตรวจสอบ">
         <div><span>ใบสมัครรอตรวจ</span><strong>{String(currentQueue.trainers.length).padStart(2, "0")}</strong></div>
-        <div><span>สลิปรอตรวจ</span><strong>{String(currentQueue.payments.length).padStart(2, "0")}</strong></div>
+        <div><span>{reviewer === "admin" ? "สลิปรอเทรนเนอร์ตรวจ" : "สลิปรอตรวจ"}</span><strong>{String(currentQueue.payments.length).padStart(2, "0")}</strong></div>
       </section>
 
       <section id="review-queue" className="admin-review-workbench" aria-labelledby="review-queue-title">
         <header className="admin-review-workbench__heading">
           <div>
             <h2 id="review-queue-title">โต๊ะตรวจสอบ</h2>
-            <p>เลือกหนึ่งรายการ ตรวจหลักฐาน แล้วบันทึกคำตัดสิน</p>
+            <p>{reviewer === "admin" ? "ตรวจใบสมัครเทรนเนอร์และติดตามสลิปที่รอเทรนเนอร์ยืนยัน" : "เลือกหนึ่งรายการ ตรวจหลักฐาน แล้วบันทึกคำตัดสิน"}</p>
           </div>
           <span>{loading ? "กำลังอัปเดต" : "ข้อมูลจากระบบ"}</span>
         </header>
@@ -451,42 +451,51 @@ export function AdminReviewQueue({ reviewer = "admin", onQueueLoaded }: {
                       </button>
                     </article>
                   </section>
+                  {reviewer === "admin" ? (
+                    // บทที่ 1: the booked trainer confirms every slip; the
+                    // administrator follows the queue without deciding it.
+                    <aside className="admin-decision-panel admin-decision-panel--readonly" aria-label={`สถานะสลิป ${paymentCode}`}>
+                      <header><h3>ผู้ยืนยันสลิป</h3><StatusBadge status="reviewing" /></header>
+                      <p>เทรนเนอร์ของการจองนี้เป็นผู้ตรวจและยืนยันสลิป ผู้ดูแลระบบเปิดดูหลักฐานเพื่อติดตามได้อย่างเดียว</p>
+                    </aside>
+                  ) : (
                   <aside className="admin-decision-panel" aria-label={`คำตัดสินสำหรับสลิป ${paymentCode}`} aria-busy={isBusy}>
-                    <header><h3>คำตัดสิน</h3><StatusBadge status="reviewing" /></header>
-                    <label className="review-note">
-                      <span>ผลตรวจสลิป {paymentCode}</span>
-                      <textarea
-                        value={paymentNotes[selectedPayment.id] ?? ""}
-                        onChange={(event) => setPaymentNotes((current) => ({ ...current, [selectedPayment.id]: event.target.value }))}
-                        disabled={isBusy || isResolved}
-                        rows={5}
-                        placeholder="ระบุเหตุผลเมื่อสลิปไม่ผ่าน"
-                      />
-                    </label>
-                    <label className="admin-bank-confirmation">
-                      <input
-                        type="checkbox"
-                        checked={Boolean(bankConfirmations[selectedPayment.id])}
-                        disabled={isBusy || isResolved}
-                        onChange={(event) => {
-                          setBankConfirmations((current) => ({ ...current, [selectedPayment.id]: event.target.checked }));
-                          setRowErrors((current) => ({ ...current, [rowKey]: "" }));
-                        }}
-                      />
-                      <span><strong>พบเงินเข้าในแอปธนาคารแล้ว</strong><small>ตรวจผู้รับ ยอดเงิน วันเวลา และเลขอ้างอิงให้ตรงกับสลิป</small></span>
-                    </label>
-                    {isResolved && <p className="queue-notice" role="status">บันทึกผลแล้ว รอคิวอัปเดต</p>}
-                    {rowErrors[rowKey] && <p className="row-error" role="alert">{rowErrors[rowKey]}</p>}
-                    <div className="queue-actions">
-                      <button type="button" aria-label={`อนุมัติสลิป ${paymentCode}`} disabled={isBusy || isResolved || !bankConfirmations[selectedPayment.id]} onClick={() => void decidePayment(selectedPayment.id, "approve")}>{busyAction === "approve" ? "กำลังบันทึก…" : "อนุมัติ"}</button>
-                      <button type="button" aria-label={`ไม่อนุมัติสลิป ${paymentCode}`} disabled={isBusy || isResolved} onClick={() => void decidePayment(selectedPayment.id, "reject")}>{busyAction === "reject" ? "กำลังบันทึก…" : "ไม่อนุมัติ"}</button>
-                      {isResolved && (
-                        <button type="button" aria-label={`ลองโหลดคิว ${paymentCode} อีกครั้ง`} disabled={isBusy} onClick={() => void retryPaymentRefresh(selectedPayment.id)}>
-                          {busyAction === "refresh" ? "กำลังโหลด…" : "ลองโหลดคิวอีกครั้ง"}
-                        </button>
-                      )}
-                    </div>
-                  </aside>
+                      <header><h3>คำตัดสิน</h3><StatusBadge status="reviewing" /></header>
+                      <label className="review-note">
+                        <span>ผลตรวจสลิป {paymentCode}</span>
+                        <textarea
+                          value={paymentNotes[selectedPayment.id] ?? ""}
+                          onChange={(event) => setPaymentNotes((current) => ({ ...current, [selectedPayment.id]: event.target.value }))}
+                          disabled={isBusy || isResolved}
+                          rows={5}
+                          placeholder="ระบุเหตุผลเมื่อสลิปไม่ผ่าน"
+                        />
+                      </label>
+                      <label className="admin-bank-confirmation">
+                        <input
+                          type="checkbox"
+                          checked={Boolean(bankConfirmations[selectedPayment.id])}
+                          disabled={isBusy || isResolved}
+                          onChange={(event) => {
+                            setBankConfirmations((current) => ({ ...current, [selectedPayment.id]: event.target.checked }));
+                            setRowErrors((current) => ({ ...current, [rowKey]: "" }));
+                          }}
+                        />
+                        <span><strong>พบเงินเข้าในแอปธนาคารแล้ว</strong><small>ตรวจผู้รับ ยอดเงิน วันเวลา และเลขอ้างอิงให้ตรงกับสลิป</small></span>
+                      </label>
+                      {isResolved && <p className="queue-notice" role="status">บันทึกผลแล้ว รอคิวอัปเดต</p>}
+                      {rowErrors[rowKey] && <p className="row-error" role="alert">{rowErrors[rowKey]}</p>}
+                      <div className="queue-actions">
+                        <button type="button" aria-label={`อนุมัติสลิป ${paymentCode}`} disabled={isBusy || isResolved || !bankConfirmations[selectedPayment.id]} onClick={() => void decidePayment(selectedPayment.id, "approve")}>{busyAction === "approve" ? "กำลังบันทึก…" : "อนุมัติ"}</button>
+                        <button type="button" aria-label={`ไม่อนุมัติสลิป ${paymentCode}`} disabled={isBusy || isResolved} onClick={() => void decidePayment(selectedPayment.id, "reject")}>{busyAction === "reject" ? "กำลังบันทึก…" : "ไม่อนุมัติ"}</button>
+                        {isResolved && (
+                          <button type="button" aria-label={`ลองโหลดคิว ${paymentCode} อีกครั้ง`} disabled={isBusy} onClick={() => void retryPaymentRefresh(selectedPayment.id)}>
+                            {busyAction === "refresh" ? "กำลังโหลด…" : "ลองโหลดคิวอีกครั้ง"}
+                          </button>
+                        )}
+                      </div>
+                    </aside>
+                  )}
                 </>
               );
             })()}

@@ -22,8 +22,18 @@ function visible(PDO $pdo, string $role, int $id): array {
     $query->execute($params);
     return array_map('intval', $query->fetchAll(PDO::FETCH_COLUMN));
 }
-check([1], visible($pdo, 'trainer', 11));
-check([2], visible($pdo, 'trainer', 12));
+// A trainer sees and decides every slip for their own bookings, gym ones included.
+check([1,3,5,6], visible($pdo, 'trainer', 11));
+check([2,4], visible($pdo, 'trainer', 12));
+function decidable(PDO $pdo, string $role, int $id): array {
+    [$scope, $params] = PaymentRouting::decisionScope(['role' => $role, 'id' => $id]);
+    $query = $pdo->prepare('SELECT b.id FROM bookings b JOIN trainer_profiles tp ON tp.id=b.trainer_profile_id WHERE ' . $scope . ' ORDER BY b.id');
+    $query->execute($params);
+    return array_map('intval', $query->fetchAll(PDO::FETCH_COLUMN));
+}
+check([1,3,5,6], decidable($pdo, 'trainer', 11));
+check([], decidable($pdo, 'admin', 21));
+check([], decidable($pdo, 'member', 11));
 check([3,4,6], visible($pdo, 'admin', 21));
 check([3,4,6], visible($pdo, 'admin', 22));
 check([], visible($pdo, 'admin', 23));
@@ -55,13 +65,13 @@ $pdo->exec('CREATE TEMPORARY TABLE users (id INT, role VARCHAR(20), status VARCH
 $pdo->exec('INSERT INTO users VALUES (11,"trainer","active"),(12,"trainer","active"),(21,"admin","active"),(22,"admin","active"),(23,"admin","active")');
 $pdo->exec('INSERT INTO payments VALUES (101,1),(104,4)');
 $notifications = new NotificationService($database, ['mail' => ['enabled' => false]]);
-foreach ([1 => [11], 4 => [21,22]] as $bookingId => $reviewerIds) {
+foreach ([1 => [11], 4 => [12,21,22]] as $bookingId => $reviewerIds) {
     $context = ['bookingId' => $bookingId, 'bookingPublicId' => 'BK-TEST-' . $bookingId,
         'memberUserId' => 100, 'trainerUserId' => 11];
     $notifications->recordEvent($pdo, NotificationRules::PAYMENT_SUBMITTED, $context);
-    $query = $pdo->prepare('SELECT recipient_user_id FROM notifications WHERE booking_id=? AND type LIKE "payment_review_%"');
+    $query = $pdo->prepare('SELECT recipient_user_id FROM notifications WHERE booking_id=? AND type LIKE "payment_review_%" ORDER BY recipient_user_id');
     $query->execute([$bookingId]);
     check($reviewerIds, array_map('intval', $query->fetchAll(PDO::FETCH_COLUMN)));
     check([], $notifications->recordEvent($pdo, NotificationRules::PAYMENT_SUBMITTED, $context));
 }
-echo "PASS: freelance ownership, single-gym administrator permissions, mode validation and reviewer notifications. No persistent data or email changed.\n";
+echo "PASS: trainer confirms own slips (freelance and gym), read-only gym administrator view, mode validation and reviewer notifications. No persistent data or email changed.\n";

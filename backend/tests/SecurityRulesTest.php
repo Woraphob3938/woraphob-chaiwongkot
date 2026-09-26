@@ -2,9 +2,9 @@
 declare(strict_types=1);
 
 /**
- * Rate limiting and the password reset flow. Runs against connection-local
- * temporary tables that shadow the real names, so no user row, token or counter
- * outside this process is touched.
+ * Rate limiting, request-field hardening and the password reset flow. Runs
+ * against connection-local temporary tables that shadow the real names, so no
+ * user row, token or counter outside this process is touched.
  */
 
 require_once __DIR__ . '/../src/Http.php';
@@ -38,6 +38,57 @@ function expectHttpStatus(int $status, callable $callback, string $label): void
     throw new RuntimeException($label . ': no exception was thrown');
 }
 
+/** Runs the callback as a failed test if PHP emits any warning while it runs. */
+function withoutWarnings(callable $callback, string $label): mixed
+{
+    set_error_handler(function (int $severity, string $message) use ($label): bool {
+        throw new ErrorException($label . ' emitted a PHP warning: ' . $message, 0, $severity);
+    });
+    try {
+        return $callback();
+    } finally {
+        restore_error_handler();
+    }
+}
+
+/** The HttpException a call raised, or null when it raised none. */
+function captureHttp(callable $callback): ?HttpException
+{
+    try {
+        withoutWarnings($callback, 'request field handling');
+    } catch (HttpException $error) {
+        return $error;
+    }
+    return null;
+}
+
+// ---------------------------------------------------------------------------
+// Request field hardening
+// ---------------------------------------------------------------------------
+// A list sent for a text field used to be cast to the literal "Array", which is
+// non-empty: the required-field check passed, PHP printed an array-to-string
+// warning into the response, and the row stored the word "Array".
+$listRefusal = captureHttp(fn() => Http::requireFields(['email' => ['x'], 'password' => 'y'], ['email', 'password']));
+check(422, $listRefusal?->status, 'a list-valued required field is refused with 422');
+check('VALIDATION_FAILED', $listRefusal?->errorCode, 'the refusal is a validation failure');
+check(true, isset($listRefusal?->fields['email']), 'the refusal names the field that carried the list');
+check(false, isset($listRefusal?->fields['password']), 'a text field alongside it is not reported');
+
+check(422, captureHttp(fn() => Http::requireFields(['role' => true], ['role']))?->status, 'a boolean required field is refused');
+check(422, captureHttp(fn() => Http::requireFields(['role' => null], ['role']))?->status, 'a null required field is refused');
+check(422, captureHttp(fn() => Http::requireFields(['role' => ' '], ['role']))?->status, 'a blank required field is still refused');
+check(422, captureHttp(fn() => Http::requireFields([], ['role']))?->status, 'a missing required field is still refused');
+check(null, captureHttp(fn() => Http::requireFields(['priceFrom' => ' 650 '], ['priceFrom'])), 'a text field passes the required check');
+
+check('', Http::stringField(['email' => ['x']], 'email'), 'a list field reads as empty text, never as "Array"');
+check('', Http::stringField(['email' => true], 'email'), 'a boolean field reads as empty text');
+check('42', Http::stringField(['trainerId' => 42], 'trainerId'), 'a number field reads as its digits');
+check('fallback', Http::stringField([], 'note', 'fallback'), 'a missing field takes the given default');
+
+check(422, captureHttp(fn() => Http::assertTextFields(['headline' => ['x']], ['headline']))?->status, 'a list is refused before it reaches a rule class');
+check(null, captureHttp(fn() => Http::assertTextFields(['birthDate' => null], ['birthDate'])), 'null is how an optional field is cleared');
+check(null, captureHttp(fn() => Http::assertTextFields(['trainingTypeIds' => [1, 2]], ['headline'])), 'a list field that was not listed is left alone');
+
 // ---------------------------------------------------------------------------
 // Rate limiting
 // ---------------------------------------------------------------------------
@@ -68,11 +119,51 @@ $limiter->hit(RateLimiter::LOGIN, RateLimiter::accountKey('member.demo@fitconnec
 // Two addresses do not share a client bucket.
 $clientA = RateLimiter::clientKey();
 check(true, str_starts_with($clientA, 'client:'), 'client key is namespaced');
-$_SERVER['HTTP_X_FORWARDED_FOR'] = '203.0.113.9, 10.0.0.1';
-check('client:203.0.113.9', RateLimiter::clientKey(), 'forwarded address wins and is trimmed');
-$_SERVER['HTTP_X_FORWARDED_FOR'] = 'not-an-address';
-check('client:unknown', RateLimiter::clientKey(), 'a junk address falls back safely');
-unset($_SERVER['HTTP_X_FORWARDED_FOR']);
+
+// X-Forwarded-For is caller-supplied, so it is only believed when the direct
+// peer is a configured proxy. With TRUSTED_PROXIES unset — the default — a
+// rotating header must not hand out a fresh bucket, or the register cap is free
+// to bypass.
+$previousProxies = getenv('TRUSTED_PROXIES');
+$previousRemoteAddress = $_SERVER['REMOTE_ADDR'] ?? null;
+$previousForwarded = $_SERVER['HTTP_X_FORWARDED_FOR'] ?? null;
+try {
+    putenv('TRUSTED_PROXIES');
+    $_SERVER['REMOTE_ADDR'] = '198.51.100.7';
+    $_SERVER['HTTP_X_FORWARDED_FOR'] = '203.0.113.9, 10.0.0.1';
+    check('client:198.51.100.7', RateLimiter::clientKey(), 'a spoofed header is ignored by default');
+
+    // The same header is honoured once the peer that sent it is trusted.
+    putenv('TRUSTED_PROXIES=198.51.100.7');
+    check('client:203.0.113.9', RateLimiter::clientKey(), 'a trusted proxy may name the client');
+
+    // An untrusted peer stays on its own socket address, allowlist or not.
+    $_SERVER['REMOTE_ADDR'] = '198.51.100.8';
+    check('client:198.51.100.8', RateLimiter::clientKey(), 'an unlisted peer cannot spoof the header');
+
+    // Junk in the allowlist and in the header both fail closed.
+    putenv('TRUSTED_PROXIES=not-an-address');
+    check('client:198.51.100.8', RateLimiter::clientKey(), 'a junk allowlist trusts nobody');
+    putenv('TRUSTED_PROXIES=198.51.100.8');
+    $_SERVER['HTTP_X_FORWARDED_FOR'] = 'not-an-address';
+    check('client:unknown', RateLimiter::clientKey(), 'a junk address falls back safely');
+} finally {
+    if ($previousProxies === false) {
+        putenv('TRUSTED_PROXIES');
+    } else {
+        putenv('TRUSTED_PROXIES=' . $previousProxies);
+    }
+    if ($previousRemoteAddress === null) {
+        unset($_SERVER['REMOTE_ADDR']);
+    } else {
+        $_SERVER['REMOTE_ADDR'] = $previousRemoteAddress;
+    }
+    if ($previousForwarded === null) {
+        unset($_SERVER['HTTP_X_FORWARDED_FOR']);
+    } else {
+        $_SERVER['HTTP_X_FORWARDED_FOR'] = $previousForwarded;
+    }
+}
 
 // Unknown scopes are a programming error, not a silent pass.
 expectHttpStatus(500, function () use ($limiter): void {
@@ -193,5 +284,44 @@ expectHttpStatus(422, fn() => $auth->resetPassword([
     'email' => 'member@fitconnect.local', 'code' => (string) $expired['code'], 'newPassword' => 'another-password',
 ]), 'an expired code is refused');
 
-echo 'PASS: rate limiting, reset-code rules and the reset flow (' . $checks . ' checks). '
+// ---------------------------------------------------------------------------
+// User deletion guards
+// ---------------------------------------------------------------------------
+require_once __DIR__ . '/../src/UserAdminRules.php';
+
+UserAdminRules::assertDeletionAllowed(5, 9, false, 2);
+UserAdminRules::assertDeletionAllowed(5, 9, true, 1);
+UserAdminRules::assertDeletionAllowed(5, 9, false, 0);
+
+$selfDeletion = null;
+try {
+    UserAdminRules::assertDeletionAllowed(5, 5, true, 3);
+} catch (HttpException $error) {
+    $selfDeletion = $error;
+}
+check('SELF_DELETION', $selfDeletion?->errorCode, 'an administrator never deletes their own account');
+check(409, $selfDeletion?->status, 'self deletion answers 409');
+
+$lastManager = null;
+try {
+    UserAdminRules::assertDeletionAllowed(5, 9, true, 0);
+} catch (HttpException $error) {
+    $lastManager = $error;
+}
+check('LAST_USER_MANAGER', $lastManager?->errorCode, 'the last account manager cannot be deleted');
+check(409, $lastManager?->status, 'the last manager guard answers 409');
+
+// A deleted account cannot sign in and cannot use a lingering token.
+$pdo->prepare('INSERT INTO users (id, email, password_hash, display_name, role, status) VALUES (3, ?, ?, "ลบ แล้ว", "member", "deleted")')
+    ->execute(['deleted@fitconnect.local', $originalHash]);
+$pdo->prepare('INSERT INTO auth_tokens (user_id, token_hash, expires_at) VALUES (3, ?, DATE_ADD(UTC_TIMESTAMP(), INTERVAL 30 DAY))')
+    ->execute([hash('sha256', 'deleted-session')]);
+expectHttpStatus(403, fn() => $auth->login([
+    'email' => 'deleted@fitconnect.local', 'password' => 'original-password',
+]), 'a deleted account cannot sign in');
+$_SERVER['HTTP_AUTHORIZATION'] = 'Bearer deleted-session';
+check(null, $auth->currentUser(), 'a deleted account cannot use an existing token');
+unset($_SERVER['HTTP_AUTHORIZATION']);
+
+echo 'PASS: rate limiting, request-field hardening and the reset flow (' . $checks . ' checks). '
     . 'Connection-local tables only; no persistent data or email changed.' . PHP_EOL;

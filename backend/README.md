@@ -200,3 +200,21 @@ npm run audit:booking -- -BookingId BK-...
 - `admin.demo@fitconnect.local`
 
 อย่านำบัญชี รหัสผ่าน หรือไฟล์สาธิตเหล่านี้ไปใช้บนระบบจริง
+
+## อัปเดตให้ตรงขอบเขตเอกสาร (บทที่ 1 และ 3) — 26 ก.ย. 2569
+
+รันไฟล์นี้กับฐานข้อมูลเดิมหนึ่งครั้ง (รันซ้ำได้ ไม่มีผลเพิ่ม):
+
+```
+mysql -u root fitconnect < backend/database/manual-migrations/20260926_document_scope.sql
+```
+
+| เรื่อง | การเปลี่ยนแปลง |
+|---|---|
+| เวลายืนยันการจอง | `PATCH /v1/bookings/{id}/status` ต้องส่ง `confirmedTime` เป็น `"12:00"` หรือ `"18:00"` (เวลาไทย วันเดียวกับที่สมาชิกขอ ความยาวเท่าเดิม) และระบบกันเวลาชนกับนัดอื่นของเทรนเนอร์ |
+| สลิปเทรนเนอร์ประจำยิม | เทรนเนอร์ของการจองเป็นผู้ยืนยันสลิปทุกแบบ ผู้ดูแลระบบที่มีสิทธิ์ `review_payments` ดูสลิปและรายได้ยิมได้แต่ไม่อนุมัติ |
+| ยกเลิกโดยสมาชิก | `POST /v1/bookings/{id}/cancel` รับ `reason` (ไม่บังคับ ≤500 ตัวอักษร) |
+| บัญชีธนาคาร | `GET/POST /v1/trainer/bank-accounts`, `PATCH/DELETE /v1/trainer/bank-accounts/{id}`, `POST /v1/trainer/bank-accounts/{id}/default` (สูงสุด 5 บัญชี) และบัญชีเริ่มต้นแสดงใน `paymentRecipient.bankAccount` |
+| แชทก่อนจอง | `POST /v1/chat-rooms` `{trainerId}` เปิดห้องสอบถาม, `GET /v1/chat-rooms` รายการห้องสอบถาม (`chat_rooms.booking_id` เป็น NULL ได้) |
+| ชื่อเล่นเทรนเนอร์ | `trainer_profiles.nickname` ค้นหาได้บนหน้าค้นหา |
+| สมาชิกและรีวิวของเทรนเนอร์ | `GET /v1/trainer/members`, `GET /v1/trainer/reviews` |

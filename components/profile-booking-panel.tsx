@@ -1,13 +1,12 @@
 "use client";
 
 import Link from "next/link";
-import Image from "next/image";
 import { useEffect, useRef, useState } from "react";
 import { ArrowRight, CalendarDays, Clock3, ShieldCheck } from "lucide-react";
 import { SlotCalendarDialog } from "@/components/slot-calendar-dialog";
+import { StartChatButton } from "@/components/start-chat-button";
 import { Button } from "@/components/ui/button";
 import { formatMoney, formatTimeRange } from "@/lib/format";
-import { apiAssetUrl } from "@/lib/api";
 import type { AvailabilitySlot, Trainer } from "@/lib/types";
 
 type Props = {
@@ -74,15 +73,10 @@ export function ProfileBookingPanel({ trainer, selectedSlot, onSelectSlot }: Pro
         </div>
       </dl>
 
-      {trainer.paymentQrUrl && (
-        <details className="profile-payment-qr">
-          <summary>ดู QR รับเงินของเทรนเนอร์</summary>
-          <div>
-            <Image src={apiAssetUrl(trainer.paymentQrUrl) as string} alt={`QR รับเงินของ ${trainer.displayName}`} width={180} height={180} unoptimized />
-            <p>ใช้หลังระบบแสดงยอดชำระแล้ว และตรวจชื่อผู้รับในแอปธนาคารก่อนโอนทุกครั้ง</p>
-          </div>
-        </details>
-      )}
+      {/* A payment QR used to sit here, before any booking existed. It invited a
+          scan off-platform — no hold, no slip, no record — and the amount is only
+          known once a booking exists. The trainer's uploaded QR now appears in
+          the payment step instead, where the amount and the review are attached. */}
 
       {isMonthly && monthlyAvailable && (
         <div className="profile-booking-package-facts">
@@ -162,7 +156,7 @@ export function ProfileBookingPanel({ trainer, selectedSlot, onSelectSlot }: Pro
 
       <div className="profile-booking-policy">
         <ShieldCheck aria-hidden="true" size={18} />
-        <p>ยืนยันแล้วระบบกันเวลานัดแรกไว้ 10 นาที ต้องส่งสลิปให้{trainer.serviceMode === "freelance" ? "เทรนเนอร์ฟรีแลนซ์" : "ผู้ดูแลระบบ"}ตรวจและยืนยัน หากไม่ส่งทันเวลาการจองจะหมดอายุและคืนเวลาอัตโนมัติ</p>
+        <p>เทรนเนอร์ตอบรับแล้ว ระบบจะแจ้งยืนยันในรอบ 12:00 หรือ 18:00 น. จากนั้นมีเวลา 10 นาทีส่งสลิปให้เทรนเนอร์ตรวจและยืนยัน หากไม่ทันการจองจะหมดอายุและคืนเวลาอัตโนมัติ</p>
       </div>
 
       {canBook ? (
@@ -192,6 +186,10 @@ export function ProfileBookingPanel({ trainer, selectedSlot, onSelectSlot }: Pro
                     : "เลือกเวลาจากตารางว่างด้านบนก่อนจึงจะจองได้"}
           </p>
         </>
+      )}
+
+      {trainer.verification === "verified" && (
+        <StartChatButton trainerId={trainer.id} trainerSlug={trainer.slug} trainerName={trainer.displayName} />
       )}
     </aside>
   );

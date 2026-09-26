@@ -41,7 +41,7 @@ final class Handlers
     public function trainers(): never
     {
         $rows = $this->database->fetchAll(
-            'SELECT tp.id, tp.user_id, tp.slug, tp.headline, tp.bio, tp.years_experience, tp.service_mode,
+            'SELECT tp.id, tp.user_id, tp.slug, tp.nickname, tp.headline, tp.bio, tp.years_experience, tp.service_mode,
                     tp.gym_name, tp.price_from, tp.monthly_price, tp.monthly_session_count, tp.approval_status, tp.image_path, tp.is_demo,
                     u.display_name,
                     AVG(CASE WHEN review_booking.id IS NOT NULL THEN r.rating END) AS rating,
@@ -87,9 +87,11 @@ final class Handlers
         $user = $this->auth->requireUser(['trainer']);
         $input = Http::body();
         Http::requireFields($input, ['priceFrom']);
-        $price = WorkflowRules::normalizeMoney($input['priceFrom'] ?? null, 'priceFrom');
-        $this->database->prepare('UPDATE trainer_profiles SET price_from = ?, updated_at = UTC_TIMESTAMP() WHERE user_id = ?')
-            ->execute([$price, $user['id']]);
+        $price = WorkflowRules::normalizeMoney(Http::stringField($input, 'priceFrom'), 'priceFrom');
+        $this->database->execute(
+            'UPDATE trainer_profiles SET price_from = ?, updated_at = UTC_TIMESTAMP() WHERE user_id = ?',
+            [$price, $user['id']]
+        );
         $this->trainerMe();
     }
 
@@ -142,12 +144,262 @@ final class Handlers
         ]);
     }
 
+    /** The trainer's own profile id, for endpoints that act on it. */
+    private function ownTrainerProfileId(PDO $pdo, array $user): int
+    {
+        $statement = $pdo->prepare('SELECT id FROM trainer_profiles WHERE user_id = ?');
+        $statement->execute([(int) $user['id']]);
+        $id = $statement->fetchColumn();
+        if ($id === false) {
+            throw new HttpException(404, 'ยังไม่มีโปรไฟล์เทรนเนอร์', 'TRAINER_PROFILE_NOT_FOUND');
+        }
+        return (int) $id;
+    }
+
+    private function bankAccountList(PDO $pdo, int $trainerProfileId): array
+    {
+        $statement = $pdo->prepare(
+            'SELECT id, bank_name, account_name, account_number, is_default, created_at
+             FROM trainer_bank_accounts WHERE trainer_profile_id = ?
+             ORDER BY is_default DESC, created_at ASC, id ASC'
+        );
+        $statement->execute([$trainerProfileId]);
+        return array_map(fn(array $row): array => [
+            'id' => (int) $row['id'],
+            'bankName' => $row['bank_name'],
+            'accountName' => $row['account_name'],
+            'accountNumber' => $row['account_number'],
+            'isDefault' => (bool) $row['is_default'],
+            'createdAt' => $this->iso($row['created_at']),
+        ], $statement->fetchAll());
+    }
+
+    /**
+     * บทที่ 3.1.3 ข้อ 6: members who booked or are booking with this trainer,
+     * each with their training history, newest first.
+     */
+    public function trainerMembers(): never
+    {
+        $user = $this->auth->requireUser(['trainer']);
+        $profileId = $this->ownTrainerProfileId($this->database->pdo(), $user);
+        $rows = $this->database->fetchAll(
+            'SELECT b.public_id, b.status, b.booking_type, b.session_count,
+                    COALESCE(b.confirmed_starts_at, b.starts_at) AS starts_at,
+                    COALESCE(b.confirmed_ends_at, b.ends_at) AS ends_at,
+                    b.quoted_price, b.created_at,
+                    b.member_user_id, u.display_name, mp.image_path, mp.goals, mp.experience_level
+             FROM bookings b
+             JOIN users u ON u.id = b.member_user_id
+             LEFT JOIN member_profiles mp ON mp.user_id = b.member_user_id
+             WHERE b.trainer_profile_id = ?
+             ORDER BY b.created_at DESC, b.id DESC
+             LIMIT 500',
+            [$profileId]
+        );
+        $members = [];
+        $now = time();
+        foreach ($rows as $row) {
+            $memberId = (int) $row['member_user_id'];
+            if (!isset($members[$memberId])) {
+                $members[$memberId] = [
+                    'id' => $memberId,
+                    'displayName' => $row['display_name'],
+                    'imageUrl' => self::accountImageUrl('member', $memberId, $row['image_path'] ?? null),
+                    'goals' => $row['goals'] ?? null,
+                    'experienceLevel' => $row['experience_level'] ?? null,
+                    'totalBookings' => 0,
+                    'completedSessions' => 0,
+                    'activeBookings' => 0,
+                    'nextSessionAt' => null,
+                    'lastSessionAt' => null,
+                    'history' => [],
+                ];
+            }
+            $member = &$members[$memberId];
+            $member['totalBookings']++;
+            $status = (string) $row['status'];
+            $startsAt = strtotime($row['starts_at'] . ' UTC');
+            if ($status === 'completed') {
+                $member['completedSessions'] += max(1, (int) $row['session_count']);
+                if ($member['lastSessionAt'] === null || $startsAt > strtotime($member['lastSessionAt'])) {
+                    $member['lastSessionAt'] = $this->iso($row['starts_at']);
+                }
+            }
+            if (in_array($status, ['pending_trainer', 'awaiting_payment', 'payment_review', 'confirmed'], true)) {
+                $member['activeBookings']++;
+                if ($startsAt > $now && ($member['nextSessionAt'] === null || $startsAt < strtotime($member['nextSessionAt']))) {
+                    $member['nextSessionAt'] = $this->iso($row['starts_at']);
+                }
+            }
+            if (count($member['history']) < 20) {
+                $member['history'][] = [
+                    'id' => $row['public_id'],
+                    'status' => $status,
+                    'bookingType' => $row['booking_type'] ?? 'single',
+                    'sessionCount' => (int) $row['session_count'],
+                    'startsAt' => $this->iso($row['starts_at']),
+                    'endsAt' => $this->iso($row['ends_at']),
+                    'quotedPrice' => $row['quoted_price'] === null ? null : (float) $row['quoted_price'],
+                ];
+            }
+            unset($member);
+        }
+        Http::json(array_values($members));
+    }
+
+    /** บทที่ 3.1.3 ข้อ 7: the trainer's reviews with the average score. */
+    public function trainerReviews(): never
+    {
+        $user = $this->auth->requireUser(['trainer']);
+        $profileId = $this->ownTrainerProfileId($this->database->pdo(), $user);
+        $summary = $this->database->fetchOne(
+            'SELECT COUNT(*) AS total, AVG(rating) AS average,
+                    SUM(rating = 5) AS five, SUM(rating = 4) AS four, SUM(rating = 3) AS three,
+                    SUM(rating = 2) AS two, SUM(rating = 1) AS one
+             FROM reviews WHERE trainer_profile_id = ? AND status = "published"',
+            [$profileId]
+        ) ?? [];
+        $rows = $this->database->fetchAll(
+            'SELECT r.id, r.rating, r.comment, r.created_at, b.public_id, u.display_name
+             FROM reviews r
+             JOIN bookings b ON b.id = r.booking_id
+             JOIN users u ON u.id = r.member_user_id
+             WHERE r.trainer_profile_id = ? AND r.status = "published"
+             ORDER BY r.created_at DESC, r.id DESC LIMIT 50',
+            [$profileId]
+        );
+        Http::json([
+            'count' => (int) ($summary['total'] ?? 0),
+            'average' => ($summary['average'] ?? null) === null ? null : round((float) $summary['average'], 1),
+            'distribution' => [
+                5 => (int) ($summary['five'] ?? 0),
+                4 => (int) ($summary['four'] ?? 0),
+                3 => (int) ($summary['three'] ?? 0),
+                2 => (int) ($summary['two'] ?? 0),
+                1 => (int) ($summary['one'] ?? 0),
+            ],
+            'reviews' => array_map(fn(array $row): array => [
+                'id' => (int) $row['id'],
+                'rating' => (int) $row['rating'],
+                'comment' => $row['comment'],
+                'createdAt' => $this->iso($row['created_at']),
+                'bookingId' => $row['public_id'],
+                'memberName' => $row['display_name'],
+            ], $rows),
+        ]);
+    }
+
+    public function bankAccounts(): never
+    {
+        $user = $this->auth->requireUser(['trainer']);
+        $pdo = $this->database->pdo();
+        $profileId = $this->ownTrainerProfileId($pdo, $user);
+        Http::json(['banks' => BankAccountRules::BANKS, 'accounts' => $this->bankAccountList($pdo, $profileId)]);
+    }
+
+    public function createBankAccount(): never
+    {
+        $user = $this->auth->requireUser(['trainer']);
+        $input = Http::body();
+        $account = BankAccountRules::validate($input);
+        $makeDefault = filter_var($input['isDefault'] ?? false, FILTER_VALIDATE_BOOL);
+        $accounts = $this->database->transaction(function (PDO $pdo) use ($user, $account, $makeDefault): array {
+            $profileId = $this->ownTrainerProfileId($pdo, $user);
+            $count = $pdo->prepare('SELECT COUNT(*) FROM trainer_bank_accounts WHERE trainer_profile_id = ? FOR UPDATE');
+            $count->execute([$profileId]);
+            $existing = (int) $count->fetchColumn();
+            if ($existing >= BankAccountRules::MAX_ACCOUNTS) {
+                throw new HttpException(409, 'เพิ่มบัญชีได้สูงสุด ' . BankAccountRules::MAX_ACCOUNTS . ' บัญชี', 'BANK_ACCOUNT_LIMIT');
+            }
+            $duplicate = $pdo->prepare('SELECT id FROM trainer_bank_accounts WHERE trainer_profile_id = ? AND account_number = ?');
+            $duplicate->execute([$profileId, $account['accountNumber']]);
+            if ($duplicate->fetchColumn() !== false) {
+                throw new HttpException(409, 'มีเลขบัญชีนี้แล้ว', 'BANK_ACCOUNT_EXISTS', ['accountNumber' => 'เลขบัญชีนี้บันทึกไว้แล้ว']);
+            }
+            // The first account is the default one; later ones only when asked.
+            $isDefault = $existing === 0 || $makeDefault;
+            if ($isDefault) {
+                $pdo->prepare('UPDATE trainer_bank_accounts SET is_default = 0 WHERE trainer_profile_id = ?')->execute([$profileId]);
+            }
+            $pdo->prepare(
+                'INSERT INTO trainer_bank_accounts (trainer_profile_id, bank_name, account_name, account_number, is_default)
+                 VALUES (?, ?, ?, ?, ?)'
+            )->execute([$profileId, $account['bankName'], $account['accountName'], $account['accountNumber'], (int) $isDefault]);
+            return $this->bankAccountList($pdo, $profileId);
+        });
+        Http::json(['accounts' => $accounts], 201);
+    }
+
+    public function updateBankAccount(string $accountId): never
+    {
+        $user = $this->auth->requireUser(['trainer']);
+        $account = BankAccountRules::validate(Http::body());
+        $accounts = $this->database->transaction(function (PDO $pdo) use ($user, $account, $accountId): array {
+            $profileId = $this->ownTrainerProfileId($pdo, $user);
+            $this->lockOwnBankAccount($pdo, $profileId, (int) $accountId);
+            $duplicate = $pdo->prepare('SELECT id FROM trainer_bank_accounts WHERE trainer_profile_id = ? AND account_number = ? AND id <> ?');
+            $duplicate->execute([$profileId, $account['accountNumber'], (int) $accountId]);
+            if ($duplicate->fetchColumn() !== false) {
+                throw new HttpException(409, 'มีเลขบัญชีนี้แล้ว', 'BANK_ACCOUNT_EXISTS', ['accountNumber' => 'เลขบัญชีนี้บันทึกไว้แล้ว']);
+            }
+            $pdo->prepare(
+                'UPDATE trainer_bank_accounts SET bank_name = ?, account_name = ?, account_number = ?, updated_at = UTC_TIMESTAMP()
+                 WHERE id = ?'
+            )->execute([$account['bankName'], $account['accountName'], $account['accountNumber'], (int) $accountId]);
+            return $this->bankAccountList($pdo, $profileId);
+        });
+        Http::json(['accounts' => $accounts]);
+    }
+
+    public function setDefaultBankAccount(string $accountId): never
+    {
+        $user = $this->auth->requireUser(['trainer']);
+        $accounts = $this->database->transaction(function (PDO $pdo) use ($user, $accountId): array {
+            $profileId = $this->ownTrainerProfileId($pdo, $user);
+            $this->lockOwnBankAccount($pdo, $profileId, (int) $accountId);
+            $pdo->prepare('UPDATE trainer_bank_accounts SET is_default = (id = ?) WHERE trainer_profile_id = ?')
+                ->execute([(int) $accountId, $profileId]);
+            return $this->bankAccountList($pdo, $profileId);
+        });
+        Http::json(['accounts' => $accounts]);
+    }
+
+    public function deleteBankAccount(string $accountId): never
+    {
+        $user = $this->auth->requireUser(['trainer']);
+        $accounts = $this->database->transaction(function (PDO $pdo) use ($user, $accountId): array {
+            $profileId = $this->ownTrainerProfileId($pdo, $user);
+            $row = $this->lockOwnBankAccount($pdo, $profileId, (int) $accountId);
+            $pdo->prepare('DELETE FROM trainer_bank_accounts WHERE id = ?')->execute([(int) $accountId]);
+            if ((bool) $row['is_default']) {
+                // Promote the oldest remaining account so members always see one.
+                $pdo->prepare(
+                    'UPDATE trainer_bank_accounts SET is_default = 1
+                     WHERE trainer_profile_id = ? ORDER BY created_at ASC, id ASC LIMIT 1'
+                )->execute([$profileId]);
+            }
+            return $this->bankAccountList($pdo, $profileId);
+        });
+        Http::json(['accounts' => $accounts]);
+    }
+
+    private function lockOwnBankAccount(PDO $pdo, int $profileId, int $accountId): array
+    {
+        $statement = $pdo->prepare('SELECT id, is_default FROM trainer_bank_accounts WHERE id = ? AND trainer_profile_id = ? FOR UPDATE');
+        $statement->execute([$accountId, $profileId]);
+        $row = $statement->fetch();
+        if (!$row) {
+            throw new HttpException(404, 'ไม่พบบัญชีธนาคาร', 'BANK_ACCOUNT_NOT_FOUND');
+        }
+        return $row;
+    }
+
     public function createAvailabilitySlot(): never
     {
         $user = $this->auth->requireUser(['trainer']);
         $input = Http::body();
         Http::requireFields($input, ['startsAt']);
-        $startsAt = WorkflowRules::parseUtc((string) $input['startsAt'], 'startsAt');
+        $startsAt = WorkflowRules::parseUtc(Http::stringField($input, 'startsAt'), 'startsAt');
         $endsAt = WorkflowRules::availabilityEnd($startsAt);
         WorkflowRules::assertAvailabilityWindow(
             new DateTimeImmutable('now', new DateTimeZone('UTC')),
@@ -234,6 +486,65 @@ final class Handlers
         Http::json(['id' => (int) $slotId, 'deleted' => true]);
     }
 
+    public function updateAvailabilitySlot(string $slotId): never
+    {
+        $user = $this->auth->requireUser(['trainer']);
+        $input = Http::body();
+        Http::requireFields($input, ['startsAt']);
+        $startsAt = WorkflowRules::parseUtc(Http::stringField($input, 'startsAt'), 'startsAt');
+        $endsAt = WorkflowRules::availabilityEnd($startsAt);
+        $now = new DateTimeImmutable('now', new DateTimeZone('UTC'));
+
+        $slot = $this->database->transaction(function (PDO $pdo) use ($slotId, $user, $startsAt, $endsAt, $now): array {
+            $statement = $pdo->prepare(
+                'SELECT s.id, s.trainer_profile_id, s.starts_at, s.state, tp.approval_status
+                 FROM availability_slots s
+                 JOIN trainer_profiles tp ON tp.id = s.trainer_profile_id
+                 WHERE s.id = ? AND tp.user_id = ? FOR UPDATE'
+            );
+            $statement->execute([(int) $slotId, $user['id']]);
+            $slot = $statement->fetch();
+            if (!$slot) {
+                throw new HttpException(404, 'ไม่พบช่วงเวลาว่าง', 'SLOT_NOT_FOUND');
+            }
+            if ($slot['approval_status'] !== 'approved') {
+                throw new HttpException(403, 'เทรนเนอร์ยังไม่ได้รับการอนุมัติ', 'TRAINER_NOT_APPROVED');
+            }
+            WorkflowRules::assertSlotEditable(
+                (string) $slot['state'],
+                new DateTimeImmutable((string) $slot['starts_at'], new DateTimeZone('UTC')),
+                $now
+            );
+            WorkflowRules::assertAvailabilityWindow($now, $startsAt, $endsAt);
+
+            $overlap = $pdo->prepare(
+                'SELECT id FROM availability_slots
+                 WHERE trainer_profile_id = ? AND id <> ? AND starts_at < ? AND ends_at > ?
+                 LIMIT 1'
+            );
+            $overlap->execute([
+                (int) $slot['trainer_profile_id'],
+                (int) $slot['id'],
+                $endsAt->format('Y-m-d H:i:s'),
+                $startsAt->format('Y-m-d H:i:s'),
+            ]);
+            if ($overlap->fetch()) {
+                throw new HttpException(409, 'ช่วงเวลานี้ทับกับตารางที่มีอยู่', 'SLOT_OVERLAP');
+            }
+
+            $pdo->prepare('UPDATE availability_slots SET starts_at = ?, ends_at = ? WHERE id = ?')
+                ->execute([$startsAt->format('Y-m-d H:i:s'), $endsAt->format('Y-m-d H:i:s'), (int) $slot['id']]);
+            return [
+                'id' => (int) $slot['id'],
+                'startsAt' => $startsAt->format('Y-m-d\TH:i:s.000\Z'),
+                'endsAt' => $endsAt->format('Y-m-d\TH:i:s.000\Z'),
+                'state' => 'available',
+            ];
+        });
+
+        Http::json($slot);
+    }
+
     public function register(): never
     {
         $input = Http::body();
@@ -244,22 +555,27 @@ final class Handlers
     public function login(): never
     {
         $input = Http::body();
+        $account = RateLimiter::accountKey(Http::stringField($input, 'email'));
         // Counted per account and per address: the first stops a password guess
         // against one mailbox, the second stops a sweep across many.
-        $this->rateLimiter->hit(RateLimiter::LOGIN, RateLimiter::accountKey((string) ($input['email'] ?? '')));
+        $this->rateLimiter->hit(RateLimiter::LOGIN, $account);
         $this->rateLimiter->hit(RateLimiter::LOGIN, RateLimiter::clientKey());
         $result = $this->auth->login($input);
-        $this->rateLimiter->clear(RateLimiter::LOGIN, RateLimiter::accountKey((string) ($input['email'] ?? '')));
+        $this->rateLimiter->clear(RateLimiter::LOGIN, $account);
+        // The address window is shared by everyone behind one network, so a
+        // successful sign-in must give its attempt back too: otherwise ten
+        // ordinary logins from one office lock every member of it out for fifteen
+        // minutes. Failures still spend the window, which is what stops a sweep.
+        $this->rateLimiter->clear(RateLimiter::LOGIN, RateLimiter::clientKey());
         Http::json($result);
     }
 
     public function forgotPassword(): never
     {
         $input = Http::body();
-        $this->rateLimiter->hit(
-            RateLimiter::PASSWORD_RESET_REQUEST,
-            RateLimiter::accountKey((string) ($input['email'] ?? ''))
-        );
+        Http::assertTextFields($input, ['email']);
+        $account = RateLimiter::accountKey(Http::stringField($input, 'email'));
+        $this->rateLimiter->hit(RateLimiter::PASSWORD_RESET_REQUEST, $account);
         $this->rateLimiter->hit(RateLimiter::PASSWORD_RESET_REQUEST, RateLimiter::clientKey());
 
         $reset = $this->auth->requestPasswordReset($input);
@@ -274,13 +590,12 @@ final class Handlers
     public function resetPassword(): never
     {
         $input = Http::body();
-        $this->rateLimiter->hit(
-            RateLimiter::PASSWORD_RESET_CONFIRM,
-            RateLimiter::accountKey((string) ($input['email'] ?? ''))
-        );
+        Http::assertTextFields($input, ['email', 'code', 'newPassword']);
+        $account = RateLimiter::accountKey(Http::stringField($input, 'email'));
+        $this->rateLimiter->hit(RateLimiter::PASSWORD_RESET_CONFIRM, $account);
         $result = $this->auth->resetPassword($input);
-        $this->rateLimiter->clear(RateLimiter::PASSWORD_RESET_CONFIRM, RateLimiter::accountKey((string) ($input['email'] ?? '')));
-        $this->rateLimiter->clear(RateLimiter::LOGIN, RateLimiter::accountKey((string) ($input['email'] ?? '')));
+        $this->rateLimiter->clear(RateLimiter::PASSWORD_RESET_CONFIRM, $account);
+        $this->rateLimiter->clear(RateLimiter::LOGIN, $account);
         Http::json($result);
     }
 
@@ -304,9 +619,41 @@ final class Handlers
     public function updateProfile(): never
     {
         $user = $this->auth->requireUser(['member', 'trainer']);
-        $input = Http::body();
+        $request = Http::body();
+        // ProfileRules reads these as text; a list sent for one of them would be
+        // cast to the literal "Array" and saved. `trainingTypeIds` is the one
+        // profile field that is meant to be an array, so it is not listed.
+        Http::assertTextFields($request, [
+            'firstName', 'lastName', 'phone', 'fitnessGoal', 'experienceLevel', 'weight', 'height', 'birthDate',
+            'displayName', 'legalName', 'nickname', 'headline', 'bio', 'serviceMode', 'gymName', 'education',
+            'paymentAccountName', 'promptPayId', 'yearsExperience', 'priceFrom', 'monthlyPrice',
+            'monthlySessionCount',
+        ]);
 
         if ($user['role'] === 'member') {
+            $stored = $this->database->fetchOne(
+                'SELECT u.display_name, mp.first_name, mp.last_name, mp.phone, mp.goals, mp.experience_level,
+                        mp.weight, mp.height, mp.birth_date
+                 FROM users u JOIN member_profiles mp ON mp.user_id = u.id WHERE u.id = ?',
+                [$user['id']]
+            );
+            if (!$stored) {
+                throw new HttpException(404, 'ไม่พบโปรไฟล์สมาชิก', 'PROFILE_NOT_FOUND');
+            }
+            $storedFirstName = trim((string) ($stored['first_name'] ?? ''));
+            // Members registered before member_profiles carried a name keep theirs
+            // only in users.display_name, so the form shows that fallback; merging
+            // it back keeps a save that omits the names working like the form.
+            $input = self::mergeProfileInput($request, [
+                'firstName' => $storedFirstName === '' ? (string) $stored['display_name'] : $storedFirstName,
+                'lastName' => $stored['last_name'] ?? '',
+                'phone' => $stored['phone'] ?? '',
+                'fitnessGoal' => $stored['goals'] ?? '',
+                'experienceLevel' => $stored['experience_level'] ?? '',
+                'weight' => $stored['weight'],
+                'height' => $stored['height'],
+                'birthDate' => $stored['birth_date'],
+            ]);
             $profile = ProfileRules::member($input);
             $displayName = trim($profile['firstName'] . ' ' . $profile['lastName']);
             $this->database->transaction(function (PDO $pdo) use ($user, $profile, $displayName): void {
@@ -315,15 +662,51 @@ final class Handlers
                 $pdo->prepare(
                     'UPDATE member_profiles
                      SET first_name = ?, last_name = ?, phone = ?, goals = ?, experience_level = ?,
-                         weight = ?, height = ?, updated_at = UTC_TIMESTAMP()
+                         weight = ?, height = ?, birth_date = ?, updated_at = UTC_TIMESTAMP()
                      WHERE user_id = ?'
                 )->execute([
                     $profile['firstName'], $profile['lastName'], self::blankToNull($profile['phone']),
                     self::blankToNull($profile['fitnessGoal']), self::blankToNull($profile['experienceLevel']),
-                    $profile['weight'], $profile['height'], $user['id'],
+                    $profile['weight'], $profile['height'], $profile['birthDate'], $user['id'],
                 ]);
             });
         } else {
+            $stored = $this->database->fetchOne(
+                'SELECT tp.id, tp.legal_name, tp.nickname, tp.phone, tp.birth_date, tp.education, tp.headline, tp.bio,
+                        tp.years_experience, tp.service_mode, tp.gym_name, tp.price_from, tp.monthly_price,
+                        tp.monthly_session_count, tp.payment_account_name, tp.promptpay_id, u.display_name
+                 FROM users u JOIN trainer_profiles tp ON tp.user_id = u.id WHERE u.id = ?',
+                [$user['id']]
+            );
+            if (!$stored) {
+                throw new HttpException(409, 'กรอกข้อมูลสมัครเทรนเนอร์ก่อนแก้โปรไฟล์', 'TRAINER_PROFILE_REQUIRED');
+            }
+            $storedTypes = $this->database->fetchAll(
+                'SELECT training_type_id FROM trainer_training_types WHERE trainer_profile_id = ? ORDER BY training_type_id',
+                [(int) $stored['id']]
+            );
+            $input = self::mergeProfileInput($request, [
+                'displayName' => (string) $stored['display_name'],
+                'legalName' => $stored['legal_name'] ?? '',
+                'nickname' => $stored['nickname'] ?? '',
+                'phone' => $stored['phone'] ?? '',
+                'birthDate' => $stored['birth_date'],
+                'education' => $stored['education'] ?? '',
+                'headline' => $stored['headline'] ?? '',
+                'bio' => $stored['bio'] ?? '',
+                'yearsExperience' => $stored['years_experience'],
+                'serviceMode' => $stored['service_mode'],
+                'gymName' => $stored['gym_name'] ?? '',
+                'priceFrom' => $stored['price_from'],
+                'monthlyPrice' => $stored['monthly_price'],
+                'monthlySessionCount' => $stored['monthly_session_count'],
+                'paymentAccountName' => $stored['payment_account_name'] ?? '',
+                'promptPayId' => $stored['promptpay_id'] ?? '',
+                'trainingTypeIds' => array_map(
+                    fn(array $row): int => (int) $row['training_type_id'],
+                    $storedTypes
+                ),
+            ]);
             $profile = ProfileRules::trainer($input);
             $this->database->transaction(function (PDO $pdo) use ($user, $profile): void {
                 $profileStatement = $pdo->prepare('SELECT id FROM trainer_profiles WHERE user_id = ? FOR UPDATE');
@@ -345,16 +728,19 @@ final class Handlers
                     ]);
                 }
 
+                $pdo->prepare('UPDATE trainer_profiles SET nickname = ? WHERE id = ?')
+                    ->execute([self::blankToNull($profile['nickname']), (int) $trainerProfile['id']]);
                 $pdo->prepare('UPDATE users SET display_name = ?, updated_at = UTC_TIMESTAMP() WHERE id = ?')
                     ->execute([$profile['displayName'], $user['id']]);
                 $pdo->prepare(
                     'UPDATE trainer_profiles
-                     SET legal_name = ?, phone = ?, headline = ?, bio = ?, years_experience = ?,
+                     SET legal_name = ?, phone = ?, birth_date = ?, education = ?, headline = ?, bio = ?, years_experience = ?,
                          service_mode = ?, gym_name = ?, price_from = ?, monthly_price = ?, monthly_session_count = ?,
                          payment_account_name = ?, promptpay_id = ?, updated_at = UTC_TIMESTAMP()
                      WHERE id = ?'
                 )->execute([
-                    $profile['legalName'], self::blankToNull($profile['phone']), self::blankToNull($profile['headline']),
+                    $profile['legalName'], self::blankToNull($profile['phone']), $profile['birthDate'],
+                    self::blankToNull($profile['education']), self::blankToNull($profile['headline']),
                     self::blankToNull($profile['bio']), $profile['yearsExperience'], $profile['serviceMode'],
                     $profile['serviceMode'] === 'freelance' ? null : $profile['gymName'], $profile['priceFrom'],
                     $profile['monthlyPrice'], $profile['monthlySessionCount'],
@@ -373,6 +759,54 @@ final class Handlers
         }
 
         Http::json($this->accountProfilePayload(['id' => $user['id'], 'role' => $user['role']]));
+    }
+
+    /**
+     * PATCH is a partial update: the keys the request carries win, every other
+     * field keeps the stored value. Replacing the whole row meant a client that
+     * omitted an optional field — a phone number, a headline — silently wiped it,
+     * which is not what an omitted field means in a PATCH.
+     */
+    private static function mergeProfileInput(array $request, array $stored): array
+    {
+        foreach ($request as $field => $value) {
+            if (array_key_exists($field, $stored)) {
+                $stored[$field] = $value;
+            }
+        }
+        return $stored;
+    }
+
+    public function deleteOwnAccount(): never
+    {
+        $user = $this->auth->requireUser(['member', 'trainer']);
+        $this->rateLimiter->hit(RateLimiter::ACCOUNT_DELETE, 'user:' . $user['id']);
+        $input = Http::body();
+        Http::requireFields($input, ['currentPassword', 'confirmation']);
+        if (Http::stringField($input, 'confirmation') !== 'ลบบัญชี') {
+            throw new HttpException(422, 'กรุณาพิมพ์ “ลบบัญชี” เพื่อยืนยัน', 'VALIDATION_FAILED', [
+                'confirmation' => 'พิมพ์ ลบบัญชี ให้ตรงตามที่กำหนด',
+            ]);
+        }
+
+        $this->database->transaction(function (PDO $pdo) use ($user, $input): void {
+            $statement = $pdo->prepare('SELECT password_hash FROM users WHERE id = ? AND status = "active" FOR UPDATE');
+            $statement->execute([$user['id']]);
+            $account = $statement->fetch();
+            if (!$account || !password_verify(Http::stringField($input, 'currentPassword'), $account['password_hash'])) {
+                throw new HttpException(401, 'รหัสผ่านปัจจุบันไม่ถูกต้อง', 'INVALID_CREDENTIALS', [
+                    'currentPassword' => 'ตรวจสอบรหัสผ่านแล้วลองอีกครั้ง',
+                ]);
+            }
+
+            // Keep booking and payment history for system records, but revoke every session.
+            $pdo->prepare('UPDATE users SET status = "deleted", updated_at = UTC_TIMESTAMP() WHERE id = ?')
+                ->execute([$user['id']]);
+            $pdo->prepare('UPDATE auth_tokens SET revoked_at = UTC_TIMESTAMP() WHERE user_id = ? AND revoked_at IS NULL')
+                ->execute([$user['id']]);
+        });
+
+        Http::json(['deleted' => true]);
     }
 
     public function uploadProfileImage(): never
@@ -457,6 +891,83 @@ final class Handlers
         Http::json(['paymentQrUrl' => "/v1/trainer-payment-qr/{$profileId}"]);
     }
 
+    public const MAX_TRAINER_PHOTOS = 6;
+
+    /** The trainer's own gallery, for the profile manager. */
+    public function trainerPhotos(): never
+    {
+        $user = $this->auth->requireUser(['trainer']);
+        $profile = $this->database->fetchOne('SELECT id FROM trainer_profiles WHERE user_id = ?', [$user['id']]);
+        if (!$profile) throw new HttpException(404, 'ไม่พบโปรไฟล์เทรนเนอร์', 'PROFILE_NOT_FOUND');
+        Http::json(['photos' => $this->trainerPhotoList((int) $profile['id']), 'max' => self::MAX_TRAINER_PHOTOS]);
+    }
+
+    public function uploadTrainerPhoto(): never
+    {
+        $user = $this->auth->requireUser(['trainer']);
+        try {
+            $upload = $this->saveUpload('image', ['image/jpeg', 'image/png', 'image/webp'], 5 * 1024 * 1024, 'trainer-photos');
+        } catch (HttpException $error) {
+            if (in_array($error->status, [413, 415], true)) {
+                throw new HttpException(422, $error->getMessage(), 'VALIDATION_FAILED', ['image' => $error->getMessage()]);
+            }
+            throw $error;
+        }
+        try {
+            $profileId = $this->database->transaction(function (PDO $pdo) use ($user, $upload): int {
+                $statement = $pdo->prepare('SELECT id FROM trainer_profiles WHERE user_id = ? FOR UPDATE');
+                $statement->execute([$user['id']]);
+                $profile = $statement->fetch();
+                if (!$profile) throw new HttpException(404, 'ไม่พบโปรไฟล์เทรนเนอร์', 'PROFILE_NOT_FOUND');
+                $count = $pdo->prepare('SELECT COUNT(*), COALESCE(MAX(sort_order), 0) FROM trainer_photos WHERE trainer_profile_id = ?');
+                $count->execute([$profile['id']]);
+                [$total, $maxOrder] = $count->fetch(PDO::FETCH_NUM);
+                if ((int) $total >= self::MAX_TRAINER_PHOTOS) {
+                    throw new HttpException(422, 'เพิ่มรูปได้สูงสุด ' . self::MAX_TRAINER_PHOTOS . ' รูป', 'VALIDATION_FAILED', ['image' => 'ลบรูปเดิมก่อนเพิ่มรูปใหม่']);
+                }
+                $pdo->prepare('INSERT INTO trainer_photos (trainer_profile_id, path, sort_order) VALUES (?, ?, ?)')
+                    ->execute([$profile['id'], $upload['path'], (int) $maxOrder + 1]);
+                return (int) $profile['id'];
+            });
+        } catch (Throwable $error) {
+            $this->removeUpload($upload['path']);
+            throw $error;
+        }
+        Http::json(['photos' => $this->trainerPhotoList($profileId), 'max' => self::MAX_TRAINER_PHOTOS], 201);
+    }
+
+    public function deleteTrainerPhoto(string $photoId): never
+    {
+        $user = $this->auth->requireUser(['trainer']);
+        [$profileId, $path] = $this->database->transaction(function (PDO $pdo) use ($user, $photoId): array {
+            $statement = $pdo->prepare(
+                'SELECT p.id, p.path, p.trainer_profile_id FROM trainer_photos p
+                 JOIN trainer_profiles tp ON tp.id = p.trainer_profile_id
+                 WHERE p.id = ? AND tp.user_id = ? FOR UPDATE'
+            );
+            $statement->execute([(int) $photoId, $user['id']]);
+            $photo = $statement->fetch();
+            if (!$photo) throw new HttpException(404, 'ไม่พบรูปนี้', 'PHOTO_NOT_FOUND');
+            $pdo->prepare('DELETE FROM trainer_photos WHERE id = ?')->execute([$photo['id']]);
+            return [(int) $photo['trainer_profile_id'], (string) $photo['path']];
+        });
+        $this->removeUpload($path);
+        Http::json(['photos' => $this->trainerPhotoList($profileId), 'max' => self::MAX_TRAINER_PHOTOS]);
+    }
+
+    /** Public: gallery photos of an approved trainer. */
+    public function trainerPhoto(string $photoId): never
+    {
+        $record = $this->database->fetchOne(
+            'SELECT p.path FROM trainer_photos p JOIN trainer_profiles tp ON tp.id = p.trainer_profile_id WHERE p.id = ?',
+            [(int) $photoId]
+        );
+        if (!$record || !str_starts_with((string) $record['path'], 'uploads/trainer-photos/')) {
+            throw new HttpException(404, 'ไม่พบรูปภาพ', 'IMAGE_NOT_FOUND');
+        }
+        $this->serveUploadedImage((string) $record['path'], 'trainer-photos', 'fitconnect-trainer-photo-' . (int) $photoId, true);
+    }
+
     public function deleteTrainerPaymentQr(): never
     {
         $user = $this->auth->requireUser(['trainer']);
@@ -531,9 +1042,18 @@ final class Handlers
 
     public function changeProfilePassword(): never
     {
+        $user = $this->auth->requireUser(['member', 'trainer', 'admin']);
         $input = Http::body();
-        $this->rateLimiter->hit(RateLimiter::LOGIN, RateLimiter::clientKey());
-        Http::json($this->auth->changePassword($input));
+        // A wrong current password is a credential guess, so it is still counted
+        // — but against the account, never against the LOGIN address bucket that
+        // every other member behind the same network shares. Ten typos here used
+        // to lock the whole network out of signing in. On success only this
+        // account key is cleared, exactly as a sign-in clears its own.
+        $account = RateLimiter::accountKey((string) $user['email']);
+        $this->rateLimiter->hit(RateLimiter::LOGIN, $account);
+        $result = $this->auth->changePassword($input);
+        $this->rateLimiter->clear(RateLimiter::LOGIN, $account);
+        Http::json($result);
     }
 
     /**
@@ -600,6 +1120,14 @@ final class Handlers
         // fraction of it and wrote the free-text "experience" into bio, which is
         // why a new trainer had to fill in a second surface before the storefront
         // made sense.
+        // ProfileRules reads every professional field as text, so a list sent for
+        // one of them is refused here rather than cast to the literal "Array";
+        // `trainingTypeIds` is the field the form sends as a list.
+        Http::assertTextFields(Http::body(), [
+            'displayName', 'legalName', 'nickname', 'phone', 'headline', 'bio', 'serviceMode', 'gymName', 'education',
+            'paymentAccountName', 'promptPayId', 'birthDate', 'yearsExperience', 'priceFrom',
+            'monthlyPrice', 'monthlySessionCount',
+        ]);
         $profile = ProfileRules::trainer(Http::body());
         $this->rateLimiter->hit(RateLimiter::TRAINER_APPLICATION, 'user:' . $user['id']);
         $certificate = $this->saveUpload('certificate', ['application/pdf'], 8 * 1024 * 1024, 'certificates', false);
@@ -645,19 +1173,22 @@ final class Handlers
                 // leaves the storefront until an administrator approves it again.
                 $pdo->prepare(
                     'UPDATE trainer_profiles
-                     SET legal_name = ?, phone = ?, headline = ?, bio = ?, years_experience = ?,
+                     SET legal_name = ?, phone = ?, birth_date = ?, education = ?, headline = ?, bio = ?, years_experience = ?,
                          service_mode = ?, gym_name = ?, price_from = ?, monthly_price = ?, monthly_session_count = ?,
                          payment_account_name = ?, promptpay_id = ?,
                          approval_status = "pending", approval_note = NULL, reviewed_by_user_id = NULL, reviewed_at = NULL,
                          updated_at = UTC_TIMESTAMP()
                      WHERE id = ?'
                 )->execute([
-                    $profile['legalName'], self::blankToNull($profile['phone']), self::blankToNull($profile['headline']),
+                    $profile['legalName'], self::blankToNull($profile['phone']), $profile['birthDate'],
+                    self::blankToNull($profile['education']), self::blankToNull($profile['headline']),
                     self::blankToNull($profile['bio']), $profile['yearsExperience'], $profile['serviceMode'],
                     $profile['serviceMode'] === 'freelance' ? null : self::blankToNull($profile['gymName']),
                     $profile['priceFrom'], $profile['monthlyPrice'], $profile['monthlySessionCount'],
                     $profile['paymentAccountName'], $profile['promptPayId'], $profileId,
                 ]);
+                $pdo->prepare('UPDATE trainer_profiles SET nickname = ? WHERE id = ?')
+                    ->execute([self::blankToNull($profile['nickname']), $profileId]);
                 $pdo->prepare('UPDATE users SET display_name = ?, updated_at = UTC_TIMESTAMP() WHERE id = ?')
                     ->execute([$profile['displayName'], $user['id']]);
 
@@ -723,10 +1254,13 @@ final class Handlers
         }
         $rows = $this->database->fetchAll(
             'SELECT b.id AS booking_db_id, b.public_id, b.starts_at, b.ends_at, b.member_note,
+                    b.confirmed_starts_at, b.confirmed_ends_at, b.cancellation_reason,
                     b.booking_type, b.session_count, b.period_start, b.period_end, b.payment_service_mode,
                     b.status, b.payment_status, b.payment_deadline_at, b.quoted_price, b.created_at, b.is_demo,
                     tp.id AS trainer_id, tp.slug, tp.user_id AS trainer_user_id, tp.image_path AS trainer_image_path,
-                    tp.payment_account_name, tp.promptpay_id,
+                    tp.payment_account_name, tp.promptpay_id, tp.payment_qr_path,
+                    bank.bank_name AS bank_name, bank.account_name AS bank_account_name,
+                    bank.account_number AS bank_account_number,
                     trainer_user.display_name AS trainer_name,
                     b.member_user_id, member_user.display_name AS member_name,
                     mp.image_path AS member_image_path,
@@ -744,6 +1278,7 @@ final class Handlers
              JOIN users member_user ON member_user.id = b.member_user_id
              LEFT JOIN member_profiles mp ON mp.user_id = b.member_user_id
              LEFT JOIN chat_rooms cr ON cr.booking_id = b.id
+             LEFT JOIN trainer_bank_accounts bank ON bank.trainer_profile_id = tp.id AND bank.is_default = 1
              LEFT JOIN payments pay ON pay.id = (
                  SELECT latest_payment.id FROM payments latest_payment
                  WHERE latest_payment.booking_id = b.id
@@ -787,7 +1322,7 @@ final class Handlers
         $user = $this->auth->requireUser(['member']);
         $input = Http::body();
         Http::requireFields($input, ['trainerId']);
-        $bookingType = (string) ($input['bookingType'] ?? 'single');
+        $bookingType = Http::stringField($input, 'bookingType', 'single');
         if (!in_array($bookingType, ['single', 'monthly'], true)) {
             throw new HttpException(422, 'รูปแบบการจองไม่ถูกต้อง', 'VALIDATION_FAILED', ['bookingType' => 'เลือกการจองรายครั้งหรือแพ็กเกจ 30 วัน']);
         }
@@ -822,8 +1357,12 @@ final class Handlers
             );
             $statement->execute([...$slotIds, (int) $input['trainerId']]);
             $slots = $statement->fetchAll();
+            // A slot that is not in this trainer's list does not exist as far as
+            // this request is concerned: that is a 404, not the 409 a slot that
+            // is merely taken deserves. Conflating them told a member a time was
+            // taken when it had never been offered at all.
             if (count($slots) !== count($slotIds)) {
-                throw new HttpException(409, 'มีช่วงเวลาที่ไม่พร้อมจองแล้ว', 'SLOT_UNAVAILABLE');
+                throw new HttpException(404, 'ไม่พบช่วงเวลาที่เลือก', 'SLOT_NOT_FOUND');
             }
             foreach ($slots as $slot) {
                 if (
@@ -839,12 +1378,6 @@ final class Handlers
             $paymentMode = PaymentRouting::serviceMode((string) $firstSlot['service_mode'], $input['paymentServiceMode'] ?? null);
             if (empty($firstSlot['payment_account_name']) || preg_match('/^(?:0\d{9}|\d{13})$/', (string) ($firstSlot['promptpay_id'] ?? '')) !== 1) {
                 throw new HttpException(409, 'เทรนเนอร์ยังไม่ได้ตั้งค่าบัญชีรับเงิน', 'PAYMENT_RECIPIENT_NOT_READY');
-            }
-            if ($paymentMode === 'gym' && !$this->database->fetchOne(
-                'SELECT u.id FROM users u JOIN admin_permissions ap ON ap.user_id = u.id
-                 WHERE u.role = "admin" AND u.status = "active" AND ap.review_payments = 1 LIMIT 1'
-            )) {
-                throw new HttpException(409, 'ยังไม่มีผู้ดูแลระบบที่ตรวจการชำระเงินได้ กรุณาติดต่อเทรนเนอร์', 'GYM_PAYMENT_NOT_READY');
             }
             $lastSlot = $slots[count($slots) - 1];
             if ($bookingType === 'monthly') {
@@ -871,12 +1404,11 @@ final class Handlers
                  (public_id, member_user_id, trainer_profile_id, availability_slot_id,
                   starts_at, ends_at, member_note, booking_type, session_count, period_start,
                   period_end, quoted_price, payment_service_mode, status, payment_status, payment_deadline_at)
-                 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, "awaiting_payment", "not_submitted",
-                         DATE_ADD(UTC_TIMESTAMP(), INTERVAL 10 MINUTE))'
+                 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, "pending_trainer", "not_submitted", NULL)'
             );
             $insert->execute([
                 $publicId, $user['id'], (int) $input['trainerId'], (int) $firstSlot['id'],
-                $firstSlot['starts_at'], $lastSlot['ends_at'], trim((string) ($input['note'] ?? '')),
+                $firstSlot['starts_at'], $lastSlot['ends_at'], trim(Http::stringField($input, 'note')),
                 $bookingType, $sessionCount, $periodStart, $periodEnd, $quotedPrice, $paymentMode,
             ]);
             $bookingId = (int) $pdo->lastInsertId();
@@ -889,26 +1421,24 @@ final class Handlers
                 $holdSlot->execute([$slot['id']]);
             }
             $historyNote = $bookingType === 'monthly'
-                ? "สมาชิกจองแพ็กเกจ {$sessionCount} ครั้งและเริ่มช่วงชำระเงิน 10 นาที"
-                : 'สมาชิกจองและเริ่มช่วงชำระเงิน 10 นาที';
-            $pdo->prepare('INSERT INTO booking_status_history (booking_id, from_status, to_status, changed_by_user_id, note) VALUES (?, NULL, "awaiting_payment", ?, ?)')
+                ? "สมาชิกจองแพ็กเกจ {$sessionCount} ครั้ง รอเทรนเนอร์ตอบรับ"
+                : 'สมาชิกส่งคำขอจอง รอเทรนเนอร์ตอบรับ';
+            $pdo->prepare('INSERT INTO booking_status_history (booking_id, from_status, to_status, changed_by_user_id, note) VALUES (?, NULL, "pending_trainer", ?, ?)')
                 ->execute([$bookingId, $user['id'], $historyNote]);
             $pdo->prepare('INSERT INTO chat_rooms (booking_id) VALUES (?)')->execute([$bookingId]);
-            $created = $pdo->prepare('SELECT payment_deadline_at FROM bookings WHERE id = ?');
-            $created->execute([$bookingId]);
-            $createdBooking = $created->fetch();
             $notificationIds = array_merge($notificationIds, $this->notifications->recordEvent(
                 $pdo,
                 NotificationRules::BOOKING_CREATED,
-                $this->bookingNotificationContext($pdo, $bookingId, 'created', 'awaiting_payment')
+                $this->bookingNotificationContext($pdo, $bookingId, 'created', 'pending_trainer')
             ));
             return [
                 'id' => $publicId,
-                'status' => 'awaiting_payment',
+                'status' => 'pending_trainer',
                 'bookingType' => $bookingType,
                 'sessionCount' => $sessionCount,
                 'quotedPrice' => (float) $quotedPrice,
-                'paymentDeadlineAt' => $this->iso($createdBooking['payment_deadline_at']),
+                // The ten minute payment clock starts when the trainer accepts.
+                'paymentDeadlineAt' => null,
             ];
         });
         $this->notifications->deliverByIds($notificationIds);
@@ -984,10 +1514,15 @@ final class Handlers
     public function cancelMemberBooking(string $publicId): never
     {
         $user = $this->auth->requireUser(['member']);
-        $reason = 'สมาชิกยกเลิกก่อนส่งหลักฐานการชำระเงิน';
+        $input = Http::body();
+        // The member may explain why they cancel (บทที่ 3.1.2 ข้อ 5).
+        $memberReason = trim(Http::stringField($input, 'reason'));
+        if (mb_strlen($memberReason) > 500) {
+            throw new HttpException(422, 'เหตุผลการยกเลิกยาวเกินไป', 'VALIDATION_FAILED', ['reason' => 'กรอกไม่เกิน 500 ตัวอักษร']);
+        }
         $notificationIds = [];
 
-        $result = $this->database->transaction(function (PDO $pdo) use ($publicId, $user, $reason, &$notificationIds): array {
+        $result = $this->database->transaction(function (PDO $pdo) use ($publicId, $user, $memberReason, &$notificationIds): array {
             $this->expireAwaitingPaymentsInTransaction($pdo, null, $notificationIds);
             $statement = $pdo->prepare(
                 'SELECT id, status, payment_status, availability_slot_id
@@ -1004,6 +1539,9 @@ final class Handlers
                 (string) $booking['status'],
                 (string) $booking['payment_status']
             );
+            $reason = $memberReason !== '' ? $memberReason : ($booking['status'] === 'pending_trainer'
+                ? 'สมาชิกยกเลิกคำขอก่อนเทรนเนอร์ตอบรับ'
+                : 'สมาชิกยกเลิกก่อนส่งหลักฐานการชำระเงิน');
 
             $pdo->prepare(
                 'UPDATE bookings
@@ -1015,8 +1553,8 @@ final class Handlers
             $pdo->prepare(
                 'INSERT INTO booking_status_history
                  (booking_id, from_status, to_status, changed_by_user_id, note)
-                 VALUES (?, "awaiting_payment", "cancelled", ?, ?)'
-            )->execute([$booking['id'], $user['id'], $reason]);
+                 VALUES (?, ?, "cancelled", ?, ?)'
+            )->execute([$booking['id'], $booking['status'], $user['id'], $reason]);
 
             $notificationIds = array_merge($notificationIds, $this->notifications->recordEvent(
                 $pdo,
@@ -1041,9 +1579,11 @@ final class Handlers
         Http::requireFields($input, ['status']);
         $notificationIds = [];
 
-        $result = $this->database->transaction(function (PDO $pdo) use ($publicId, $input, $user, &$notificationIds): array {
+        $chatFilesToRemove = [];
+        $result = $this->database->transaction(function (PDO $pdo) use ($publicId, $input, $user, &$notificationIds, &$chatFilesToRemove): array {
             $statement = $pdo->prepare(
-                'SELECT b.id, b.status, b.payment_status, b.quoted_price, b.ends_at,
+                'SELECT b.id, b.status, b.payment_status, b.quoted_price, b.starts_at, b.ends_at,
+                        b.confirmed_starts_at, b.confirmed_ends_at,
                         b.booking_type, b.session_count, b.period_end,
                         (SELECT COUNT(*) FROM booking_sessions bs WHERE bs.booking_id = b.id) AS scheduled_count,
                         b.availability_slot_id, tp.user_id AS trainer_user_id
@@ -1054,34 +1594,98 @@ final class Handlers
             if (!$booking) {
                 throw new HttpException(404, 'ไม่พบคำขอจอง', 'BOOKING_NOT_FOUND');
             }
-            $newStatus = (string) $input['status'];
+            $newStatus = Http::stringField($input, 'status');
+            $currentStatus = (string) $booking['status'];
+            $note = trim(Http::stringField($input, 'note'));
+            $event = null;
+            $slotState = null;
+            $result = [
+                'id' => $publicId,
+                'status' => $newStatus,
+                'quotedPrice' => $booking['quoted_price'] === null ? null : (float) $booking['quoted_price'],
+            ];
+            $periodEnd = ($booking['period_end'] ?? null) !== null
+                ? new DateTimeImmutable((string) $booking['period_end'], new DateTimeZone('UTC'))
+                : null;
+
             if ($user['role'] === 'trainer') {
                 if ((int) $booking['trainer_user_id'] !== (int) $user['id']) {
                     throw new HttpException(403, 'ไม่มีสิทธิ์แก้ไขคำขอนี้', 'FORBIDDEN');
                 }
-                if ($newStatus !== 'completed') {
-                    throw new HttpException(409, 'เทรนเนอร์เปลี่ยนได้เฉพาะงานที่ฝึกเสร็จแล้ว', 'INVALID_BOOKING_TRANSITION');
+                if ($newStatus === 'awaiting_payment') {
+                    // Accept the requested period before starting the ten minute payment clock.
+                    WorkflowRules::assertTrainerDecision($currentStatus, 'accept');
+                    if ($booking['confirmed_starts_at'] !== null) {
+                        throw new HttpException(409, 'คุณตอบรับคำขอนี้แล้ว ระบบจะแจ้งสมาชิกตามรอบที่เลือก', 'INVALID_BOOKING_TRANSITION');
+                    }
+                    Http::requireFields($input, ['confirmedTime']);
+                    $sessionStart = new DateTimeImmutable((string) $booking['starts_at'], new DateTimeZone('UTC'));
+                    $release = WorkflowRules::confirmationRelease(
+                        Http::stringField($input, 'confirmedTime'),
+                        new DateTimeImmutable('now', new DateTimeZone('UTC')),
+                        $sessionStart
+                    );
+                    // บทที่ 1: the training time stays as requested. The booking
+                    // waits for its 12:00 / 18:00 round; releaseScheduledAcceptances
+                    // then moves it to awaiting_payment and tells the member. The
+                    // payment deadline is stored now as round + 10 minutes, so the
+                    // round itself is always payment_deadline_at - 10 minutes.
+                    $pdo->prepare(
+                        'UPDATE bookings
+                         SET confirmed_starts_at = starts_at, confirmed_ends_at = ends_at,
+                             payment_deadline_at = ?, updated_at = UTC_TIMESTAMP()
+                         WHERE id = ?'
+                    )->execute([
+                        $release->modify('+' . WorkflowRules::PAYMENT_WINDOW_MINUTES . ' minutes')->format('Y-m-d H:i:s'),
+                        $booking['id'],
+                    ]);
+                    $pdo->prepare('INSERT INTO booking_status_history (booking_id, from_status, to_status, changed_by_user_id, note) VALUES (?, "pending_trainer", "pending_trainer", ?, ?)')
+                        ->execute([$booking['id'], $user['id'], 'เทรนเนอร์ตอบรับ รอแจ้งสมาชิกรอบ ' . Http::stringField($input, 'confirmedTime') . ' น.']);
+                    $result['status'] = 'pending_trainer';
+                    $result['confirmationReleaseAt'] = $this->iso($release->format('Y-m-d H:i:s'));
+                    return $result;
+                } elseif ($newStatus === 'cancelled') {
+                    // From pending_trainer this is a rejection, otherwise an
+                    // open booking the trainer walks away from. Both need a
+                    // reason the member can read.
+                    if ($note === '') {
+                        throw new HttpException(422, 'กรุณาระบุเหตุผล', 'VALIDATION_FAILED', ['note' => 'จำเป็นต้องระบุเหตุผล']);
+                    }
+                    if ($currentStatus === 'pending_trainer') {
+                        WorkflowRules::assertTrainerDecision($currentStatus, 'reject');
+                        $event = NotificationRules::BOOKING_REJECTED;
+                    } else {
+                        WorkflowRules::assertTrainerCancellation($currentStatus);
+                        $event = NotificationRules::BOOKING_CANCELLED;
+                    }
+                    $slotState = 'available';
+                    $result['reason'] = $note;
+                } elseif ($newStatus === 'completed') {
+                    WorkflowRules::assertTrainerCompletion(
+                        $currentStatus,
+                        (string) $booking['payment_status'],
+                        // The trainer-confirmed end rules once one exists.
+                        new DateTimeImmutable(
+                            (string) ($booking['confirmed_ends_at'] ?? $booking['ends_at']),
+                            new DateTimeZone('UTC')
+                        ),
+                        new DateTimeImmutable('now', new DateTimeZone('UTC')),
+                        (int) $booking['scheduled_count'],
+                        (int) $booking['session_count'],
+                        $periodEnd
+                    );
+                    $slotState = 'booked';
+                } else {
+                    throw new HttpException(409, 'ไม่สามารถเปลี่ยนจากสถานะปัจจุบันไปสถานะนี้', 'INVALID_BOOKING_TRANSITION');
                 }
-                $periodEnd = ($booking['period_end'] ?? null) !== null
-                    ? new DateTimeImmutable((string) $booking['period_end'], new DateTimeZone('UTC'))
-                    : null;
-                WorkflowRules::assertTrainerCompletion(
-                    (string) $booking['status'],
-                    (string) $booking['payment_status'],
-                    new DateTimeImmutable((string) $booking['ends_at'], new DateTimeZone('UTC')),
-                    new DateTimeImmutable('now', new DateTimeZone('UTC')),
-                    (int) $booking['scheduled_count'],
-                    (int) $booking['session_count'],
-                    $periodEnd
-                );
-                $slotState = 'booked';
             } else {
                 $adminTransitions = [
+                    'pending_trainer' => ['cancelled'],
                     'awaiting_payment' => ['cancelled'],
                     'payment_review' => ['cancelled'],
                     'confirmed' => ['cancelled'],
                 ];
-                if (!in_array($newStatus, $adminTransitions[$booking['status']] ?? [], true)) {
+                if (!in_array($newStatus, $adminTransitions[$currentStatus] ?? [], true)) {
                     throw new HttpException(
                         409,
                         'ไม่สามารถเปลี่ยนจากสถานะปัจจุบันไปสถานะนี้',
@@ -1093,15 +1697,41 @@ final class Handlers
                     : ($newStatus === 'cancelled' ? 'available' : null);
             }
 
-            $pdo->prepare('UPDATE bookings SET status = ?, updated_at = UTC_TIMESTAMP() WHERE id = ?')
-                ->execute([$newStatus, $booking['id']]);
+            if ($newStatus !== 'awaiting_payment' || $user['role'] !== 'trainer') {
+                // The acceptance branch already wrote its own transition; every
+                // other path stores the closing reason and drops any payment clock.
+                $pdo->prepare('UPDATE bookings SET status = ?, cancellation_reason = ?, payment_deadline_at = NULL, updated_at = UTC_TIMESTAMP() WHERE id = ?')
+                    ->execute([
+                        $newStatus,
+                        $newStatus === 'cancelled' ? $note : null,
+                        $booking['id'],
+                    ]);
+            }
             $pdo->prepare('INSERT INTO booking_status_history (booking_id, from_status, to_status, changed_by_user_id, note) VALUES (?, ?, ?, ?, ?)')
-                ->execute([$booking['id'], $booking['status'], $newStatus, $user['id'], trim((string) ($input['note'] ?? ''))]);
+                ->execute([$booking['id'], $currentStatus, $newStatus, $user['id'], $note]);
             if ($slotState !== null) {
                 $this->setBookingSlotsState($pdo, (int) $booking['id'], $booking['availability_slot_id'], $slotState);
             }
+            if ($newStatus === 'completed') {
+                // The training is over, so the booking's chat has served its
+                // purpose: remove the room, its messages (ON DELETE CASCADE)
+                // and every file sent in it.
+                $files = $pdo->prepare(
+                    'SELECT m.attachment_path, m.image_path FROM messages m
+                     JOIN chat_rooms cr ON cr.id = m.chat_room_id WHERE cr.booking_id = ?'
+                );
+                $files->execute([$booking['id']]);
+                foreach ($files->fetchAll(PDO::FETCH_ASSOC) as $row) {
+                    foreach (['attachment_path', 'image_path'] as $column) {
+                        if (!empty($row[$column])) {
+                            $chatFilesToRemove[] = (string) $row[$column];
+                        }
+                    }
+                }
+                $pdo->prepare('DELETE FROM chat_rooms WHERE booking_id = ?')->execute([$booking['id']]);
+            }
             if ($newStatus === 'cancelled') {
-                $cancelNote = trim((string) ($input['note'] ?? ''));
+                $cancelNote = $note;
                 // An administrator can cancel while a slip is still queued. Close
                 // that payment out too, otherwise it stays "reviewing" forever and
                 // decidePayment answers PAYMENT_ALREADY_REVIEWED with no way back.
@@ -1115,24 +1745,20 @@ final class Handlers
                     $user['id'],
                     $booking['id'],
                 ]);
+            }
+            if ($event !== null) {
                 $notificationIds = array_merge($notificationIds, $this->notifications->recordEvent(
                     $pdo,
-                    NotificationRules::BOOKING_CANCELLED,
-                    $this->bookingNotificationContext(
-                        $pdo,
-                        (int) $booking['id'],
-                        (string) $booking['status'],
-                        'cancelled',
-                        $cancelNote
-                    )
+                    $event,
+                    $this->bookingNotificationContext($pdo, (int) $booking['id'], $currentStatus, $newStatus, $note)
                 ));
             }
-            return [
-                'id' => $publicId,
-                'status' => $newStatus,
-                'quotedPrice' => $booking['quoted_price'] === null ? null : (float) $booking['quoted_price'],
-            ];
+            return $result;
         });
+        // Files leave the disk only after the delete has committed.
+        foreach ($chatFilesToRemove as $path) {
+            $this->removeUpload($path);
+        }
         $this->notifications->deliverByIds($notificationIds);
         Http::json($result);
     }
@@ -1153,13 +1779,14 @@ final class Handlers
 
         try {
             $result = $this->database->transaction(function (PDO $pdo) use ($input, $user, $file, &$notificationIds): array {
+                $this->releaseScheduledAcceptancesInTransaction($pdo, $notificationIds);
                 $statement = $pdo->prepare(
                     'SELECT id, status, availability_slot_id, payment_deadline_at, quoted_price,
                             UTC_TIMESTAMP() AS database_now
                      FROM bookings
                      WHERE public_id = ? AND member_user_id = ? FOR UPDATE'
                 );
-                $statement->execute([(string) $input['bookingId'], $user['id']]);
+                $statement->execute([Http::stringField($input, 'bookingId'), $user['id']]);
                 $booking = $statement->fetch();
                 if (!$booking) {
                     throw new HttpException(404, 'ไม่พบคำขอจอง', 'BOOKING_NOT_FOUND');
@@ -1226,7 +1853,8 @@ final class Handlers
         $rows = $this->database->transaction(function (PDO $pdo) use ($room, $afterId, $user): array {
             $page = $pdo->prepare(
                 'SELECT m.id, m.message_text, m.attachment_path, m.attachment_mime, m.attachment_name,
-                        m.attachment_size, m.read_at, m.created_at, u.id AS sender_id, u.display_name
+                        m.attachment_size, m.image_path, m.image_mime, m.image_name, m.image_size,
+                        m.read_at, m.created_at, u.id AS sender_id, u.display_name
                  FROM messages m JOIN users u ON u.id = m.sender_user_id
                  WHERE m.chat_room_id = ? AND m.id > ? ORDER BY m.id ASC LIMIT 500 FOR UPDATE'
             );
@@ -1245,58 +1873,132 @@ final class Handlers
 
             $refreshedPage = $pdo->prepare(
                 'SELECT m.id, m.message_text, m.attachment_path, m.attachment_mime, m.attachment_name,
-                        m.attachment_size, m.read_at, m.created_at, u.id AS sender_id, u.display_name
+                        m.attachment_size, m.image_path, m.image_mime, m.image_name, m.image_size,
+                        m.read_at, m.created_at, u.id AS sender_id, u.display_name
                  FROM messages m JOIN users u ON u.id = m.sender_user_id
                  WHERE m.chat_room_id = ? AND m.id > ? AND m.id <= ? ORDER BY m.id ASC'
             );
             $refreshedPage->execute([$room['id'], $afterId, $maxId]);
             return $refreshedPage->fetchAll();
         });
-        Http::json(array_map(fn(array $row): array => [
-            'id' => (int) $row['id'],
-            'message' => $row['message_text'],
-            'attachment' => $row['attachment_path'] === null ? null : [
+        Http::json(array_map(fn(array $row): array => $this->messagePayload(
+            (int) $row['id'],
+            (int) $room['id'],
+            (string) $row['message_text'],
+            $row['attachment_path'] === null ? null : [
                 'name' => $row['attachment_name'],
                 'mime' => $row['attachment_mime'],
                 'size' => (int) $row['attachment_size'],
-                'url' => '/v1/chat-rooms/' . $room['id'] . '/messages/' . $row['id'] . '/attachment',
             ],
-            'readAt' => $row['read_at'] === null ? null : $this->iso($row['read_at']),
-            'createdAt' => $this->iso($row['created_at']),
-            'sender' => ['id' => (int) $row['sender_id'], 'displayName' => $row['display_name']],
-        ], $rows));
+            $row['image_path'] === null ? null : [
+                'name' => $row['image_name'],
+                'mime' => $row['image_mime'],
+                'size' => (int) $row['image_size'],
+            ],
+            $row['read_at'] === null ? null : $this->iso($row['read_at']),
+            $this->iso($row['created_at']),
+            ['id' => (int) $row['sender_id'], 'displayName' => $row['display_name']]
+        ), $rows));
+    }
+
+    /**
+     * One message can carry both an image and a file; the legacy `attachment`
+     * key mirrors the file so older clients keep working.
+     */
+    private function messagePayload(
+        int $messageId,
+        int $roomId,
+        string $message,
+        ?array $file,
+        ?array $image,
+        ?string $readAt,
+        string $createdAt,
+        array $sender
+    ): array {
+        $base = '/v1/chat-rooms/' . $roomId . '/messages/' . $messageId . '/attachment';
+        return [
+            'id' => $messageId,
+            'message' => $message,
+            'attachment' => $file === null ? null : [
+                'name' => $file['name'],
+                'mime' => $file['mime'],
+                'size' => $file['size'],
+                'url' => $base,
+            ],
+            'imageUrl' => $image === null ? null : $base . '?kind=image',
+            'imageName' => $image['name'] ?? null,
+            'imageSize' => $image['size'] ?? null,
+            'attachmentUrl' => $file === null ? null : $base . '?kind=file',
+            'attachmentName' => $file['name'] ?? null,
+            'attachmentSize' => $file['size'] ?? null,
+            'readAt' => $readAt,
+            'createdAt' => $createdAt,
+            'sender' => $sender,
+        ];
     }
 
     public function sendMessage(string $roomId): never
     {
         $user = $this->auth->requireUser();
         $room = $this->requireChatParticipant((int) $roomId, $user);
-        WorkflowRules::assertChatWritable((string) $room['booking_status']);
+        if ($room['booking_id'] === null) {
+            // An inquiry stays open while the trainer is listed on the platform.
+            if ($room['trainer_approval_status'] !== 'approved') {
+                throw new HttpException(409, 'ห้องสนทนานี้ส่งข้อความเพิ่มไม่ได้', 'CHAT_READ_ONLY');
+            }
+        } else {
+            WorkflowRules::assertChatWritable((string) $room['booking_status']);
+        }
         $this->rateLimiter->hit(RateLimiter::CHAT_ATTACHMENT, 'user:' . $user['id'] . ':room:' . (int) $roomId);
         $input = Http::body();
-        if (array_key_exists('message', $input) && !is_string($input['message'])) {
+        // `text` is the documented field; `message` is what older clients send.
+        $textField = array_key_exists('text', $input) ? 'text' : 'message';
+        if (array_key_exists($textField, $input) && !is_string($input[$textField])) {
             throw new HttpException(422, 'รูปแบบข้อความไม่ถูกต้อง', 'VALIDATION_FAILED', ['message' => 'ต้องเป็นข้อความ']);
         }
-        $message = trim((string) ($input['message'] ?? ''));
+        $message = trim(Http::stringField($input, $textField));
         if (mb_strlen($message) > 4000) {
             throw new HttpException(422, 'ข้อความยาวเกิน 4,000 ตัวอักษร', 'VALIDATION_FAILED');
         }
-        $file = $this->saveUpload(
-            'attachment',
-            ['image/jpeg', 'image/png', 'image/webp', 'application/pdf'],
+        // One message can carry an image and a file at the same time; the two
+        // live in separate column sets and render side by side in the bubble.
+        $image = $this->saveUpload(
+            'image',
+            ['image/jpeg', 'image/png', 'image/webp', 'image/gif'],
             5 * 1024 * 1024,
             'messages',
             false
-        );        if ($message === '' && $file === null) {
+        );
+        $file = $this->saveUpload(
+            'file',
+            ['image/jpeg', 'image/png', 'image/webp', 'image/gif', 'application/pdf'],
+            5 * 1024 * 1024,
+            'messages',
+            false
+        );
+        if ($file === null) {
+            // The pre-document-compliance client attached under `attachment`.
+            $file = $this->saveUpload(
+                'attachment',
+                ['image/jpeg', 'image/png', 'image/webp', 'image/gif', 'application/pdf'],
+                5 * 1024 * 1024,
+                'messages',
+                false
+            );
+        }
+        if ($message === '' && $image === null && $file === null) {
             throw new HttpException(422, 'กรุณาพิมพ์ข้อความหรือแนบไฟล์', 'VALIDATION_FAILED');
         }
 
+        $notificationIds = [];
         try {
-            $this->database->execute(
-                'INSERT INTO messages
-                    (chat_room_id, sender_user_id, message_text, attachment_path, attachment_mime, attachment_name, attachment_size)
-                 VALUES (?, ?, ?, ?, ?, ?, ?)',
-                [
+            $messageId = $this->database->transaction(function (PDO $pdo) use ($room, $user, $message, $image, $file, &$notificationIds): int {
+                $pdo->prepare(
+                    'INSERT INTO messages
+                        (chat_room_id, sender_user_id, message_text, attachment_path, attachment_mime, attachment_name, attachment_size,
+                         image_path, image_mime, image_name, image_size)
+                     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)'
+                )->execute([
                     $room['id'],
                     $user['id'],
                     $message,
@@ -1304,38 +2006,83 @@ final class Handlers
                     $file['mime'] ?? null,
                     $file['name'] ?? null,
                     $file['size'] ?? null,
-                ]
-            );
+                    $image['path'] ?? null,
+                    $image['mime'] ?? null,
+                    $image['name'] ?? null,
+                    $image['size'] ?? null,
+                ]);
+                $messageId = (int) $pdo->lastInsertId();
+                $recipientId = (int) $user['id'] === (int) $room['member_user_id']
+                    ? (int) $room['trainer_user_id']
+                    : (int) $room['member_user_id'];
+                if ($room['booking_id'] === null) {
+                    $notificationIds = array_merge($notificationIds, $this->notifications->recordEvent(
+                        $pdo,
+                        NotificationRules::INQUIRY_MESSAGE_RECEIVED,
+                        [
+                            'recipientUserId' => $recipientId,
+                            'senderName' => (string) $user['displayName'],
+                            'roomId' => (int) $room['id'],
+                            'messageId' => $messageId,
+                        ]
+                    ));
+                    return $messageId;
+                }
+                $notificationIds = array_merge($notificationIds, $this->notifications->recordEvent(
+                    $pdo,
+                    NotificationRules::MESSAGE_RECEIVED,
+                    [
+                        'bookingId' => (int) $room['booking_id'],
+                        'bookingPublicId' => (string) $room['booking_public_id'],
+                        'memberUserId' => (int) $room['member_user_id'],
+                        'trainerUserId' => (int) $room['trainer_user_id'],
+                        'recipientUserId' => $recipientId,
+                        'senderName' => (string) $user['displayName'],
+                        'messageId' => $messageId,
+                    ]
+                ));
+                return $messageId;
+            });
         } catch (Throwable $error) {
+            if ($image !== null) {
+                $this->removeUpload($image['path']);
+            }
             if ($file !== null) {
                 $this->removeUpload($file['path']);
             }
             throw $error;
         }
+        $this->notifications->deliverByIds($notificationIds);
 
-        $messageId = (int) $this->database->pdo()->lastInsertId();
-        Http::json([
-            'id' => $messageId,
-            'message' => $message,
-            'attachment' => $file === null ? null : [
-                'name' => $file['name'],
-                'mime' => $file['mime'],
-                'size' => $file['size'],
-                'url' => '/v1/chat-rooms/' . $room['id'] . '/messages/' . $messageId . '/attachment',
-            ],
-            'readAt' => null,
-            'createdAt' => gmdate('c'),
-            'sender' => ['id' => (int) $user['id'], 'displayName' => $user['displayName']],
-        ], 201);
+        Http::json($this->messagePayload(
+            $messageId,
+            (int) $room['id'],
+            $message,
+            $file,
+            $image,
+            null,
+            gmdate('c'),
+            ['id' => (int) $user['id'], 'displayName' => $user['displayName']]
+        ), 201);
     }
 
     public function chatAttachment(string $roomId, string $messageId): never
     {
         $user = $this->auth->requireUser();
         $room = $this->requireChatParticipant((int) $roomId, $user);
+        $kind = (string) ($_GET['kind'] ?? 'file');
+        if ($kind === 'image') {
+            $pathColumn = 'image_path';
+            $nameColumn = 'image_name';
+        } elseif ($kind === 'file') {
+            $pathColumn = 'attachment_path';
+            $nameColumn = 'attachment_name';
+        } else {
+            throw new HttpException(422, 'ประเภทไฟล์ไม่ถูกต้อง', 'VALIDATION_FAILED', ['kind' => 'เลือก image หรือ file']);
+        }
         $attachment = $this->database->fetchOne(
-            'SELECT attachment_path, attachment_name
-             FROM messages WHERE id = ? AND chat_room_id = ? AND attachment_path IS NOT NULL',
+            "SELECT {$pathColumn} AS file_path, {$nameColumn} AS file_name
+             FROM messages WHERE id = ? AND chat_room_id = ? AND {$pathColumn} IS NOT NULL",
             [(int) $messageId, $room['id']]
         );
         if (!$attachment) {
@@ -1343,7 +2090,7 @@ final class Handlers
         }
 
         $uploadRoot = realpath(dirname(__DIR__) . '/uploads');
-        $target = realpath(dirname(__DIR__) . '/' . ltrim((string) $attachment['attachment_path'], '/\\'));
+        $target = realpath(dirname(__DIR__) . '/' . ltrim((string) $attachment['file_path'], '/\\'));
         if ($uploadRoot === false || $target === false || !str_starts_with($target, $uploadRoot . DIRECTORY_SEPARATOR) || !is_file($target)) {
             throw new HttpException(404, 'ไม่พบไฟล์แนบ', 'FILE_NOT_FOUND');
         }
@@ -1353,7 +2100,7 @@ final class Handlers
         if ($mime === false) {
             throw new HttpException(404, 'ไม่พบไฟล์แนบ', 'FILE_NOT_FOUND');
         }
-        $rawName = trim((string) basename((string) $attachment['attachment_name']));
+        $rawName = trim((string) basename((string) $attachment['file_name']));
         $safeName = preg_replace('/[^\pL\pN._ -]+/u', '_', $rawName) ?? '';
         $displayName = mb_substr($safeName, 0, 255);
         if ($displayName === '') {
@@ -1366,7 +2113,9 @@ final class Handlers
 
         header('Content-Type: ' . $mime);
         header('Content-Length: ' . filesize($target));
-        header('Content-Disposition: attachment; filename="' . $asciiName . '"; filename*=UTF-8\'\'' . rawurlencode($displayName));
+        // Images render inside the chat bubble; files download as attachments.
+        $disposition = $kind === 'image' ? 'inline' : 'attachment';
+        header('Content-Disposition: ' . $disposition . '; filename="' . $asciiName . '"; filename*=UTF-8\'\'' . rawurlencode($displayName));
         header('X-Content-Type-Options: nosniff');
         header('Cache-Control: private, no-store');
         readfile($target);
@@ -1457,7 +2206,7 @@ final class Handlers
         $paymentPage = $this->adminPage('paymentPage');
         $userQuery = mb_substr(trim((string) ($_GET['userQuery'] ?? '')), 0, 100);
         $bookingStatus = trim((string) ($_GET['bookingStatus'] ?? 'all'));
-        $bookingStatuses = ['awaiting_payment', 'payment_review', 'confirmed', 'completed', 'cancelled', 'expired'];
+        $bookingStatuses = ['pending_trainer', 'awaiting_payment', 'payment_review', 'confirmed', 'completed', 'cancelled', 'expired'];
         if ($bookingStatus !== 'all' && !in_array($bookingStatus, $bookingStatuses, true)) {
             throw new HttpException(422, 'สถานะการจองไม่ถูกต้อง', 'VALIDATION_FAILED');
         }
@@ -1482,20 +2231,29 @@ final class Handlers
         $userTotal = 0;
         $administratorTotal = 0;
         if ($permissions['manageUsers']) {
-            $userWhere = 'u.role <> "admin"';
+            // Deleted accounts disappear from every list; a search matches the
+            // display name, the email, or a stored phone number either profile.
+            $userWhere = 'u.role <> "admin" AND u.status <> "deleted"';
             $userParams = [];
             if ($userQuery !== '') {
-                $userWhere .= ' AND (u.display_name LIKE ? OR u.email LIKE ?)';
+                $userWhere .= ' AND (u.display_name LIKE ? OR u.email LIKE ? OR mp.phone LIKE ? OR tp.phone LIKE ?)';
                 $like = '%' . $userQuery . '%';
-                $userParams = [$like, $like];
+                $userParams = [$like, $like, $like, $like];
             }
-            $userCount = $this->database->fetchOne('SELECT COUNT(*) AS total FROM users u WHERE ' . $userWhere, $userParams);
+            $userCount = $this->database->fetchOne(
+                'SELECT COUNT(*) AS total FROM users u
+                 LEFT JOIN member_profiles mp ON mp.user_id = u.id
+                 LEFT JOIN trainer_profiles tp ON tp.user_id = u.id
+                 WHERE ' . $userWhere,
+                $userParams
+            );
             $userTotal = (int) ($userCount['total'] ?? 0);
             $rows = $this->database->fetchAll(
                 'SELECT u.id, u.email, u.display_name, u.role, u.status, u.created_at,
                         tp.approval_status
                  FROM users u
                  LEFT JOIN trainer_profiles tp ON tp.user_id = u.id
+                 LEFT JOIN member_profiles mp ON mp.user_id = u.id
                  WHERE ' . $userWhere . '
                  ORDER BY FIELD(u.role, "trainer", "member"), u.created_at DESC, u.id DESC
                  LIMIT ' . $pageSize . ' OFFSET ' . ($userPage * $pageSize),
@@ -1512,14 +2270,14 @@ final class Handlers
                 'permissions' => null,
             ], $rows);
 
-            $administratorCount = $this->database->fetchOne('SELECT COUNT(*) AS total FROM users WHERE role = "admin"');
+            $administratorCount = $this->database->fetchOne('SELECT COUNT(*) AS total FROM users WHERE role = "admin" AND status <> "deleted"');
             $administratorTotal = (int) ($administratorCount['total'] ?? 0);
             $adminRows = $this->database->fetchAll(
                 'SELECT u.id, u.email, u.display_name, u.role, u.status, u.created_at,
                         ap.manage_users, ap.review_trainers, ap.manage_bookings, ap.review_payments
                  FROM users u
                  LEFT JOIN admin_permissions ap ON ap.user_id = u.id
-                 WHERE u.role = "admin"
+                 WHERE u.role = "admin" AND u.status <> "deleted"
                  ORDER BY u.created_at DESC, u.id DESC
                  LIMIT ' . $pageSize . ' OFFSET ' . ($administratorPage * $pageSize)
             );
@@ -1660,6 +2418,36 @@ final class Handlers
             ], $incomeRows);
         }
 
+        // Monthly salary accrual for gym trainers: approved gym payments on
+        // bookings that are confirmed or completed, bucketed by session month
+        // over the latest twelve months.
+        $gymSalaries = [];
+        if ($permissions['reviewPayments']) {
+            $salaryRows = $this->database->fetchAll(
+                'SELECT tp.id AS trainer_id, u.display_name AS trainer_name,
+                        DATE_FORMAT(b.starts_at, "%Y-%m") AS month,
+                        COALESCE(SUM(b.session_count), 0) AS sessions,
+                        COALESCE(SUM(pay.amount), 0) AS amount
+                 FROM payments pay
+                 JOIN bookings b ON b.id = pay.booking_id
+                 JOIN trainer_profiles tp ON tp.id = b.trainer_profile_id
+                 JOIN users u ON u.id = tp.user_id
+                 WHERE pay.status = "approved"
+                   AND b.payment_service_mode = "gym"
+                   AND b.status IN ("confirmed", "completed")
+                   AND b.starts_at >= DATE_FORMAT(DATE_SUB(UTC_TIMESTAMP(), INTERVAL 11 MONTH), "%Y-%m-01")
+                 GROUP BY tp.id, u.display_name, month
+                 ORDER BY month DESC, tp.id'
+            );
+            $gymSalaries = array_map(fn(array $row): array => [
+                'trainerId' => (int) $row['trainer_id'],
+                'trainerName' => $row['trainer_name'],
+                'month' => (string) $row['month'],
+                'sessions' => (int) $row['sessions'],
+                'amount' => (float) $row['amount'],
+            ], $salaryRows);
+        }
+
         Http::json([
             'currentUserId' => (int) $admin['id'],
             'permissions' => $permissions,
@@ -1674,6 +2462,7 @@ final class Handlers
             'bookings' => $bookings,
             'payments' => $payments,
             'trainerIncome' => $trainerIncome,
+            'gymSalaries' => $gymSalaries,
             'pagination' => [
                 'pageSize' => $pageSize,
                 'users' => ['page' => $userPage, 'total' => $permissions['manageUsers'] ? $userTotal : 0],
@@ -1683,6 +2472,223 @@ final class Handlers
                 'trainerIncome' => ['page' => $incomePage, 'total' => $permissions['reviewPayments'] ? $incomeTotal : 0],
             ],
         ]);
+    }
+
+    public function adminReports(): never
+    {
+        $admin = $this->auth->requireUser(['admin']);
+        $permissions = $this->adminPermissions((int) $admin['id']);
+        if (!$permissions['manageBookings'] && !$permissions['reviewPayments']) {
+            throw new HttpException(403, 'บัญชีนี้ไม่มีสิทธิ์เปิดรายงาน', 'ADMIN_PERMISSION_REQUIRED');
+        }
+        $year = self::reportYear($_GET['year'] ?? null);
+        $rangeStart = sprintf('%04d-01-01 00:00:00', $year);
+        $rangeEnd = sprintf('%04d-01-01 00:00:00', $year + 1);
+
+        // Only the sections the caller's permissions cover are filled in.
+        $bookingsByMonth = [];
+        foreach (self::monthKeys($year) as $month) {
+            $byStatus = [];
+            foreach (['pending_trainer', 'awaiting_payment', 'payment_review', 'confirmed', 'completed', 'cancelled', 'expired'] as $statusName) {
+                $byStatus[$statusName] = 0;
+            }
+            $bookingsByMonth[$month] = ['month' => $month, 'total' => 0, 'byStatus' => $byStatus];
+        }
+        if ($permissions['manageBookings']) {
+            $rows = $this->database->fetchAll(
+                'SELECT DATE_FORMAT(b.created_at, "%Y-%m") AS month, b.status, COUNT(*) AS total
+                 FROM bookings b
+                 WHERE b.created_at >= ? AND b.created_at < ?
+                 GROUP BY month, b.status',
+                [$rangeStart, $rangeEnd]
+            );
+            foreach ($rows as $row) {
+                $month = (string) $row['month'];
+                if (!isset($bookingsByMonth[$month])) {
+                    continue;
+                }
+                $bookingsByMonth[$month]['total'] += (int) $row['total'];
+                $bookingsByMonth[$month]['byStatus'][(string) $row['status']] = (int) $row['total'];
+            }
+        }
+
+        $incomeByMonth = [];
+        $paymentsByMonth = [];
+        foreach (self::monthKeys($year) as $month) {
+            $incomeByMonth[$month] = ['month' => $month, 'amount' => 0.0];
+            $paymentsByMonth[$month] = ['month' => $month, 'submitted' => 0, 'approved' => 0, 'rejected' => 0];
+        }
+        if ($permissions['reviewPayments']) {
+            $rows = $this->database->fetchAll(
+                'SELECT DATE_FORMAT(pay.submitted_at, "%Y-%m") AS month,
+                        COUNT(*) AS submitted,
+                        COALESCE(SUM(pay.status = "approved"), 0) AS approved,
+                        COALESCE(SUM(pay.status = "rejected"), 0) AS rejected,
+                        COALESCE(SUM(CASE WHEN pay.status = "approved" THEN pay.amount ELSE 0 END), 0) AS income
+                 FROM payments pay
+                 WHERE pay.submitted_at >= ? AND pay.submitted_at < ?
+                 GROUP BY month',
+                [$rangeStart, $rangeEnd]
+            );
+            foreach ($rows as $row) {
+                $month = (string) $row['month'];
+                if (!isset($incomeByMonth[$month])) {
+                    continue;
+                }
+                $incomeByMonth[$month]['amount'] = (float) $row['income'];
+                $paymentsByMonth[$month]['submitted'] = (int) $row['submitted'];
+                $paymentsByMonth[$month]['approved'] = (int) $row['approved'];
+                $paymentsByMonth[$month]['rejected'] = (int) $row['rejected'];
+            }
+        }
+
+        $roleCounts = $this->database->fetchOne(
+            'SELECT COALESCE(SUM(role = "member"), 0) AS members,
+                    COALESCE(SUM(role = "trainer"), 0) AS trainers,
+                    COALESCE(SUM(role = "admin"), 0) AS admins
+             FROM users WHERE status <> "deleted"'
+        ) ?? [];
+        // หนึ่งแถวต่อบทบาท ตามสัญญา §5.1 (แท็บรายงานวนอ่านแบบ rows)
+        $usersByRole = [
+            ['role' => 'member', 'count' => (int) ($roleCounts['members'] ?? 0)],
+            ['role' => 'trainer', 'count' => (int) ($roleCounts['trainers'] ?? 0)],
+            ['role' => 'admin', 'count' => (int) ($roleCounts['admins'] ?? 0)],
+        ];
+
+        $totals = [
+            'bookings' => array_sum(array_map(static fn(array $row): int => $row['total'], $bookingsByMonth)),
+            'income' => array_sum(array_map(static fn(array $row): float => $row['amount'], $incomeByMonth)),
+            'paymentsSubmitted' => array_sum(array_map(static fn(array $row): int => $row['submitted'], $paymentsByMonth)),
+            'paymentsApproved' => array_sum(array_map(static fn(array $row): int => $row['approved'], $paymentsByMonth)),
+            'paymentsRejected' => array_sum(array_map(static fn(array $row): int => $row['rejected'], $paymentsByMonth)),
+            'users' => array_sum(array_map(static fn(array $row): int => $row['count'], $usersByRole)),
+        ];
+
+        Http::json([
+            'year' => $year,
+            'bookingsByMonth' => array_values($bookingsByMonth),
+            'incomeByMonth' => array_values($incomeByMonth),
+            'paymentsByMonth' => array_values($paymentsByMonth),
+            'usersByRole' => $usersByRole,
+            'totals' => $totals,
+        ]);
+    }
+
+    public function trainerStats(): never
+    {
+        $user = $this->auth->requireUser(['trainer']);
+        $year = self::reportYear($_GET['year'] ?? null);
+        $rangeStart = sprintf('%04d-01-01 00:00:00', $year);
+        $rangeEnd = sprintf('%04d-01-01 00:00:00', $year + 1);
+        $profile = $this->database->fetchOne(
+            'SELECT id, service_mode FROM trainer_profiles WHERE user_id = ?',
+            [$user['id']]
+        );
+        if (!$profile) {
+            throw new HttpException(404, 'ไม่พบโปรไฟล์เทรนเนอร์', 'PROFILE_NOT_FOUND');
+        }
+
+        $bookingsByMonth = [];
+        $incomeByMonth = [];
+        foreach (self::monthKeys($year) as $month) {
+            $bookingsByMonth[$month] = ['month' => $month, 'total' => 0];
+            $incomeByMonth[$month] = ['month' => $month, 'amount' => 0.0];
+        }
+
+        $bookingRows = $this->database->fetchAll(
+            'SELECT DATE_FORMAT(b.created_at, "%Y-%m") AS month, COUNT(*) AS total
+             FROM bookings b
+             WHERE b.trainer_profile_id = ? AND b.created_at >= ? AND b.created_at < ?
+             GROUP BY month',
+            [(int) $profile['id'], $rangeStart, $rangeEnd]
+        );
+        foreach ($bookingRows as $row) {
+            $month = (string) $row['month'];
+            if (isset($bookingsByMonth[$month])) {
+                $bookingsByMonth[$month]['total'] = (int) $row['total'];
+            }
+        }
+
+        // Income on the dashboard is the freelance money paid straight to the
+        // trainer. Gym sessions are paid to the gym and appear in the salary
+        // summary below instead (บทที่ 3.1.3 ข้อ 9).
+        $incomeRows = $this->database->fetchAll(
+            'SELECT DATE_FORMAT(pay.submitted_at, "%Y-%m") AS month,
+                    COALESCE(SUM(pay.amount), 0) AS amount
+             FROM payments pay
+             JOIN bookings b ON b.id = pay.booking_id
+             WHERE b.trainer_profile_id = ? AND pay.status = "approved"
+               AND (b.payment_service_mode = "freelance" OR b.payment_service_mode IS NULL)
+               AND pay.submitted_at >= ? AND pay.submitted_at < ?
+             GROUP BY month',
+            [(int) $profile['id'], $rangeStart, $rangeEnd]
+        );
+        foreach ($incomeRows as $row) {
+            $month = (string) $row['month'];
+            if (isset($incomeByMonth[$month])) {
+                $incomeByMonth[$month]['amount'] = (float) $row['amount'];
+            }
+        }
+
+        // Gym salary accrual only exists for gym/both trainers: approved gym
+        // payments on confirmed or completed bookings, by session month.
+        $salarySummary = null;
+        if (in_array($profile['service_mode'], ['gym', 'both'], true)) {
+            $salaryRows = $this->database->fetchAll(
+                'SELECT DATE_FORMAT(b.starts_at, "%Y-%m") AS month,
+                        COALESCE(SUM(b.session_count), 0) AS sessions,
+                        COALESCE(SUM(pay.amount), 0) AS amount
+                 FROM payments pay
+                 JOIN bookings b ON b.id = pay.booking_id
+                 WHERE b.trainer_profile_id = ? AND pay.status = "approved"
+                   AND b.payment_service_mode = "gym"
+                   AND b.status IN ("confirmed", "completed")
+                   AND b.starts_at >= ? AND b.starts_at < ?
+                 GROUP BY month ORDER BY month',
+                [(int) $profile['id'], $rangeStart, $rangeEnd]
+            );
+            $salarySummary = array_map(static fn(array $row): array => [
+                'month' => (string) $row['month'],
+                'sessions' => (int) $row['sessions'],
+                'amount' => (float) $row['amount'],
+            ], $salaryRows);
+        }
+
+        Http::json([
+            'year' => $year,
+            'bookingsByMonth' => array_values($bookingsByMonth),
+            'incomeByMonth' => array_values($incomeByMonth),
+            'totals' => [
+                'bookings' => array_sum(array_map(static fn(array $row): int => $row['total'], $bookingsByMonth)),
+                'income' => array_sum(array_map(static fn(array $row): float => $row['amount'], $incomeByMonth)),
+            ],
+            'salarySummary' => $salarySummary,
+        ]);
+    }
+
+    private static function reportYear(mixed $value): int
+    {
+        if ($value === null || $value === '') {
+            return (int) gmdate('Y');
+        }
+        if (is_array($value) || preg_match('/^\d{4}$/', (string) $value) !== 1) {
+            throw new HttpException(422, 'ปีของรายงานไม่ถูกต้อง', 'VALIDATION_FAILED', ['year' => 'ใช้ปี ค.ศ. 4 หลัก']);
+        }
+        $year = (int) $value;
+        if ($year < 2000 || $year > 2100) {
+            throw new HttpException(422, 'ปีของรายงานไม่ถูกต้อง', 'VALIDATION_FAILED', ['year' => 'ใช้ปีระหว่าง 2000 ถึง 2100']);
+        }
+        return $year;
+    }
+
+    /** @return array<int, string> twelve `YYYY-MM` keys in month order. */
+    private static function monthKeys(int $year): array
+    {
+        $months = [];
+        for ($month = 1; $month <= 12; $month++) {
+            $months[] = sprintf('%04d-%02d', $year, $month);
+        }
+        return $months;
     }
 
     public function paymentRouting(): never
@@ -1706,7 +2712,7 @@ final class Handlers
             if (isset($input['bookingId'])) {
                 $statement = $pdo->prepare('SELECT b.id, b.payment_service_mode
                     FROM bookings b WHERE b.public_id = ? FOR UPDATE');
-                $statement->execute([(string) $input['bookingId']]);
+                $statement->execute([Http::stringField($input, 'bookingId')]);
                 $booking = $statement->fetch();
                 if (!$booking || $booking['payment_service_mode'] !== null) {
                     throw new HttpException(409, 'การจองนี้กำหนดผู้รับผิดชอบไว้แล้ว', 'PAYMENT_ROUTING_FIXED');
@@ -1726,10 +2732,12 @@ final class Handlers
         $admin = $this->requireAdminPermission('manage_users');
         $input = Http::body();
         Http::requireFields($input, ['displayName', 'email', 'password']);
-        $displayName = trim((string) $input['displayName']);
-        $email = strtolower(trim((string) $input['email']));
-        $password = (string) $input['password'];
-        $permissions = $this->normalizeAdminPermissions($input['permissions']);
+        $displayName = trim(Http::stringField($input, 'displayName'));
+        $email = strtolower(trim(Http::stringField($input, 'email')));
+        $password = Http::stringField($input, 'password');
+        // A missing key is a notice in the log; normalizeAdminPermissions()
+        // already treats a non-array as "no permission granted".
+        $permissions = $this->normalizeAdminPermissions($input['permissions'] ?? null);
         $this->assertAssignablePermissions($this->adminPermissions((int) $admin['id']), $permissions);
         $fields = [];
         if ($displayName === '') $fields['displayName'] = 'กรุณาระบุชื่อที่แสดง';
@@ -1767,9 +2775,9 @@ final class Handlers
         $input = Http::body();
         $target = $this->database->fetchOne('SELECT id, email, display_name, role, status FROM users WHERE id = ?', [(int) $userId]);
         if (!$target) throw new HttpException(404, 'ไม่พบบัญชีผู้ใช้', 'USER_NOT_FOUND');
-        $displayName = array_key_exists('displayName', $input) ? trim((string) $input['displayName']) : (string) $target['display_name'];
-        $email = array_key_exists('email', $input) ? strtolower(trim((string) $input['email'])) : (string) $target['email'];
-        $status = array_key_exists('status', $input) ? (string) $input['status'] : (string) $target['status'];
+        $displayName = array_key_exists('displayName', $input) ? trim(Http::stringField($input, 'displayName')) : (string) $target['display_name'];
+        $email = array_key_exists('email', $input) ? strtolower(trim(Http::stringField($input, 'email'))) : (string) $target['email'];
+        $status = array_key_exists('status', $input) ? Http::stringField($input, 'status') : (string) $target['status'];
         $fields = [];
         if ($displayName === '') $fields['displayName'] = 'กรุณาระบุชื่อที่แสดง';
         if (!filter_var($email, FILTER_VALIDATE_EMAIL)) $fields['email'] = 'อีเมลไม่ถูกต้อง';
@@ -1842,6 +2850,62 @@ final class Handlers
         Http::json(['id' => (int) $target['id'], 'displayName' => $displayName, 'email' => $email, 'role' => $target['role'], 'status' => $status, 'permissions' => $permissions]);
     }
 
+    public function deleteUser(string $userId): never
+    {
+        $admin = $this->requireAdminPermission('manage_users');
+        $target = $this->database->fetchOne(
+            'SELECT id, role, status FROM users WHERE id = ?',
+            [(int) $userId]
+        );
+        if (!$target || $target['status'] === 'deleted') {
+            throw new HttpException(404, 'ไม่พบบัญชีผู้ใช้', 'USER_NOT_FOUND');
+        }
+        $this->database->transaction(function (PDO $pdo) use ($admin, $target): void {
+            $permissionIds = [(int) $admin['id'], (int) $target['id']];
+            sort($permissionIds);
+            $permissionPlaceholders = implode(',', array_fill(0, count($permissionIds), '?'));
+            $permissionStatement = $pdo->prepare(
+                'SELECT user_id, manage_users
+                 FROM admin_permissions WHERE user_id IN (' . $permissionPlaceholders . ')
+                 ORDER BY user_id FOR UPDATE'
+            );
+            $permissionStatement->execute($permissionIds);
+            $lockedPermissions = [];
+            foreach ($permissionStatement->fetchAll() as $row) {
+                $lockedPermissions[(int) $row['user_id']] = (bool) $row['manage_users'];
+            }
+            if (!($lockedPermissions[(int) $admin['id']] ?? false)) {
+                throw new HttpException(403, 'บัญชีนี้ไม่มีสิทธิ์ทำรายการนี้', 'ADMIN_PERMISSION_REQUIRED');
+            }
+            $targetManagesUsers = $target['role'] === 'admin' && ($lockedPermissions[(int) $target['id']] ?? false);
+            $managerStatement = $pdo->query(
+                'SELECT ap.user_id
+                 FROM admin_permissions ap
+                 JOIN users u ON u.id = ap.user_id
+                 WHERE ap.manage_users = 1 AND u.status = "active"
+                 FOR UPDATE'
+            );
+            $managerIds = array_map('intval', $managerStatement->fetchAll(PDO::FETCH_COLUMN));
+            $remainingActiveManagers = count(array_filter(
+                $managerIds,
+                static fn(int $id): bool => $id !== (int) $target['id']
+            ));
+            UserAdminRules::assertDeletionAllowed(
+                (int) $admin['id'],
+                (int) $target['id'],
+                $targetManagesUsers,
+                $remainingActiveManagers
+            );
+
+            $pdo->prepare('UPDATE users SET status = "deleted", updated_at = UTC_TIMESTAMP() WHERE id = ?')
+                ->execute([(int) $target['id']]);
+            $pdo->prepare('UPDATE auth_tokens SET revoked_at = UTC_TIMESTAMP() WHERE user_id = ? AND revoked_at IS NULL')
+                ->execute([(int) $target['id']]);
+        });
+
+        Http::json(['id' => (int) $target['id'], 'status' => 'deleted', 'deleted' => true]);
+    }
+
     public function decideTrainer(string $trainerId, string $decision): never
     {
         $admin = $this->requireAdminPermission('review_trainers');
@@ -1849,9 +2913,10 @@ final class Handlers
             throw new HttpException(404, 'ไม่พบการทำงานนี้', 'NOT_FOUND');
         }
         $input = Http::body();
-        $result = $this->database->transaction(function (PDO $pdo) use ($trainerId, $decision, $input, $admin): array {
+        $notificationIds = [];
+        $result = $this->database->transaction(function (PDO $pdo) use ($trainerId, $decision, $input, $admin, &$notificationIds): array {
             $statement = $pdo->prepare(
-                'SELECT id, approval_status FROM trainer_profiles WHERE id = ? FOR UPDATE'
+                'SELECT id, user_id, approval_status FROM trainer_profiles WHERE id = ? FOR UPDATE'
             );
             $statement->execute([(int) $trainerId]);
             $trainer = $statement->fetch();
@@ -1859,7 +2924,7 @@ final class Handlers
                 throw new HttpException(404, 'ไม่พบโปรไฟล์เทรนเนอร์', 'TRAINER_NOT_FOUND');
             }
 
-            $note = trim((string) ($input['note'] ?? ''));
+            $note = trim(Http::stringField($input, 'note'));
             WorkflowRules::assertTrainerApplicationDecision(
                 (string) $trainer['approval_status'],
                 $decision,
@@ -1880,8 +2945,20 @@ final class Handlers
                  WHERE trainer_profile_id = ? AND status = "pending"'
             )->execute([$certificateStatus, $note, $admin['id'], (int) $trainer['id']]);
 
+            $notificationIds = array_merge($notificationIds, $this->notifications->recordEvent(
+                $pdo,
+                $status === 'approved'
+                    ? NotificationRules::TRAINER_APPLICATION_APPROVED
+                    : NotificationRules::TRAINER_APPLICATION_REJECTED,
+                [
+                    'trainerUserId' => (int) $trainer['user_id'],
+                    'reviewNote' => $note,
+                ]
+            ));
+
             return ['trainerId' => (int) $trainer['id'], 'status' => $status];
         });
+        $this->notifications->deliverByIds($notificationIds);
 
         Http::json($result);
     }
@@ -1892,6 +2969,9 @@ final class Handlers
         $permissions = $admin['role'] === 'admin'
             ? $this->adminPermissions((int) $admin['id'])
             : array_merge($this->adminPermissionsFromRow([]), ['reviewPayments' => true]);
+        // The queue is a read view: an administrator follows the gym's slips
+        // here without deciding them, so it uses the view scope. Approving and
+        // rejecting stay on decisionScope in decidePayment.
         [$paymentScope, $paymentParams] = PaymentRouting::scope($admin);
         if (!$permissions['reviewTrainers'] && !$permissions['reviewPayments']) {
             throw new HttpException(403, 'บัญชีนี้ไม่มีสิทธิ์เปิดคิวตรวจสอบ', 'ADMIN_PERMISSION_REQUIRED');
@@ -1906,7 +2986,10 @@ final class Handlers
         ) : [];
         $payments = $permissions['reviewPayments'] ? $this->database->fetchAll(
             'SELECT pay.id, pay.submitted_at, pay.amount,
-                    b.public_id AS booking_public_id, b.starts_at, b.ends_at, b.booking_type, b.quoted_price, b.is_demo,
+                    b.public_id AS booking_public_id,
+                    COALESCE(b.confirmed_starts_at, b.starts_at) AS starts_at,
+                    COALESCE(b.confirmed_ends_at, b.ends_at) AS ends_at,
+                    b.booking_type, b.quoted_price, b.is_demo,
                     member_user.display_name AS member_name, trainer_user.display_name AS trainer_name
              FROM payments pay
              JOIN bookings b ON b.id = pay.booking_id
@@ -1973,18 +3056,17 @@ final class Handlers
     public function decidePayment(string $paymentId, string $decision): never
     {
         $admin = $this->auth->requireUser(['admin', 'trainer']);
+        if ($admin['role'] !== 'trainer') {
+            throw new HttpException(403, 'เทรนเนอร์ของการจองเป็นผู้ยืนยันหลักฐานการชำระเงิน', 'TRAINER_CONFIRMS_PAYMENT');
+        }
         if (!in_array($decision, ['approve', 'reject'], true)) {
             throw new HttpException(404, 'ไม่พบการทำงานนี้', 'NOT_FOUND');
         }
         $input = Http::body();
-        if ($decision === 'approve' && !filter_var($input['bankConfirmed'] ?? false, FILTER_VALIDATE_BOOL)) {
-            throw new HttpException(422, 'กรุณาตรวจรายการเงินจริงในแอปธนาคารก่อนอนุมัติ', 'BANK_CONFIRMATION_REQUIRED', [
-                'bankConfirmed' => 'ยืนยันว่าเลขอ้างอิง ผู้รับ ยอดเงิน และเวลาตรงกับรายการเงินจริง',
-            ]);
-        }
+        $bankConfirmed = filter_var($input['bankConfirmed'] ?? false, FILTER_VALIDATE_BOOL);
         $notificationIds = [];
-        $result = $this->database->transaction(function (PDO $pdo) use ($paymentId, $decision, $input, $admin, &$notificationIds): array {
-            [$scope, $params] = PaymentRouting::scope($admin);
+        $result = $this->database->transaction(function (PDO $pdo) use ($paymentId, $decision, $input, $admin, $bankConfirmed, &$notificationIds): array {
+            [$scope, $params] = PaymentRouting::decisionScope($admin);
             $statement = $pdo->prepare(
                 'SELECT pay.id, pay.status, pay.booking_id, b.public_id, b.status AS booking_status,
                         b.availability_slot_id, UTC_TIMESTAMP() AS database_now
@@ -1997,7 +3079,15 @@ final class Handlers
             if (!$payment) {
                 throw new HttpException(404, 'ไม่พบหลักฐานการชำระ', 'PAYMENT_NOT_FOUND');
             }
-            $note = trim((string) ($input['note'] ?? ''));
+            // The bank confirmation is demanded only once the payment exists:
+            // answering 422 for an id that has no row sent the reviewer back to
+            // confirm a payment that was never there.
+            if ($decision === 'approve' && !$bankConfirmed) {
+                throw new HttpException(422, 'กรุณาตรวจรายการเงินจริงในแอปธนาคารก่อนอนุมัติ', 'BANK_CONFIRMATION_REQUIRED', [
+                    'bankConfirmed' => 'ยืนยันว่าเลขอ้างอิง ผู้รับ ยอดเงิน และเวลาตรงกับรายการเงินจริง',
+                ]);
+            }
+            $note = trim(Http::stringField($input, 'note'));
             WorkflowRules::assertPaymentDecision(
                 (string) $payment['status'],
                 (string) $payment['booking_status'],
@@ -2175,12 +3265,45 @@ final class Handlers
         return $expired;
     }
 
+    /**
+     * บทที่ 1: accepted requests reach the member at the 12:00 / 18:00 round
+     * the trainer picked. Runs before every expiry sweep, so a round that has
+     * passed opens the payment step before anything reads or writes it.
+     */
+    private function releaseScheduledAcceptancesInTransaction(PDO $pdo, ?array &$notificationIds = null): void
+    {
+        $statement = $pdo->prepare(
+            'SELECT id FROM bookings
+             WHERE status = "pending_trainer"
+               AND confirmed_starts_at IS NOT NULL
+               AND payment_deadline_at IS NOT NULL
+               AND DATE_SUB(payment_deadline_at, INTERVAL ' . WorkflowRules::PAYMENT_WINDOW_MINUTES . ' MINUTE) <= UTC_TIMESTAMP()
+             ORDER BY id FOR UPDATE'
+        );
+        $statement->execute();
+        foreach ($statement->fetchAll() as $booking) {
+            $pdo->prepare('UPDATE bookings SET status = "awaiting_payment", updated_at = UTC_TIMESTAMP() WHERE id = ?')
+                ->execute([$booking['id']]);
+            $pdo->prepare('INSERT INTO booking_status_history (booking_id, from_status, to_status, changed_by_user_id, note) VALUES (?, "pending_trainer", "awaiting_payment", NULL, "ระบบยืนยันการตอบรับให้สมาชิกตามรอบที่เทรนเนอร์เลือก")')
+                ->execute([$booking['id']]);
+            $created = $this->notifications->recordEvent(
+                $pdo,
+                NotificationRules::BOOKING_ACCEPTED,
+                $this->bookingNotificationContext($pdo, (int) $booking['id'], 'pending_trainer', 'awaiting_payment')
+            );
+            if ($notificationIds !== null) {
+                $notificationIds = array_merge($notificationIds, $created);
+            }
+        }
+    }
+
     private function expireAwaitingPaymentsInTransaction(
         PDO $pdo,
         ?int $slotId = null,
         ?array &$notificationIds = null
     ): array
     {
+        $this->releaseScheduledAcceptancesInTransaction($pdo, $notificationIds);
         $sql = 'SELECT id, public_id, availability_slot_id
                 FROM bookings
                 WHERE status = "awaiting_payment"
@@ -2239,7 +3362,7 @@ final class Handlers
         $statement = $pdo->prepare(
             'SELECT b.id, b.public_id, b.member_user_id, tp.user_id AS trainer_user_id,
                     member.display_name AS member_name, trainer.display_name AS trainer_name,
-                    b.starts_at, b.ends_at, b.quoted_price
+                    b.starts_at, b.ends_at, b.confirmed_starts_at, b.confirmed_ends_at, b.quoted_price
              FROM bookings b
              JOIN trainer_profiles tp ON tp.id = b.trainer_profile_id
              JOIN users member ON member.id = b.member_user_id
@@ -2260,6 +3383,8 @@ final class Handlers
             'trainerName' => (string) $booking['trainer_name'],
             'startsAt' => (string) $booking['starts_at'],
             'endsAt' => (string) $booking['ends_at'],
+            'confirmedStartsAt' => $booking['confirmed_starts_at'] === null ? '' : (string) $booking['confirmed_starts_at'],
+            'confirmedEndsAt' => $booking['confirmed_ends_at'] === null ? '' : (string) $booking['confirmed_ends_at'],
             'quotedPrice' => $booking['quoted_price'] === null ? null : (float) $booking['quoted_price'],
             'previousStatus' => $previousStatus,
             'nextStatus' => $nextStatus,
@@ -2272,7 +3397,7 @@ final class Handlers
         if ($user['role'] === 'member') {
             $row = $this->database->fetchOne(
                 'SELECT u.display_name, u.email, mp.first_name, mp.last_name, mp.phone, mp.goals,
-                        mp.experience_level, mp.weight, mp.height, mp.image_path
+                        mp.experience_level, mp.weight, mp.height, mp.birth_date, mp.image_path
                  FROM users u JOIN member_profiles mp ON mp.user_id = u.id WHERE u.id = ?',
                 [$user['id']]
             );
@@ -2298,12 +3423,13 @@ final class Handlers
                     'experienceLevel' => $row['experience_level'] ?? '',
                     'weight' => $row['weight'] === null ? null : (float) $row['weight'],
                     'height' => $row['height'] === null ? null : (float) $row['height'],
+                    'birthDate' => $row['birth_date'] ?? null,
                 ],
             ];
         }
 
         $row = $this->database->fetchOne(
-            'SELECT u.display_name, u.email, tp.id, tp.legal_name, tp.phone, tp.headline, tp.bio,
+            'SELECT u.display_name, u.email, tp.id, tp.legal_name, tp.nickname, tp.phone, tp.birth_date, tp.education, tp.headline, tp.bio,
                     tp.years_experience, tp.service_mode, tp.gym_name, tp.price_from, tp.monthly_price,
                     tp.monthly_session_count, tp.payment_account_name, tp.promptpay_id, tp.payment_qr_path, tp.image_path,
                     tp.approval_status, tp.approval_note
@@ -2330,7 +3456,10 @@ final class Handlers
             'imageUrl' => self::accountImageUrl('trainer', (int) $user['id'], $row['image_path']),
             'trainer' => [
                 'legalName' => $row['legal_name'] ?? '',
+                'nickname' => $row['nickname'] ?? '',
                 'phone' => $row['phone'] ?? '',
+                'birthDate' => $row['birth_date'] ?? null,
+                'education' => $row['education'] ?? null,
                 'headline' => $row['headline'] ?? '',
                 'bio' => $row['bio'] ?? '',
                 'yearsExperience' => (int) $row['years_experience'],
@@ -2374,7 +3503,7 @@ final class Handlers
     private function trainerRow(string $where, array $params): ?array
     {
         return $this->database->fetchOne(
-            'SELECT tp.id, tp.user_id, tp.slug, tp.headline, tp.bio, tp.years_experience, tp.service_mode,
+            'SELECT tp.id, tp.user_id, tp.slug, tp.nickname, tp.headline, tp.bio, tp.years_experience, tp.service_mode,
                     tp.gym_name, tp.price_from, tp.monthly_price, tp.monthly_session_count, tp.payment_qr_path, tp.approval_status, tp.image_path, tp.is_demo,
                     u.display_name,
                     AVG(CASE WHEN review_booking.id IS NOT NULL THEN r.rating END) AS rating,
@@ -2413,6 +3542,7 @@ final class Handlers
             'id' => $profileId,
             'slug' => $row['slug'],
             'displayName' => $row['display_name'],
+            'nickname' => ($row['nickname'] ?? null) ?: null,
             'headline' => $row['headline'] ?? 'เทรนเนอร์ FitConnect',
             'bio' => $row['bio'] ?? '',
             'yearsExperience' => (int) $row['years_experience'],
@@ -2435,24 +3565,63 @@ final class Handlers
                 'available' => true,
             ], $slots),
             'image' => self::accountImageUrl('trainer', (int) $row['user_id'], $row['image_path']),
+            'photos' => $this->trainerPhotoList($profileId),
             'demo' => (bool) $row['is_demo'],
         ];
+    }
+
+    /**
+     * Extra photos a trainer shows members on the profile page, in the order
+     * they were added. A database without the photos table yet has none.
+     *
+     * @return list<array{id: int, url: string}>
+     */
+    private function trainerPhotoList(int $profileId): array
+    {
+        try {
+            $rows = $this->database->fetchAll(
+                'SELECT id FROM trainer_photos WHERE trainer_profile_id = ? ORDER BY sort_order, id',
+                [$profileId]
+            );
+        } catch (PDOException) {
+            return [];
+        }
+        return array_map(fn(array $photo): array => [
+            'id' => (int) $photo['id'],
+            'url' => '/v1/trainer-photos/' . (int) $photo['id'],
+        ], $rows);
     }
 
     private function bookingPayload(array $row, string $role, array $sessions = []): array
     {
         $acceptedStatuses = ['awaiting_payment', 'payment_review', 'confirmed'];
+        $cancellableByTrainer = ['pending_trainer', 'awaiting_payment', 'payment_review', 'confirmed'];
         $isMember = $role === 'member';
         $isTrainer = $role === 'trainer';
         $hasReview = $row['review_id'] !== null;
-        $appointmentEnded = strtotime($row['ends_at'] . ' UTC') <= time();
+        // Completion runs on the trainer-confirmed end once one exists.
+        $appointmentEndsAt = $row['confirmed_ends_at'] ?? $row['ends_at'];
+        $appointmentEnded = strtotime($appointmentEndsAt . ' UTC') <= time();
         $periodExpired = ($row['period_end'] ?? null) !== null && strtotime($row['period_end'] . ' UTC') < time();
         // Reads never expire rows: the scheduler and the write paths own that.
         // A hold whose deadline has passed is reported as expired here so the
         // member, trainer and administrator surfaces stay truthful in between.
         $deadlinePassed = $row['payment_deadline_at'] !== null
             && strtotime($row['payment_deadline_at'] . ' UTC') <= time();
-        $status = $row['status'] === 'awaiting_payment' && $deadlinePassed ? 'expired' : $row['status'];
+        // An accepted request waits for its 12:00 / 18:00 round. Once the round
+        // has passed it is presented as awaiting payment even before a write
+        // path has run the release sweep.
+        $acceptedAwaitingRound = $row['status'] === 'pending_trainer'
+            && ($row['confirmed_starts_at'] ?? null) !== null
+            && $row['payment_deadline_at'] !== null;
+        $releaseAt = $acceptedAwaitingRound
+            ? gmdate('Y-m-d H:i:s', strtotime($row['payment_deadline_at'] . ' UTC') - WorkflowRules::PAYMENT_WINDOW_MINUTES * 60)
+            : null;
+        $released = $releaseAt !== null && strtotime($releaseAt . ' UTC') <= time();
+        $rawStatus = $released ? 'awaiting_payment' : $row['status'];
+        $status = $rawStatus === 'awaiting_payment' && $deadlinePassed ? 'expired' : $rawStatus;
+        // The member hears about the acceptance only at the round.
+        $hideAcceptance = $isMember && $acceptedAwaitingRound && !$released;
 
         return [
             'id' => $row['public_id'],
@@ -2472,6 +3641,11 @@ final class Handlers
                 'medicalNote' => $row['member_medical_note'] ?? '',
             ],
             'startsAt' => $this->iso($row['starts_at']), 'endsAt' => $this->iso($row['ends_at']),
+            'confirmedStartsAt' => $hideAcceptance || ($row['confirmed_starts_at'] ?? null) === null ? null : $this->iso($row['confirmed_starts_at']),
+            'confirmedEndsAt' => $hideAcceptance || ($row['confirmed_ends_at'] ?? null) === null ? null : $this->iso($row['confirmed_ends_at']),
+            'requestedStartsAt' => $this->iso($row['starts_at']),
+            'confirmationReleaseAt' => $hideAcceptance || $releaseAt === null || $released ? null : $this->iso($releaseAt),
+            'cancellationReason' => $row['cancellation_reason'] ?? null,
             'bookingType' => $row['booking_type'] ?? 'single',
             'sessionCount' => (int) ($row['session_count'] ?? 1),
             'periodStart' => ($row['period_start'] ?? null) === null ? null : $this->iso($row['period_start']),
@@ -2483,11 +3657,22 @@ final class Handlers
             ]],
             'note' => $row['member_note'] ?? '',
             'status' => $status, 'paymentStatus' => $row['payment_status'], 'createdAt' => $this->iso($row['created_at']),
-            'paymentDeadlineAt' => $row['payment_deadline_at'] === null ? null : $this->iso($row['payment_deadline_at']),
+            'paymentDeadlineAt' => $row['payment_deadline_at'] === null || ($acceptedAwaitingRound && !$released) ? null : $this->iso($row['payment_deadline_at']),
             'paymentServiceMode' => $row['payment_service_mode'] ?? null,
             'paymentRecipient' => $isMember && !empty($row['payment_account_name']) && !empty($row['promptpay_id']) ? [
                 'accountName' => $row['payment_account_name'],
                 'promptPayId' => $row['promptpay_id'],
+                // The QR the trainer uploaded is the one they trust; the member
+                // scans it at the payment step, and the server-generated QR is
+                // only the fallback for a trainer who never uploaded one.
+                'paymentQrUrl' => empty($row['payment_qr_path']) ? null : "/v1/trainer-payment-qr/{$row['trainer_id']}",
+                // บทที่ 3.1.2 ข้อ 4: the member may also transfer to the
+                // trainer's default bank account instead of PromptPay.
+                'bankAccount' => empty($row['bank_account_number'] ?? null) ? null : [
+                    'bankName' => $row['bank_name'],
+                    'accountName' => $row['bank_account_name'],
+                    'accountNumber' => $row['bank_account_number'],
+                ],
             ] : null,
             'quotedPrice' => $row['quoted_price'] === null ? null : (float) $row['quoted_price'],
             'chatRoomId' => $role === 'admin' || $row['chat_room_id'] === null ? null : (int) $row['chat_room_id'],
@@ -2509,7 +3694,7 @@ final class Handlers
                     && $status === 'awaiting_payment'
                     && $row['payment_deadline_at'] !== null
                     && strtotime($row['payment_deadline_at'] . ' UTC') > time(),
-                'canReadChat' => $role !== 'admin',
+                'canReadChat' => $role !== 'admin' && $status !== 'completed',
                 'canSendChat' => $role !== 'admin' && in_array($status, $acceptedStatuses, true),
                 'canComplete' => $isTrainer && $status === 'confirmed' && $row['payment_status'] === 'approved'
                     && $appointmentEnded
@@ -2526,16 +3711,30 @@ final class Handlers
                     && in_array($row['payment_status'], ['not_submitted', 'rejected'], true)
                     && $row['payment_deadline_at'] !== null
                     && strtotime($row['payment_deadline_at'] . ' UTC') > time(),
+                'canAccept' => $isTrainer && $status === 'pending_trainer' && !$acceptedAwaitingRound,
+                'canReject' => $isTrainer && $status === 'pending_trainer',
+                'canCancelBooking' => $isTrainer && in_array($status, $cancellableByTrainer, true),
             ],
             'demo' => (bool) $row['is_demo'],
         ];
     }
 
+    /**
+     * A room belongs to a booking, or — for a question asked from a trainer's
+     * profile before booking (บทที่ 3 ภาพที่ 3-16) — directly to one member and
+     * one trainer. `booking_id` is null for such an inquiry room.
+     */
     private function requireChatParticipant(int $roomId, array $user): array
     {
         $room = $this->database->fetchOne(
-            'SELECT cr.id, b.status AS booking_status, b.member_user_id, tp.user_id AS trainer_user_id
-             FROM chat_rooms cr JOIN bookings b ON b.id = cr.booking_id JOIN trainer_profiles tp ON tp.id = b.trainer_profile_id WHERE cr.id = ?',
+            'SELECT cr.id, b.id AS booking_id, b.public_id AS booking_public_id,
+                    b.status AS booking_status,
+                    COALESCE(b.member_user_id, cr.member_user_id) AS member_user_id,
+                    tp.user_id AS trainer_user_id, tp.approval_status AS trainer_approval_status
+             FROM chat_rooms cr
+             LEFT JOIN bookings b ON b.id = cr.booking_id
+             JOIN trainer_profiles tp ON tp.id = COALESCE(b.trainer_profile_id, cr.trainer_profile_id)
+             WHERE cr.id = ?',
             [$roomId]
         );
         if (!$room) {
@@ -2547,6 +3746,91 @@ final class Handlers
             throw new HttpException(403, 'ไม่มีสิทธิ์เปิดห้องสนทนานี้', 'FORBIDDEN');
         }
         return $room;
+    }
+
+    /** Opens (or reopens) the member's inquiry room with a trainer. */
+    public function openInquiryRoom(): never
+    {
+        $user = $this->auth->requireUser(['member']);
+        $input = Http::body();
+        Http::requireFields($input, ['trainerId']);
+        $trainerKey = Http::stringField($input, 'trainerId');
+        $roomId = $this->database->transaction(function (PDO $pdo) use ($user, $trainerKey): int {
+            $trainer = $pdo->prepare(
+                'SELECT tp.id FROM trainer_profiles tp JOIN users u ON u.id = tp.user_id
+                 WHERE (tp.id = ? OR tp.slug = ?) AND tp.approval_status = "approved" AND u.status = "active"
+                 FOR UPDATE'
+            );
+            $trainer->execute([ctype_digit($trainerKey) ? (int) $trainerKey : 0, $trainerKey]);
+            $trainerProfileId = $trainer->fetchColumn();
+            if ($trainerProfileId === false) {
+                throw new HttpException(404, 'ไม่พบเทรนเนอร์', 'TRAINER_NOT_FOUND');
+            }
+            $existing = $pdo->prepare(
+                'SELECT id FROM chat_rooms WHERE booking_id IS NULL AND member_user_id = ? AND trainer_profile_id = ? LIMIT 1'
+            );
+            $existing->execute([(int) $user['id'], (int) $trainerProfileId]);
+            $found = $existing->fetchColumn();
+            if ($found !== false) {
+                return (int) $found;
+            }
+            $pdo->prepare('INSERT INTO chat_rooms (booking_id, member_user_id, trainer_profile_id) VALUES (NULL, ?, ?)')
+                ->execute([(int) $user['id'], (int) $trainerProfileId]);
+            return (int) $pdo->lastInsertId();
+        });
+        Http::json(['roomId' => $roomId, 'id' => 'CHAT-' . $roomId], 201);
+    }
+
+    /**
+     * Inquiry rooms for the chat list, shaped like the booking rows the chat
+     * screen already renders so both kinds of conversation share one list.
+     */
+    public function inquiryRooms(): never
+    {
+        $user = $this->auth->requireUser(['member', 'trainer']);
+        $column = $user['role'] === 'member' ? 'cr.member_user_id' : 'tp.user_id';
+        $rows = $this->database->fetchAll(
+            'SELECT cr.id, cr.created_at, tp.id AS trainer_id, tp.user_id AS trainer_user_id, tp.slug, tp.image_path AS trainer_image_path,
+                    trainer_user.display_name AS trainer_name,
+                    cr.member_user_id, member_user.display_name AS member_name, mp.image_path AS member_image_path,
+                    (SELECT MAX(m.created_at) FROM messages m WHERE m.chat_room_id = cr.id) AS last_message_at
+             FROM chat_rooms cr
+             JOIN trainer_profiles tp ON tp.id = cr.trainer_profile_id
+             JOIN users trainer_user ON trainer_user.id = tp.user_id
+             JOIN users member_user ON member_user.id = cr.member_user_id
+             LEFT JOIN member_profiles mp ON mp.user_id = cr.member_user_id
+             WHERE cr.booking_id IS NULL AND ' . $column . ' = ?
+             ORDER BY COALESCE(last_message_at, cr.created_at) DESC LIMIT 100',
+            [(int) $user['id']]
+        );
+        Http::json(array_map(function (array $row): array {
+            $activity = $this->iso($row['last_message_at'] ?? $row['created_at']);
+            return [
+                'id' => 'CHAT-' . (int) $row['id'],
+                'inquiry' => true,
+                'chatRoomId' => (int) $row['id'],
+                'trainer' => [
+                    'id' => (int) $row['trainer_id'],
+                    'slug' => $row['slug'],
+                    'displayName' => $row['trainer_name'],
+                    'imageUrl' => self::accountImageUrl('trainer', (int) $row['trainer_user_id'], $row['trainer_image_path'] ?? null),
+                ],
+                'member' => [
+                    'id' => (int) $row['member_user_id'],
+                    'displayName' => $row['member_name'],
+                    'imageUrl' => self::accountImageUrl('member', (int) $row['member_user_id'], $row['member_image_path'] ?? null),
+                ],
+                'startsAt' => $activity,
+                'endsAt' => $activity,
+                'createdAt' => $this->iso($row['created_at']),
+                'status' => 'inquiry',
+                'paymentStatus' => 'not_submitted',
+                'actions' => [
+                    'canPay' => false, 'canReadChat' => true, 'canSendChat' => true,
+                    'canComplete' => false, 'canReview' => false, 'canCancel' => false,
+                ],
+            ];
+        }, $rows));
     }
 
     private function saveUpload(string $field, array $allowedMimeTypes, int $maxBytes, string $directory, bool $required = true): ?array
@@ -2579,7 +3863,7 @@ final class Handlers
         if ($mime === false || !in_array($mime, $allowedMimeTypes, true)) {
             throw new HttpException(415, 'ประเภทไฟล์ไม่รองรับ', 'INVALID_FILE_TYPE');
         }
-        $extensions = ['application/pdf' => 'pdf', 'image/jpeg' => 'jpg', 'image/png' => 'png', 'image/webp' => 'webp'];
+        $extensions = ['application/pdf' => 'pdf', 'image/jpeg' => 'jpg', 'image/png' => 'png', 'image/webp' => 'webp', 'image/gif' => 'gif'];
         $uploadRoot = dirname(__DIR__) . '/uploads/' . $directory;
         if (!is_dir($uploadRoot) && !mkdir($uploadRoot, 0750, true) && !is_dir($uploadRoot)) {
             throw new RuntimeException('สร้างโฟลเดอร์อัปโหลดไม่สำเร็จ');

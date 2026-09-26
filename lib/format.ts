@@ -73,3 +73,28 @@ export function initials(name: string) {
   if (parts.length === 0) return "FC";
   return parts.slice(0, 2).map((part) => Array.from(part)[0]).join("").toLocaleUpperCase("th-TH");
 }
+
+/**
+ * บทที่ 1: the two daily rounds (Bangkok time) at which an accepted request is
+ * confirmed to the member. The training time itself never moves.
+ */
+export const CONFIRMATION_TIMES = ["12:00", "18:00"] as const;
+export type ConfirmationTime = (typeof CONFIRMATION_TIMES)[number];
+export const PAYMENT_WINDOW_MINUTES = 10;
+
+/**
+ * Mirrors WorkflowRules::confirmationRelease: the next occurrence of the round
+ * after `now`. `tooLate` is true when the member could not pay before the
+ * session starts, which the backend refuses.
+ */
+export function confirmationRelease(time: ConfirmationTime, sessionStartsAt: string, now: Date = new Date()) {
+  const [hour, minute] = time.split(":").map(Number);
+  const local = bangkokDate(now.toISOString());
+  let releaseUtc = Date.UTC(local.getUTCFullYear(), local.getUTCMonth(), local.getUTCDate(), hour, minute) - BANGKOK_OFFSET_MS;
+  if (releaseUtc <= now.getTime()) releaseUtc += 24 * 60 * 60 * 1000;
+  const paymentClosesAt = releaseUtc + PAYMENT_WINDOW_MINUTES * 60 * 1000;
+  return {
+    releaseAt: new Date(releaseUtc).toISOString(),
+    tooLate: paymentClosesAt > new Date(sessionStartsAt).getTime(),
+  };
+}

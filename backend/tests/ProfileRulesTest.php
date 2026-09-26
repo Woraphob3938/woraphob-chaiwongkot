@@ -46,6 +46,7 @@ test('normalizes a member profile', function (): void {
         'experienceLevel' => 'beginner',
         'weight' => 70.5,
         'height' => 175.0,
+        'birthDate' => null,
     ], ProfileRules::member([
         'firstName' => ' สมชาย ',
         'lastName' => ' ใจดี ',
@@ -55,6 +56,43 @@ test('normalizes a member profile', function (): void {
         'weight' => '70.50',
         'height' => '175',
     ]));
+});
+
+test('accepts an optional member birth date', function (): void {
+    assertSameValue('1990-05-04', ProfileRules::member([
+        'firstName' => 'สมชาย',
+        'lastName' => 'ใจดี',
+        'birthDate' => ' 1990-05-04 ',
+    ])['birthDate']);
+});
+
+test('rejects a malformed member birth date', function (): void {
+    expectHttp(422, 'VALIDATION_FAILED', fn() => ProfileRules::member([
+        'firstName' => 'สมชาย',
+        'lastName' => 'ใจดี',
+        'birthDate' => '04/05/1990',
+    ]), 'birthDate');
+});
+
+test('rejects a future birth date', function (): void {
+    expectHttp(422, 'VALIDATION_FAILED', fn() => ProfileRules::member([
+        'firstName' => 'สมชาย',
+        'lastName' => 'ใจดี',
+        'birthDate' => gmdate('Y-m-d', strtotime('+1 year')),
+    ]), 'birthDate');
+});
+
+test('rejects ages outside five to one hundred twenty years', function (): void {
+    expectHttp(422, 'VALIDATION_FAILED', fn() => ProfileRules::member([
+        'firstName' => 'สมชาย',
+        'lastName' => 'ใจดี',
+        'birthDate' => gmdate('Y-m-d', strtotime('-3 years')),
+    ]), 'birthDate');
+    expectHttp(422, 'VALIDATION_FAILED', fn() => ProfileRules::member([
+        'firstName' => 'สมชาย',
+        'lastName' => 'ใจดี',
+        'birthDate' => gmdate('Y-m-d', strtotime('-130 years')),
+    ]), 'birthDate');
 });
 
 test('requires both member names', function (): void {
@@ -93,6 +131,7 @@ test('normalizes a trainer profile', function (): void {
     assertSameValue([
         'displayName' => 'ครูเมย์',
         'legalName' => 'เมย์ ใจดี',
+        'nickname' => 'เมย์',
         'phone' => '0899999999',
         'headline' => 'สร้างความแข็งแรงอย่างเป็นระบบ',
         'bio' => 'วางแผนตามเป้าหมาย',
@@ -105,9 +144,12 @@ test('normalizes a trainer profile', function (): void {
         'paymentAccountName' => 'เมย์ ใจดี',
         'promptPayId' => '0899999999',
         'trainingTypeIds' => [1, 3],
+        'birthDate' => null,
+        'education' => '',
     ], ProfileRules::trainer([
         'displayName' => ' ครูเมย์ ',
         'legalName' => ' เมย์ ใจดี ',
+        'nickname' => '  เมย์ ',
         'phone' => '0899999999',
         'paymentAccountName' => ' เมย์ ใจดี ',
         'promptPayId' => '089-999-9999',
@@ -121,6 +163,49 @@ test('normalizes a trainer profile', function (): void {
         'monthlySessionCount' => '4',
         'trainingTypeIds' => [3, 1, 3],
     ]));
+});
+
+test('rejects a nickname longer than 60 characters', function (): void {
+    try {
+        ProfileRules::trainer([
+            'displayName' => 'ครูเมย์', 'legalName' => 'เมย์ ใจดี', 'nickname' => str_repeat('ก', 61),
+            'paymentAccountName' => 'เมย์ ใจดี', 'promptPayId' => '0899999999', 'yearsExperience' => '1',
+            'serviceMode' => 'freelance', 'trainingTypeIds' => [1],
+        ]);
+    } catch (HttpException $error) {
+        assertSameValue(true, isset($error->fields['nickname']));
+        return;
+    }
+    throw new RuntimeException('Long nickname accepted');
+});
+
+test('accepts trainer birth date and education', function (): void {
+    $profile = ProfileRules::trainer([
+        'displayName' => 'ครูเมย์',
+        'legalName' => 'เมย์ ใจดี',
+        'paymentAccountName' => 'เมย์ ใจดี',
+        'promptPayId' => '0899999999',
+        'serviceMode' => 'freelance',
+        'yearsExperience' => 3,
+        'trainingTypeIds' => [1],
+        'birthDate' => '1994-11-30',
+        'education' => ' วิทยาศาสตร์การกีฬา ',
+    ]);
+    assertSameValue('1994-11-30', $profile['birthDate']);
+    assertSameValue('วิทยาศาสตร์การกีฬา', $profile['education']);
+});
+
+test('rejects trainer education longer than 255 characters', function (): void {
+    expectHttp(422, 'VALIDATION_FAILED', fn() => ProfileRules::trainer([
+        'displayName' => 'ครูเมย์',
+        'legalName' => 'เมย์ ใจดี',
+        'paymentAccountName' => 'เมย์ ใจดี',
+        'promptPayId' => '0899999999',
+        'serviceMode' => 'freelance',
+        'yearsExperience' => 3,
+        'trainingTypeIds' => [1],
+        'education' => str_repeat('ก', 256),
+    ]), 'education');
 });
 
 test('requires monthly price and session count together', function (): void {

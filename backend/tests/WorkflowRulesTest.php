@@ -134,8 +134,84 @@ test('second rejected payment expires and releases the slot', function (): void 
     assertSameValue(null, $result['paymentDeadlineAt']);
 });
 
-test('trainer booking decisions are no longer part of workflow rules', function (): void {
-    assertSameValue(false, method_exists(WorkflowRules::class, 'trainerBookingSlotState'));
+test('accepts or rejects only while the trainer decision is pending', function (): void {
+    WorkflowRules::assertTrainerDecision('pending_trainer', 'accept');
+    WorkflowRules::assertTrainerDecision('pending_trainer', 'reject');
+    expectHttp(409, 'INVALID_BOOKING_TRANSITION', fn() => WorkflowRules::assertTrainerDecision('awaiting_payment', 'accept'));
+    expectHttp(409, 'INVALID_BOOKING_TRANSITION', fn() => WorkflowRules::assertTrainerDecision('confirmed', 'reject'));
+    expectHttp(422, 'VALIDATION_FAILED', fn() => WorkflowRules::assertTrainerDecision('pending_trainer', 'maybe'));
+});
+
+function utc(string $value): DateTimeImmutable
+{
+    return new DateTimeImmutable($value, new DateTimeZone('UTC'));
+}
+
+test('releases an acceptance at the next 12:00 or 18:00 Bangkok round', function (): void {
+    // Now 09:30 Bangkok (02:30 UTC) on 20 Aug; the session is 09:00 on 22 Aug.
+    $session = utc('2026-08-22 02:00:00');
+    $noon = WorkflowRules::confirmationRelease('12:00', utc('2026-08-20 02:30:00'), $session);
+    assertSameValue('2026-08-20 05:00:00', $noon->format('Y-m-d H:i:s'));
+    $evening = WorkflowRules::confirmationRelease('18:00', utc('2026-08-20 02:30:00'), $session);
+    assertSameValue('2026-08-20 11:00:00', $evening->format('Y-m-d H:i:s'));
+});
+
+test('rolls a round that already passed today over to tomorrow', function (): void {
+    // Now 13:00 Bangkok (06:00 UTC): today's 12:00 round is gone.
+    $release = WorkflowRules::confirmationRelease('12:00', utc('2026-08-20 06:00:00'), utc('2026-08-22 02:00:00'));
+    assertSameValue('2026-08-21 05:00:00', $release->format('Y-m-d H:i:s'));
+});
+
+test('refuses a round the member could not pay in before the session', function (): void {
+    // Session 12:05 Bangkok today: the 12:00 round leaves only five minutes.
+    expectHttp(
+        422,
+        'CONFIRMATION_ROUND_TOO_LATE',
+        fn() => WorkflowRules::confirmationRelease('12:00', utc('2026-08-20 02:30:00'), utc('2026-08-20 05:05:00'))
+    );
+    // Exactly ten minutes before the session is still allowed.
+    WorkflowRules::confirmationRelease('12:00', utc('2026-08-20 02:30:00'), utc('2026-08-20 05:10:00'));
+});
+
+test('rejects an unknown confirmation round', function (): void {
+    expectHttp(
+        422,
+        'VALIDATION_FAILED',
+        fn() => WorkflowRules::confirmationRelease('09:30', utc('2026-08-20 02:30:00'), utc('2026-08-22 02:00:00'))
+    );
+});
+
+test('trainer cancellation covers every stage before completion', function (): void {
+    foreach (['pending_trainer', 'awaiting_payment', 'payment_review', 'confirmed'] as $status) {
+        WorkflowRules::assertTrainerCancellation($status);
+    }
+});
+
+test('trainer cancellation refuses closed bookings', function (): void {
+    foreach (['completed', 'cancelled', 'expired'] as $status) {
+        expectHttp(409, 'BOOKING_CANCELLATION_NOT_ALLOWED', fn() => WorkflowRules::assertTrainerCancellation($status));
+    }
+});
+
+test('a member may withdraw a request that still waits for the trainer', function (): void {
+    WorkflowRules::assertMemberCancellation('pending_trainer', 'not_submitted');
+    expectHttp(
+        409,
+        'MEMBER_CANCELLATION_NOT_ALLOWED',
+        fn() => WorkflowRules::assertMemberCancellation('confirmed', 'approved')
+    );
+});
+
+test('a free future slot can be moved', function (): void {
+    $now = new DateTimeImmutable('2026-08-01T00:00:00.000Z');
+    WorkflowRules::assertSlotEditable('available', $now->modify('+1 day'), $now);
+});
+
+test('a held, booked or started slot cannot be moved', function (): void {
+    $now = new DateTimeImmutable('2026-08-01T00:00:00.000Z');
+    expectHttp(409, 'SLOT_NOT_EDITABLE', fn() => WorkflowRules::assertSlotEditable('held', $now->modify('+1 day'), $now));
+    expectHttp(409, 'SLOT_NOT_EDITABLE', fn() => WorkflowRules::assertSlotEditable('booked', $now->modify('+1 day'), $now));
+    expectHttp(409, 'SLOT_NOT_EDITABLE', fn() => WorkflowRules::assertSlotEditable('available', $now->modify('-1 hour'), $now));
 });
 
 test('normalizes a positive money value', function (): void {

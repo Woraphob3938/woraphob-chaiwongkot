@@ -2,12 +2,16 @@
 
 import { type KeyboardEvent, useCallback, useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
-import { CircleAlert, LoaderCircle, RefreshCw } from "lucide-react";
+import { CircleAlert, LoaderCircle, RefreshCw, Trash2 } from "lucide-react";
 import { ProfileIdentity } from "@/components/profile-identity";
 import { MemberProfileForm } from "@/components/member-profile-form";
 import { TrainerPaymentQrManager } from "@/components/trainer-payment-qr-manager";
+import { TrainerPhotosManager } from "@/components/trainer-photos-manager";
+import { TrainerBankAccountsManager } from "@/components/trainer-bank-accounts-manager";
+import { TrainerApplyForm } from "@/components/trainer-apply-form";
 import { TrainerProfileSummary } from "@/components/trainer-profile-summary";
 import { PasswordForm } from "@/components/password-form";
+import { Input } from "@/components/ui/input";
 import {
   Dialog,
   DialogClose,
@@ -18,6 +22,7 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog";
 import { authenticatedRequest } from "@/lib/api";
+import { clearStoredSession, profileImageStorageKey, readStoredUser } from "@/lib/session";
 import type { AccountProfile } from "@/lib/types";
 
 type ProfileState =
@@ -25,21 +30,29 @@ type ProfileState =
   | { status: "error"; message: string }
   | { status: "ready"; profile: AccountProfile };
 
-type ProfileTab = "personal" | "security";
+type ProfileTab = "personal" | "security" | "delete";
 
 const tabs: { id: ProfileTab; label: string }[] = [
   { id: "personal", label: "ข้อมูลส่วนตัว" },
   { id: "security", label: "รหัสผ่าน" },
+  { id: "delete", label: "ลบบัญชี" },
 ];
 
 export function ProfileWorkbench() {
   const router = useRouter();
   const [state, setState] = useState<ProfileState>({ status: "loading" });
   const [activeTab, setActiveTab] = useState<ProfileTab>("personal");
+  const [trainerEditing, setTrainerEditing] = useState(false);
   const [personalDirty, setPersonalDirty] = useState(false);
   const [securityDirty, setSecurityDirty] = useState(false);
   const [pendingTab, setPendingTab] = useState<ProfileTab | null>(null);
   const [pendingNavigation, setPendingNavigation] = useState<string | null>(null);
+  const [deleteDialogOpen, setDeleteDialogOpen] = useState(false);
+  const [deletePassword, setDeletePassword] = useState("");
+  const [deleteConfirmation, setDeleteConfirmation] = useState("");
+  const [deletePending, setDeletePending] = useState(false);
+  const [deleteError, setDeleteError] = useState("");
+  const [accountDeleted, setAccountDeleted] = useState(false);
 
   const loadProfile = useCallback(async () => {
     try {
@@ -103,7 +116,7 @@ export function ProfileWorkbench() {
 
   function requestTab(next: ProfileTab) {
     if (next === activeTab) return;
-    const leavingDirty = activeTab === "personal" ? personalDirty : securityDirty;
+    const leavingDirty = activeTab === "personal" ? personalDirty : activeTab === "security" ? securityDirty : false;
     if (leavingDirty) {
       setPendingTab(next);
       return;
@@ -127,9 +140,50 @@ export function ProfileWorkbench() {
     }
     if (event.key === "End") {
       event.preventDefault();
-      requestTab("security");
-      document.getElementById("profile-security-tab")?.focus();
+      requestTab("delete");
+      document.getElementById("profile-delete-tab")?.focus();
     }
+  }
+
+  async function deleteAccount() {
+    if (state.status !== "ready" || deletePending) return;
+    setDeletePending(true);
+    setDeleteError("");
+    try {
+      await authenticatedRequest<{ deleted: boolean }>("/v1/profile", {
+        method: "DELETE",
+        body: JSON.stringify({ currentPassword: deletePassword, confirmation: deleteConfirmation }),
+      });
+      setDeletePassword("");
+      setDeleteConfirmation("");
+      try {
+        const currentUser = readStoredUser();
+        clearStoredSession();
+        if (currentUser) localStorage.removeItem(profileImageStorageKey(currentUser.id));
+        document.documentElement.dataset.fitconnectSession = "guest";
+      } catch {
+        // The server has revoked the session even if this browser blocks storage access.
+      }
+      window.dispatchEvent(new CustomEvent("fitconnect:auth", { detail: null }));
+      setDeleteDialogOpen(false);
+      setAccountDeleted(true);
+    } catch (error) {
+      setDeleteError(error instanceof Error ? error.message : "ลบบัญชีไม่สำเร็จ กรุณาลองใหม่");
+    } finally {
+      setDeletePending(false);
+    }
+  }
+
+  if (accountDeleted) {
+    return (
+      <main className="page-shell account-profile">
+        <section className="profile-section profile-delete-complete" role="status">
+          <h1>ลบบัญชีเรียบร้อยแล้ว</h1>
+          <p>คุณออกจากระบบแล้ว ประวัติการจองและการชำระเงินที่จำเป็นยังคงอยู่ในระบบ</p>
+          <button className="button button--accent" type="button" onClick={() => router.push("/")}>กลับหน้าแรก</button>
+        </section>
+      </main>
+    );
   }
 
   if (state.status === "loading") {
@@ -170,6 +224,16 @@ export function ProfileWorkbench() {
     }));
   }
 
+  async function refreshProfileAfterTrainerSave() {
+    try {
+      updateProfile(await authenticatedRequest<AccountProfile>("/v1/profile"));
+      setTrainerEditing(false);
+      setPersonalDirty(false);
+    } catch {
+      // The application was saved; keep its success state and editor visible if refresh fails.
+    }
+  }
+
   return (
     <main className="page-shell account-profile">
       <ProfileIdentity profile={state.profile} onProfileChange={updateProfile} />
@@ -200,8 +264,29 @@ export function ProfileWorkbench() {
           ? <MemberProfileForm profile={state.profile} onSaved={updateProfile} onDirtyChange={setPersonalDirty} />
           : (
             <>
-              <TrainerProfileSummary profile={state.profile} />
-              <TrainerPaymentQrManager profile={state.profile} onSaved={updateProfile} />
+              {trainerEditing
+                ? (
+                  <TrainerApplyForm
+                    embedded
+                    onDirtyChange={setPersonalDirty}
+                    onSaved={refreshProfileAfterTrainerSave}
+                    onCancel={() => { setTrainerEditing(false); setPersonalDirty(false); }}
+                  />
+                )
+                : <TrainerProfileSummary profile={state.profile} onEdit={() => setTrainerEditing(true)} />}
+              <TrainerPhotosManager />
+              <section className="profile-section profile-payment-settings" aria-labelledby="payment-settings-title">
+                <div className="profile-section__heading">
+                  <h2 id="payment-settings-title">การรับเงิน</h2>
+                  <p>{state.profile.trainer.serviceMode === "gym"
+                    ? "ตั้งบัญชีธนาคารหรือ QR ที่รับเงินของยิม สมาชิกจะเห็นช่องทางเริ่มต้นเมื่อระบบแจ้งยืนยันการจอง แล้วโอนภายใน 10 นาที"
+                    : "สมาชิกเห็นช่องทางเหล่านี้เมื่อระบบแจ้งยืนยันการจองในรอบ 12:00 หรือ 18:00 น. แล้วโอนเงินภายใน 10 นาที"}</p>
+                </div>
+                <div className="profile-payment-settings__grid">
+                  <TrainerBankAccountsManager />
+                  <TrainerPaymentQrManager profile={state.profile} onSaved={updateProfile} />
+                </div>
+              </section>
             </>
           )}
       </div>
@@ -213,6 +298,72 @@ export function ProfileWorkbench() {
       >
         <PasswordForm onDirtyChange={setSecurityDirty} />
       </div>
+      <div
+        id="profile-delete-panel"
+        role="tabpanel"
+        aria-labelledby="profile-delete-tab"
+        hidden={activeTab !== "delete"}
+      >
+        <section className="profile-section profile-delete-account" aria-labelledby="delete-account-title">
+          <div className="profile-section__heading">
+            <h2 id="delete-account-title">ลบบัญชี</h2>
+            <p>ปิดการเข้าใช้งานบัญชีนี้อย่างถาวร</p>
+          </div>
+          <div className="profile-delete-account__notice">
+            <CircleAlert aria-hidden="true" size={20} />
+            <div>
+              <strong>ก่อนยืนยัน โปรดทราบว่า</strong>
+              <p>คุณจะเข้าสู่ระบบบัญชีนี้ไม่ได้อีก ประวัติการจองและการชำระเงินที่จำเป็นยังคงอยู่เพื่อความถูกต้องของระบบ</p>
+            </div>
+          </div>
+          <div>
+            <button className="button button--danger" type="button" onClick={() => { setDeleteError(""); setDeleteDialogOpen(true); }}>
+              <Trash2 aria-hidden="true" size={17} /> ลบบัญชีของฉัน
+            </button>
+          </div>
+        </section>
+      </div>
+      <Dialog open={deleteDialogOpen} onOpenChange={(open) => {
+        if (!deletePending) {
+          setDeleteDialogOpen(open);
+          if (!open) {
+            setDeletePassword("");
+            setDeleteConfirmation("");
+            setDeleteError("");
+          }
+        }
+      }}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>ยืนยันการลบบัญชี</DialogTitle>
+            <DialogDescription>การลบบัญชีจะออกจากระบบทุกอุปกรณ์ และไม่สามารถกู้คืนจากหน้านี้ได้</DialogDescription>
+          </DialogHeader>
+          <div className="profile-delete-confirm-fields">
+            <div className="field">
+              <label htmlFor="delete-account-password">รหัสผ่านปัจจุบัน</label>
+              <Input id="delete-account-password" type="password" autoComplete="current-password" value={deletePassword} onChange={(event) => setDeletePassword(event.target.value)} />
+            </div>
+            <div className="field">
+              <label htmlFor="delete-account-confirmation">พิมพ์ “ลบบัญชี” เพื่อยืนยัน</label>
+              <Input id="delete-account-confirmation" autoComplete="off" value={deleteConfirmation} onChange={(event) => setDeleteConfirmation(event.target.value)} />
+            </div>
+            {deleteError && <p className="profile-field-error" role="alert">{deleteError}</p>}
+          </div>
+          <DialogFooter>
+            <DialogClose asChild>
+              <button className="button" type="button" disabled={deletePending}>ยกเลิก</button>
+            </DialogClose>
+            <button
+              className="button button--danger"
+              type="button"
+              disabled={deletePending || !deletePassword || deleteConfirmation !== "ลบบัญชี"}
+              onClick={() => void deleteAccount()}
+            >
+              {deletePending ? <><LoaderCircle className="spin" aria-hidden="true" size={17} /> กำลังลบบัญชี</> : <><Trash2 aria-hidden="true" size={17} /> ยืนยันลบบัญชี</>}
+            </button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
       <Dialog open={pendingTab !== null} onOpenChange={(open) => { if (!open) setPendingTab(null); }}>
         <DialogContent>
           <DialogHeader>

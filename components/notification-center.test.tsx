@@ -2,6 +2,7 @@ import { fireEvent, render, screen, waitFor, within } from "@testing-library/rea
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { ApiError, authenticatedRequest } from "@/lib/api";
 import { NotificationCenter } from "@/components/notification-center";
+import { bookingStatusCopy, paymentStatusCopy } from "@/lib/payment-copy";
 import type { NotificationDetail, NotificationItem, NotificationListResponse } from "@/lib/types";
 
 vi.mock("@/lib/api", async (importOriginal) => {
@@ -11,15 +12,17 @@ vi.mock("@/lib/api", async (importOriginal) => {
 
 const mockedRequest = vi.mocked(authenticatedRequest);
 
+// The canonical words, not a second copy of them: the detail panel has to read
+// exactly like the booking ledger beside it.
 const bookingStatusLabel = {
-  awaiting_payment: "รอชำระเงิน",
-  confirmed: "ยืนยันการชำระแล้ว",
-  completed: "ฝึกเสร็จแล้ว",
+  awaiting_payment: bookingStatusCopy.awaiting_payment,
+  confirmed: bookingStatusCopy.confirmed,
+  completed: bookingStatusCopy.completed,
 } as const;
 
 const paymentStatusLabel = {
-  not_submitted: "ยังไม่ส่งหลักฐาน",
-  approved: "อนุมัติแล้ว",
+  not_submitted: paymentStatusCopy.not_submitted,
+  approved: paymentStatusCopy.approved,
 } as const;
 
 function item(id: number, overrides: Partial<NotificationItem> = {}): NotificationItem {
@@ -337,8 +340,10 @@ describe("NotificationCenter", () => {
     fireEvent.click(await screen.findByRole("button", { name: /ยืนยันการจอง 1/ }));
 
     expect(await screen.findByRole("link", { name: actionLabel })).toHaveAttribute("href", actionPath);
-    expect(screen.getByText(bookingStatusLabel[status])).toHaveClass("status-badge");
-    expect(screen.getByText(paymentStatusLabel[paymentState])).toHaveClass("status-badge");
+    // The status history repeats the same words as the badge, so the assertion is
+    // scoped to the badge itself.
+    expect(screen.getAllByText(bookingStatusLabel[status]).filter((node) => node.classList.contains("status-badge"))).toHaveLength(1);
+    expect(screen.getAllByText(paymentStatusLabel[paymentState]).filter((node) => node.classList.contains("status-badge"))).toHaveLength(1);
   });
 
   it("retries a failed detail request in place", async () => {

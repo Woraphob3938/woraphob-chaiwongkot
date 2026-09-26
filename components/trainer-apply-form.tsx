@@ -3,9 +3,8 @@
 import { ChangeEvent, FormEvent, MouseEvent, useCallback, useEffect, useRef, useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { CircleAlert, FileUp, LoaderCircle, RotateCcw, Save } from "lucide-react";
+import { BadgeCheck, CircleAlert, Dumbbell, Eye, EyeOff, FileUp, LoaderCircle, LockKeyhole, RotateCcw, Save, ShieldCheck, Store } from "lucide-react";
 import { Input } from "@/components/ui/input";
-import { NativeSelect, NativeSelectOption } from "@/components/ui/native-select";
 import { Textarea } from "@/components/ui/textarea";
 import {
   Dialog,
@@ -17,14 +16,18 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog";
 import { StatusBadge } from "@/components/status-badge";
+import { validateBirthDate } from "@/components/member-profile-form";
 import { ApiError, authenticatedRequest } from "@/lib/api";
 import { fieldDescribedBy, focusFirstInvalid } from "@/lib/profile-form";
 import type { TrainerAccountProfile, TrainingType } from "@/lib/types";
 
 const emptyForm = {
   displayName: "",
+  nickname: "",
   legalName: "",
   phone: "",
+  birthDate: "",
+  education: "",
   headline: "",
   bio: "",
   yearsExperience: "0",
@@ -37,11 +40,23 @@ const emptyForm = {
 };
 
 type FormValues = typeof emptyForm;
+type TrainerApplyFormProps = {
+  embedded?: boolean;
+  onDirtyChange?: (dirty: boolean) => void;
+  onSaved?: () => void;
+  onCancel?: () => void;
+};
+
+/** `birthDate`/`education` land in `lib/types.ts` with the backend change. */
+type TrainerRecord = TrainerAccountProfile["trainer"] & { birthDate?: string | null; education?: string | null };
 
 const fieldIdByKey: Record<string, string> = {
   displayName: "apply-display-name",
+  nickname: "apply-nickname",
   legalName: "apply-legal-name",
   phone: "apply-phone",
+  birthDate: "apply-birth-date",
+  education: "apply-education",
   headline: "apply-headline",
   bio: "apply-bio",
   yearsExperience: "apply-years",
@@ -56,13 +71,17 @@ const fieldIdByKey: Record<string, string> = {
 };
 
 function fromProfile(profile: TrainerAccountProfile): FormValues {
+  const record = profile.trainer as TrainerRecord;
   return {
     displayName: profile.user.displayName,
-    legalName: profile.trainer.legalName,
-    phone: profile.trainer.phone,
-    headline: profile.trainer.headline,
-    bio: profile.trainer.bio,
-    yearsExperience: profile.trainer.yearsExperience.toString(),
+    nickname: record.nickname ?? "",
+    legalName: record.legalName,
+    phone: record.phone,
+    birthDate: record.birthDate ?? "",
+    education: record.education ?? "",
+    headline: record.headline,
+    bio: record.bio,
+    yearsExperience: record.yearsExperience.toString(),
     serviceMode: profile.trainer.serviceMode,
     priceFrom: profile.trainer.priceFrom?.toString() ?? "",
     monthlyPrice: profile.trainer.monthlyPrice?.toString() ?? "",
@@ -80,7 +99,7 @@ function fromProfile(profile: TrainerAccountProfile): FormValues {
  * returns the record to the review queue, so an edit to a live storefront is
  * re-checked before it goes back on display.
  */
-export function TrainerApplyForm() {
+export function TrainerApplyForm({ embedded = false, onDirtyChange, onSaved, onCancel }: TrainerApplyFormProps) {
   const [values, setValues] = useState<FormValues>(emptyForm);
   const [selectedTypes, setSelectedTypes] = useState<number[]>([]);
   const [trainingTypes, setTrainingTypes] = useState<TrainingType[]>([]);
@@ -183,6 +202,10 @@ export function TrainerApplyForm() {
     || selectedTypes.join(",") !== savedTypes.join(",")
     || (Object.keys(emptyForm) as Array<keyof FormValues>).some((key) => values[key] !== saved[key]);
 
+  useEffect(() => {
+    onDirtyChange?.(hasUnsavedChanges);
+  }, [hasUnsavedChanges, onDirtyChange]);
+
   /**
    * Put the record back to the values the server already holds, so a trainer who
    * changed their mind starts from the stored truth instead of retyping it.
@@ -204,6 +227,14 @@ export function TrainerApplyForm() {
     setLeavingWithChanges(true);
   }
 
+  function cancelEditing() {
+    if (hasUnsavedChanges) {
+      setLeavingWithChanges(true);
+      return;
+    }
+    onCancel?.();
+  }
+
   async function submit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     if (pending) return;
@@ -211,6 +242,9 @@ export function TrainerApplyForm() {
     const nextFields: Record<string, string> = {};
     if (!values.displayName.trim()) nextFields.displayName = "กรุณากรอกชื่อที่แสดง";
     if (!values.legalName.trim()) nextFields.legalName = "กรุณากรอกชื่อจริง";
+    const birthDateError = validateBirthDate(values.birthDate);
+    if (birthDateError) nextFields.birthDate = birthDateError;
+    if (values.education.length > 255) nextFields.education = "ข้อมูลการศึกษาต้องไม่เกิน 255 ตัวอักษร";
     if (!values.headline.trim()) nextFields.headline = "กรอกประโยคแนะนำตัวบนหน้าร้าน";
     if (!values.bio.trim()) nextFields.bio = "เขียนเกี่ยวกับฉันสั้น ๆ";
     if (!typeError && selectedTypes.length === 0) nextFields.trainingTypeIds = "เลือกประเภทการฝึกอย่างน้อยหนึ่งรายการ";
@@ -249,8 +283,11 @@ export function TrainerApplyForm() {
     setFields({});
     const body = new FormData();
     body.set("displayName", values.displayName.trim());
+    body.set("nickname", values.nickname.trim());
     body.set("legalName", values.legalName.trim());
     body.set("phone", values.phone.trim());
+    body.set("birthDate", values.birthDate);
+    body.set("education", values.education.trim());
     body.set("headline", values.headline.trim());
     body.set("bio", values.bio.trim());
     body.set("yearsExperience", values.yearsExperience);
@@ -262,15 +299,24 @@ export function TrainerApplyForm() {
     body.set("promptPayId", values.promptPayId.replace(/\D/g, ""));
     for (const typeId of selectedTypes) body.append("trainingTypeIds[]", String(typeId));
     if (certificate) body.set("certificate", certificate);
+    const submittedValues = { ...values };
+    const submittedTypes = [...selectedTypes];
+    const submittedCertificate = certificate;
 
     try {
       await authenticatedRequest("/v1/trainer-applications", { method: "POST", body });
+      setSaved(submittedValues);
+      setSavedTypes(submittedTypes);
       setCertificate(null);
       if (certificateInputRef.current) certificateInputRef.current.value = "";
+      if (submittedCertificate) setCertificateName(submittedCertificate.name);
+      setCertificateStatus("pending");
       setMessage({
         tone: "success",
         text: "ส่งใบสมัครแล้ว โปรไฟล์จะกลับมาแสดงเมื่อผู้ดูแลระบบตรวจและยืนยันอีกครั้ง",
       });
+      onDirtyChange?.(false);
+      onSaved?.();
     } catch (submitError) {
       if (submitError instanceof ApiError) {
         setFields(submitError.fields);
@@ -285,17 +331,27 @@ export function TrainerApplyForm() {
   const needsCertificate = !hasStoredCertificate;
 
   return (
-    <form className="trainer-apply-form" onSubmit={submit} noValidate aria-busy={pending || !profileReady}>
-      <div className="profile-group">
-        <div className="profile-group__heading">
-          <h2>ข้อมูลหน้าร้าน</h2>
-          <span>สมาชิกมองเห็น</span>
+    <form className={`trainer-apply-form${embedded ? " trainer-apply-form--embedded" : ""}`} onSubmit={submit} noValidate aria-busy={pending || !profileReady}>
+      <div className="profile-group trainer-form-card">
+        <div className="profile-group__heading trainer-form-card__heading">
+          <span className="trainer-form-card__icon" aria-hidden="true"><Store size={20} /></span>
+          <div>
+            <h2>ข้อมูลหน้าร้าน</h2>
+            <p>ชื่อและคำแนะนำตัวที่สมาชิกเห็นบนการ์ดและหน้าโปรไฟล์</p>
+          </div>
+          <span className="trainer-form-card__pill"><Eye aria-hidden="true" size={14} /> สมาชิกมองเห็น</span>
         </div>
         <div className="profile-form-grid">
           <div className="field">
             <label htmlFor="apply-display-name">ชื่อที่แสดง</label>
             <Input id="apply-display-name" value={values.displayName} aria-required="true" aria-invalid={Boolean(fields.displayName)} aria-describedby={fieldDescribedBy("apply-display-name", fields.displayName)} onChange={(event) => change("displayName", event.target.value)} />
             {fields.displayName && <small className="profile-field-error" id="apply-display-name-error">{fields.displayName}</small>}
+          </div>
+          <div className="field">
+            <label htmlFor="apply-nickname">ชื่อเล่น</label>
+            <Input id="apply-nickname" value={values.nickname} maxLength={60} aria-invalid={Boolean(fields.nickname)} aria-describedby={fieldDescribedBy("apply-nickname", fields.nickname) ?? "apply-nickname-hint"} onChange={(event) => change("nickname", event.target.value)} />
+            <small id="apply-nickname-hint">ไม่บังคับ สมาชิกค้นหาด้วยชื่อเล่นได้</small>
+            {fields.nickname && <small className="profile-field-error" id="apply-nickname-error">{fields.nickname}</small>}
           </div>
           <div className="field">
             <label htmlFor="apply-headline">ประโยคแนะนำตัวบนหน้าร้าน</label>
@@ -311,10 +367,14 @@ export function TrainerApplyForm() {
         </div>
       </div>
 
-      <div className="profile-group">
-        <div className="profile-group__heading">
-          <h2>การให้บริการและราคา</h2>
-          <span>สมาชิกมองเห็น</span>
+      <div className="profile-group trainer-form-card">
+        <div className="profile-group__heading trainer-form-card__heading">
+          <span className="trainer-form-card__icon" aria-hidden="true"><Dumbbell size={20} /></span>
+          <div>
+            <h2>การให้บริการและราคา</h2>
+            <p>รูปแบบงาน ประเภทการฝึก และค่าฝึกที่ใช้ตอนสมาชิกจอง</p>
+          </div>
+          <span className="trainer-form-card__pill"><Eye aria-hidden="true" size={14} /> สมาชิกมองเห็น</span>
         </div>
         <div className="profile-form-grid">
           <div className="field">
@@ -322,26 +382,36 @@ export function TrainerApplyForm() {
             <Input id="apply-years" type="number" min="0" step="1" inputMode="numeric" value={values.yearsExperience} aria-invalid={Boolean(fields.yearsExperience)} aria-describedby={fieldDescribedBy("apply-years", fields.yearsExperience)} onChange={(event) => change("yearsExperience", event.target.value)} />
             {fields.yearsExperience && <small className="profile-field-error" id="apply-years-error">{fields.yearsExperience}</small>}
           </div>
-          <div className="field">
-            <label htmlFor="apply-service">รูปแบบการให้บริการ</label>
-            <NativeSelect className="profile-select" id="apply-service" value={values.serviceMode} onChange={(event) => change("serviceMode", event.target.value)}>
-              <NativeSelectOption value="freelance">ฟรีแลนซ์</NativeSelectOption>
-              <NativeSelectOption value="gym">ประจำฟิตเนส</NativeSelectOption>
-            </NativeSelect>
-            <small>ฟรีแลนซ์เป็นผู้ตรวจสลิปเอง ส่วนแบบประจำฟิตเนสให้ผู้ดูแลระบบตรวจ</small>
-          </div>
+          <fieldset className="field trainer-service-mode" id="apply-service">
+            <legend>รูปแบบการให้บริการ</legend>
+            <div className="trainer-service-mode__options">
+              {([
+                ["freelance", "ฟรีแลนซ์", "รับเงินจากสมาชิกโดยตรง"],
+                ["gym", "ประจำฟิตเนส", "รายได้เข้ายิม รวมเป็นเงินเดือน"],
+              ] as const).map(([value, label, hint]) => (
+                <label key={value} className={values.serviceMode === value ? "is-selected" : undefined}>
+                  <input type="radio" name="apply-service-mode" value={value} checked={values.serviceMode === value} onChange={() => change("serviceMode", value)} />
+                  <span><strong>{label}</strong><small>{hint}</small></span>
+                </label>
+              ))}
+            </div>
+            {values.serviceMode !== "freelance" && values.serviceMode !== "gym" && (
+              <small className="profile-field-error">ข้อมูลเดิมตั้งไว้ทั้งสองรูปแบบ กรุณาเลือกหนึ่งรูปแบบก่อนบันทึก</small>
+            )}
+            <small>ทั้งสองแบบ เทรนเนอร์เป็นผู้ยืนยันสลิปของสมาชิกเอง</small>
+          </fieldset>
           <fieldset
             className="field field--full profile-training-types"
             id="apply-training-types"
             aria-describedby={fields.trainingTypeIds ? "apply-training-types-error" : typeError ? "apply-training-types-load-error" : undefined}
           >
-            <legend>ประเภทการฝึก</legend>
+            <legend>ประเภทการฝึก <small>เลือกได้หลายแบบ</small></legend>
             {typesPending && <p role="status">กำลังโหลดประเภทการฝึก</p>}
-            {!typesPending && trainingTypes.map((type) => (
-              <label key={type.id}>
+            {!typesPending && <div className="trainer-type-chips">{trainingTypes.map((type) => (
+              <label key={type.id} className={`trainer-type-chip${selectedTypes.includes(type.id) ? " is-selected" : ""}`}>
                 <input type="checkbox" checked={selectedTypes.includes(type.id)} onChange={() => toggleType(type.id)} /> {type.nameTh}
               </label>
-            ))}
+            ))}</div>}
             {typeError && (
               <div className="profile-inline-error">
                 <small className="profile-field-error" id="apply-training-types-load-error" role="alert">{typeError}</small>
@@ -351,15 +421,15 @@ export function TrainerApplyForm() {
             {fields.trainingTypeIds && <small className="profile-field-error" id="apply-training-types-error">{fields.trainingTypeIds}</small>}
           </fieldset>
         </div>
-        <div className="profile-form-grid profile-form-grid--numbers">
+        <div className="profile-form-grid profile-form-grid--numbers trainer-price-grid">
           <div className="field">
             <label htmlFor="apply-price">ค่าฝึกเริ่มต้น (บาท)</label>
-            <Input id="apply-price" type="number" min="0" step="0.01" inputMode="decimal" value={values.priceFrom} aria-required="true" aria-invalid={Boolean(fields.priceFrom)} aria-describedby={fieldDescribedBy("apply-price", fields.priceFrom)} onChange={(event) => change("priceFrom", event.target.value)} />
+            <div className="trainer-money-input"><span aria-hidden="true">฿</span><Input id="apply-price" type="number" min="0" step="0.01" inputMode="decimal" value={values.priceFrom} aria-required="true" aria-invalid={Boolean(fields.priceFrom)} aria-describedby={fieldDescribedBy("apply-price", fields.priceFrom)} onChange={(event) => change("priceFrom", event.target.value)} /></div>
             {fields.priceFrom && <small className="profile-field-error" id="apply-price-error">{fields.priceFrom}</small>}
           </div>
           <div className="field">
-            <label htmlFor="apply-monthly-price">ราคาแพ็กเกจ 30 วัน (ไม่บังคับ)</label>
-            <Input id="apply-monthly-price" type="number" min="0" step="0.01" inputMode="decimal" value={values.monthlyPrice} aria-invalid={Boolean(fields.monthlyPrice)} aria-describedby={fieldDescribedBy("apply-monthly-price", fields.monthlyPrice)} onChange={(event) => change("monthlyPrice", event.target.value)} />
+            <label htmlFor="apply-monthly-price">ราคาแพ็กเกจ 30 วัน <span className="field-optional">ไม่บังคับ</span></label>
+            <div className="trainer-money-input"><span aria-hidden="true">฿</span><Input id="apply-monthly-price" type="number" min="0" step="0.01" inputMode="decimal" value={values.monthlyPrice} aria-invalid={Boolean(fields.monthlyPrice)} aria-describedby={fieldDescribedBy("apply-monthly-price", fields.monthlyPrice)} onChange={(event) => change("monthlyPrice", event.target.value)} /></div>
             {fields.monthlyPrice && <small className="profile-field-error" id="apply-monthly-price-error">{fields.monthlyPrice}</small>}
           </div>
           <div className="field">
@@ -371,10 +441,14 @@ export function TrainerApplyForm() {
         </div>
       </div>
 
-      <div className="profile-group">
-        <div className="profile-group__heading">
-          <h2>ข้อมูลเฉพาะบัญชีและการรับเงิน</h2>
-          <span>ไม่แสดงบนหน้าร้าน</span>
+      <div className="profile-group trainer-form-card">
+        <div className="profile-group__heading trainer-form-card__heading">
+          <span className="trainer-form-card__icon" aria-hidden="true"><LockKeyhole size={20} /></span>
+          <div>
+            <h2>ข้อมูลเฉพาะบัญชีและการรับเงิน</h2>
+            <p>ใช้ยืนยันตัวตนและสร้าง QR พร้อมเพย์หลังคุณยืนยันเวลา</p>
+          </div>
+          <span className="trainer-form-card__pill"><EyeOff aria-hidden="true" size={14} /> ไม่แสดงบนหน้าร้าน</span>
         </div>
         <div className="profile-form-grid">
           <div className="field">
@@ -386,6 +460,18 @@ export function TrainerApplyForm() {
             <label htmlFor="apply-phone">เบอร์โทรศัพท์</label>
             <Input id="apply-phone" type="tel" inputMode="tel" value={values.phone} aria-invalid={Boolean(fields.phone)} aria-describedby={fieldDescribedBy("apply-phone", fields.phone)} onChange={(event) => change("phone", event.target.value)} />
             {fields.phone && <small className="profile-field-error" id="apply-phone-error">{fields.phone}</small>}
+          </div>
+          <div className="field">
+            <label htmlFor="apply-birth-date">วันเกิด</label>
+            <Input id="apply-birth-date" type="date" value={values.birthDate} aria-invalid={Boolean(fields.birthDate)} aria-describedby={fieldDescribedBy("apply-birth-date", fields.birthDate) ?? "apply-birth-date-hint"} onChange={(event) => change("birthDate", event.target.value)} />
+            <small id="apply-birth-date-hint">ไม่บังคับ</small>
+            {fields.birthDate && <small className="profile-field-error" id="apply-birth-date-error">{fields.birthDate}</small>}
+          </div>
+          <div className="field field--full">
+            <label htmlFor="apply-education">ข้อมูลการศึกษา</label>
+            <Input id="apply-education" maxLength={255} value={values.education} placeholder="เช่น ปริญญาตรี วิทยาศาสตร์การกีฬา" aria-invalid={Boolean(fields.education)} aria-describedby={fieldDescribedBy("apply-education", fields.education) ?? "apply-education-hint"} onChange={(event) => change("education", event.target.value)} />
+            <small id="apply-education-hint">ไม่บังคับ ไม่เกิน 255 ตัวอักษร</small>
+            {fields.education && <small className="profile-field-error" id="apply-education-error">{fields.education}</small>}
           </div>
           <div className="field">
             <label htmlFor="apply-payment-account">ชื่อบัญชีรับเงิน</label>
@@ -401,10 +487,14 @@ export function TrainerApplyForm() {
         </div>
       </div>
 
-      <div className="profile-group">
-        <div className="profile-group__heading">
-          <h2>ใบรับรอง</h2>
-          <span>ผู้ดูแลระบบตรวจ</span>
+      <div className="profile-group trainer-form-card">
+        <div className="profile-group__heading trainer-form-card__heading">
+          <span className="trainer-form-card__icon" aria-hidden="true"><BadgeCheck size={20} /></span>
+          <div>
+            <h2>ใบรับรอง</h2>
+            <p>ผู้ดูแลระบบตรวจก่อนเปิดโปรไฟล์ให้สมาชิกจอง</p>
+          </div>
+          <span className="trainer-form-card__pill"><ShieldCheck aria-hidden="true" size={14} /> ผู้ดูแลระบบตรวจ</span>
         </div>
         {hasStoredCertificate ? (
           <div className="trainer-apply-certificate">
@@ -419,7 +509,7 @@ export function TrainerApplyForm() {
         ) : (
           <p className="profile-group__hint">แนบไฟล์ PDF ใบรับรองเพื่อให้ผู้ดูแลระบบตรวจ ก่อนเปิดโปรไฟล์และตารางว่างให้สมาชิกจอง</p>
         )}
-        <div className="field field--full">
+        <div className="field field--full trainer-certificate-drop">
           <label htmlFor="apply-certificate"><FileUp aria-hidden="true" size={18} /> {hasStoredCertificate ? "เปลี่ยนไฟล์ใบรับรอง (PDF ไม่เกิน 8 MB)" : "ไฟล์ใบรับรอง (PDF ไม่เกิน 8 MB)"}</label>
           <input
             ref={certificateInputRef}
@@ -450,14 +540,20 @@ export function TrainerApplyForm() {
         </div>
 
         <div className="trainer-apply-actions">
-          <Link className="button" href="/profile" onClick={goBack}>ย้อนกลับ</Link>
-          <button className="button" type="button" onClick={restoreSavedRecord} disabled={!hasUnsavedChanges}>
+          <span className={`trainer-apply-actions__status${hasUnsavedChanges ? " is-dirty" : ""}`}>
+            <span aria-hidden="true" className="trainer-apply-actions__dot" />
+            {hasUnsavedChanges ? "มีการแก้ไขที่ยังไม่บันทึก" : "ข้อมูลตรงกับที่บันทึกไว้"}
+          </span>
+          {embedded
+            ? <button className="button button--ghost" type="button" onClick={cancelEditing}>ยกเลิก</button>
+            : <Link className="button" href="/profile" onClick={goBack}>ย้อนกลับ</Link>}
+          <button className="button button--ghost" type="button" onClick={restoreSavedRecord} disabled={!hasUnsavedChanges}>
             <RotateCcw aria-hidden="true" size={18} /> คืนค่า
           </button>
           <button className="button button--accent" type="submit" disabled={pending || !profileReady}>
             {pending
-              ? <><LoaderCircle className="spin" aria-hidden="true" size={18} /> กำลังส่งใบสมัคร</>
-              : <><Save aria-hidden="true" size={18} /> ส่งใบสมัครให้ผู้ดูแลระบบตรวจ</>}
+              ? <><LoaderCircle className="spin" aria-hidden="true" size={18} /> กำลังส่งให้ตรวจ</>
+              : <><Save aria-hidden="true" size={18} /> {embedded ? "บันทึกและส่งตรวจ" : "ส่งใบสมัครให้ผู้ดูแลระบบตรวจ"}</>}
           </button>
         </div>
       </div>
@@ -465,7 +561,7 @@ export function TrainerApplyForm() {
       <Dialog open={leavingWithChanges} onOpenChange={(open) => { if (!open) setLeavingWithChanges(false); }}>
         <DialogContent>
           <DialogHeader>
-            <DialogTitle>ย้อนกลับโดยที่ยังไม่ได้ส่งใบสมัคร?</DialogTitle>
+            <DialogTitle>{embedded ? "ยกเลิกการแก้ไขโดยไม่บันทึก?" : "ย้อนกลับโดยที่ยังไม่ได้ส่งใบสมัคร?"}</DialogTitle>
             <DialogDescription>ข้อความที่แก้ไว้จะหายไป และระบบยังใช้ข้อมูลเดิมที่บันทึกไว้</DialogDescription>
           </DialogHeader>
           <DialogFooter>
@@ -477,10 +573,11 @@ export function TrainerApplyForm() {
               type="button"
               onClick={() => {
                 setLeavingWithChanges(false);
-                router.push("/profile");
+                if (embedded) onCancel?.();
+                else router.push("/profile");
               }}
             >
-              ย้อนกลับโดยไม่บันทึก
+              {embedded ? "ยกเลิกและทิ้งการแก้ไข" : "ย้อนกลับโดยไม่บันทึก"}
             </button>
           </DialogFooter>
         </DialogContent>

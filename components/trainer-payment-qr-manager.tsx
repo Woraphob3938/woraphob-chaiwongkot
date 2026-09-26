@@ -66,9 +66,9 @@ export function TrainerPaymentQrManager({ profile, onSaved }: { profile: Trainer
     <div className="profile-group trainer-payment-qr-manager">
       <div className="profile-group__heading">
         <h3>QR รับเงิน</h3>
-        <span>สมาชิกมองเห็น</span>
+        <span>แสดงตอนสมาชิกชำระเงิน</span>
       </div>
-      <p className="profile-group__hint">อัปโหลด QR จากแอปธนาคาร สมาชิกจะใช้หลังระบบแสดงยอดชำระแล้ว</p>
+      <p className="profile-group__hint">อัปโหลด QR จากแอปธนาคาร สมาชิกจะเห็นภาพนี้ในขั้นตอนจ่ายเงินของการจอง พร้อมยอดที่ต้องโอน ถ้าไม่อัปโหลด ระบบจะสร้าง QR พร้อมเพย์จากเลขพร้อมเพย์ให้แทน</p>
       {url && <Image src={apiAssetUrl(url) as string} alt="QR รับเงินของฉัน" width={160} height={160} unoptimized />}
       <div className="trainer-payment-qr-manager__actions">
         <label className="button" htmlFor="trainer-payment-qr"><Upload aria-hidden="true" size={17} /> {url ? "เปลี่ยน QR" : "อัปโหลด QR รับเงิน"}</label>

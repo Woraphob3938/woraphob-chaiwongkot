@@ -13,6 +13,7 @@ export const paymentStatusCopy: Record<Booking["paymentStatus"], string> = {
 };
 
 export const bookingStatusCopy: Record<BookingStatus, string> = {
+  pending_trainer: "รอเทรนเนอร์ตอบรับ",
   awaiting_payment: "รอชำระเงิน",
   payment_review: "รอตรวจหลักฐาน",
   confirmed: "ยืนยันแล้ว",
@@ -37,4 +38,11 @@ export function bookingStatusLabel(value: BookingStatus | string): string {
 export function formatAmount(amount: number | null): string {
   if (amount === null) return "ไม่มียอดที่บันทึก";
   return `${new Intl.NumberFormat("th-TH", { minimumFractionDigits: 2, maximumFractionDigits: 2 }).format(amount)} บาท`;
+}
+
+/** 1234567890 → 123-4-56789-0, the grouping Thai bank books print. */
+export function formatBankAccountNumber(value: string): string {
+  const digits = value.replace(/\D/g, "");
+  if (digits.length !== 10) return digits;
+  return `${digits.slice(0, 3)}-${digits.slice(3, 4)}-${digits.slice(4, 9)}-${digits.slice(9)}`;
 }

@@ -115,3 +115,37 @@ describe("actionLabel", () => {
     expect(isSettledReview(approved)).toBe(false);
   });
 });
+
+/**
+ * การแจ้งเตือนสองกลุ่มใหม่ (ผลการอนุมัติใบสมัครเทรนเนอร์, ข้อความใหม่ในแชต)
+ * ไม่ได้ผูกกับการจอง จึงไม่มีสถานะการจองให้ใช้ตัดสินปุ่มถัดไป
+ */
+function bookingless(overrides: { type: string; actionPath: string }): NotificationDetail {
+  return {
+    id: 9,
+    type: overrides.type,
+    category: "booking",
+    title: "หัวข้อ",
+    message: "ข้อความ",
+    bookingId: null,
+    actionPath: overrides.actionPath,
+    readAt: null,
+    createdAt: "2026-09-12T00:00:00.000Z",
+    booking: null,
+  } as unknown as NotificationDetail;
+}
+
+describe("การแจ้งเตือนที่ไม่ผูกกับการจอง", () => {
+  it("เลือกปุ่มถัดไปจากเส้นทางแทนสถานะการจอง", () => {
+    expect(actionLabel(bookingless({ type: "trainer_application_approved", actionPath: "/trainer" })))
+      .toBe("ดูพื้นที่เทรนเนอร์");
+    expect(actionLabel(bookingless({ type: "trainer_application_rejected", actionPath: "/trainer/apply" })))
+      .toBe("เปิดแบบฟอร์มสมัคร");
+    expect(actionLabel(bookingless({ type: "message_received", actionPath: "/chat" })))
+      .toBe("เปิดแชต");
+  });
+
+  it("ไม่เรียกการแจ้งเตือนที่ไม่มีการจองว่าเป็นสลิปที่ตรวจแล้ว", () => {
+    expect(isSettledReview(bookingless({ type: "payment_review_1", actionPath: "/admin" }))).toBe(false);
+  });
+});

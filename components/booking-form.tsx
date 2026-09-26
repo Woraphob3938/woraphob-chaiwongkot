@@ -17,6 +17,7 @@ import {
 } from "@/components/ui/dialog";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
+import { BookingProgress } from "@/components/booking-progress";
 import { formatDateTime, formatMoney, formatTimeRange } from "@/lib/format";
 import type { AvailabilitySlot, CreateBookingResponse, Trainer } from "@/lib/types";
 
@@ -203,6 +204,7 @@ export function BookingForm({
 
   return (
     <>
+      <BookingProgress current={0} className="booking-form__progress" />
       <form className="booking-form" aria-label="ยืนยันการจอง" onSubmit={onSubmit}>
         <div className="booking-summary">
           <p className="label">รายละเอียดที่เลือก</p>
@@ -215,11 +217,15 @@ export function BookingForm({
                 <div><dt>นัดที่เหลือ</dt><dd>อีก {(trainer.monthlySessionCount as number) - 1} นัดจัดเวลาได้หลังการชำระเงินผ่าน</dd></div>
               </>
             ) : (
-              <div><dt>วันและเวลา</dt><dd>{formatDateTime((slot as AvailabilitySlot).startsAt)}</dd></div>
+              <div><dt>เวลาที่ขอ</dt><dd>{formatDateTime((slot as AvailabilitySlot).startsAt)}</dd></div>
             )}
             <div><dt>{monthly ? "ราคาแพ็กเกจ" : "ค่าฝึกต่อครั้ง"}</dt><dd>{hasBookingPrice ? formatMoney(bookingPrice as number) : "ยังไม่กำหนด"}</dd></div>
           </dl>
-          <p>เมื่อยืนยัน ระบบจะกันเวลานัดแรกไว้ 10 นาที กรุณาส่งสลิปภายในเวลา การชำระจะสำเร็จเมื่อตรวจหลักฐานผ่าน หากไม่ส่งสลิปภายในเวลา การจองจะหมดอายุและคืนเวลาอัตโนมัติ</p>
+          <ul className="booking-summary__notes">
+            <li>เวลาฝึกเป็นเวลาที่คุณเลือก เทรนเนอร์ตอบรับแล้วระบบจะแจ้งยืนยันให้คุณในรอบ <strong>12:00</strong> หรือ <strong>18:00 น.</strong></li>
+            <li>เมื่อได้รับการยืนยัน คุณมีเวลา 10 นาทีส่งสลิป ถ้าไม่ส่งทันการจองจะหมดอายุและคืนเวลาอัตโนมัติ</li>
+            <li>ยกเลิกได้ก่อนส่งสลิป และยังไม่มีการเก็บเงินจนกว่าเทรนเนอร์ยืนยันเวลา</li>
+          </ul>
         </div>
         <div className="booking-fields">
           <div className="field"><Label htmlFor="booking-note">เป้าหมายหรือข้อจำกัดที่ควรรู้ (ไม่บังคับ)</Label><Textarea id="booking-note" name="note" rows={5} value={note} onChange={(event) => setNote(event.target.value)} placeholder="เช่น ต้องการเริ่มเวทเบื้องต้น มีอาการเจ็บเข่า" /></div>
@@ -236,7 +242,7 @@ export function BookingForm({
             </div>
           )}
           <p className="admin-inline-note">{trainer.serviceMode === "gym" || trainer.serviceMode === "both"
-            ? "ชำระให้เทรนเนอร์ประจำยิมตามที่ตกลง ผู้ดูแลระบบของยิมเป็นผู้ตรวจสลิป"
+            ? "ชำระค่าบริการของเทรนเนอร์ประจำยิม หลักฐานจะส่งถึงยิม และเทรนเนอร์เป็นผู้ยืนยัน"
             : "ชำระให้เทรนเนอร์โดยตรง เทรนเนอร์เป็นผู้ตรวจสลิป"}</p>
           <div className="form-message-slot" aria-live="polite">
             {message && (
@@ -259,7 +265,7 @@ export function BookingForm({
             )}
           </div>
           <Button ref={reviewButtonRef} className="button button--accent button--wide" type="submit" disabled={pending || slotUnavailable || !hasBookingPrice}>
-            ตรวจสอบและยืนยัน <ArrowRight aria-hidden="true" size={18} />
+            ตรวจสอบและส่งคำขอ <ArrowRight aria-hidden="true" size={18} />
           </Button>
         </div>
       </form>
@@ -273,26 +279,26 @@ export function BookingForm({
           }}
         >
           <DialogHeader>
-            <DialogTitle>ยืนยันและเริ่มเวลา 10 นาที</DialogTitle>
+            <DialogTitle>ส่งคำขอจองนี้?</DialogTitle>
             <DialogDescription>
-              ระบบจะกันเวลานัดแรกไว้ 10 นาทีเพื่อรอส่งสลิป และยืนยันการชำระเมื่อตรวจหลักฐานผ่าน
+              คำขอจะส่งถึงเทรนเนอร์ทันที เมื่อเทรนเนอร์ตอบรับ ระบบจะแจ้งยืนยันให้คุณในรอบ 12:00 หรือ 18:00 น. แล้วเริ่มนับเวลา 10 นาทีสำหรับชำระเงิน
             </DialogDescription>
           </DialogHeader>
           <dl className="booking-confirm-facts">
             <div><dt>เทรนเนอร์</dt><dd>{trainer.displayName}</dd></div>
             {monthly
               ? <><div><dt>แพ็กเกจ</dt><dd>{trainer.monthlySessionCount} ครั้ง ภายใน 30 วัน</dd></div><div><dt>นัดแรก</dt><dd>{formatDateTime(selectedSlots[0].startsAt)} · {formatTimeRange(selectedSlots[0].startsAt, selectedSlots[0].endsAt)}</dd></div><div><dt>จัดภายหลัง</dt><dd>อีก {(trainer.monthlySessionCount as number) - 1} นัด หลังชำระเงินผ่าน</dd></div></>
-              : <div><dt>วันและเวลา</dt><dd>{formatDateTime((slot as AvailabilitySlot).startsAt)}</dd></div>}
+              : <div><dt>เวลาที่ขอ</dt><dd>{formatDateTime((slot as AvailabilitySlot).startsAt)}</dd></div>}
             <div><dt>{monthly ? "ราคาแพ็กเกจ" : "ค่าฝึกต่อครั้ง"}</dt><dd>{formatMoney(bookingPrice as number)}</dd></div>
           </dl>
           <DialogFooter>
             <DialogClose asChild>
               <Button variant="outline" type="button" disabled={pending}>กลับไปแก้ไข</Button>
             </DialogClose>
-            <Button type="button" disabled={pending} onClick={() => void createBooking()}>
+            <Button className="button button--accent" type="button" disabled={pending} onClick={() => void createBooking()}>
               {pending
-                ? <><LoaderCircle className="spin" aria-hidden="true" /> กำลังจอง…</>
-                : "ยืนยันและเริ่มเวลา 10 นาที"}
+                ? <><LoaderCircle className="spin" aria-hidden="true" /> กำลังส่งคำขอ…</>
+                : "ส่งคำขอจอง"}
             </Button>
           </DialogFooter>
         </DialogContent>

@@ -1,6 +1,7 @@
 import Image from "next/image";
 import Link from "next/link";
 import { BadgeCheck, UserRound } from "lucide-react";
+import { apiAssetUrl } from "@/lib/api";
 import { formatMoney, formatTrainingTypeName } from "@/lib/format";
 import type { Trainer } from "@/lib/types";
 
@@ -11,6 +12,9 @@ type TrainerPreviewCardProps = {
 
 export function TrainerPreviewCard({ trainer, priority = false }: TrainerPreviewCardProps) {
   const specialty = formatTrainingTypeName(trainer.trainingTypes[0]?.nameTh ?? "การฝึกส่วนบุคคล");
+  // The API returns a relative `/v1/profile-images/...` path; without the API
+  // origin `next/image` asks the Next server for it and gets a 400.
+  const imageUrl = apiAssetUrl(trainer.image ?? null);
   const price = trainer.priceFrom == null
     ? "สอบถามราคา"
     : `เริ่มต้น ${formatMoney(trainer.priceFrom)} / ครั้ง`;
@@ -18,9 +22,9 @@ export function TrainerPreviewCard({ trainer, priority = false }: TrainerPreview
   return (
     <article className="trainer-preview-card" data-testid="trainer-preview">
       <div className="trainer-preview-card__media">
-        {trainer.image ? (
+        {imageUrl ? (
           <Image
-            src={trainer.image}
+            src={imageUrl}
             alt={`รูปโปรไฟล์ของ${trainer.displayName}`}
             width={320}
             height={240}

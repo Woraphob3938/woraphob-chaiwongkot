@@ -20,7 +20,16 @@ function openBooking(summary: HTMLElement) {
   fireEvent.click(summary);
 }
 
-function bookingFixture(id: string, overrides: Partial<Booking> = {}): Booking {
+type FixtureOverrides = Partial<Omit<Booking, "status" | "actions">> & {
+  status?: Booking["status"] | "pending_trainer";
+  actions?: Booking["actions"] & { canAccept?: boolean; canReject?: boolean; canCancelBooking?: boolean };
+  confirmedStartsAt?: string | null;
+  confirmedEndsAt?: string | null;
+  requestedStartsAt?: string | null;
+  cancellationReason?: string | null;
+};
+
+function bookingFixture(id: string, overrides: FixtureOverrides = {}): Booking {
   return {
     id,
     trainer: { id: 3, slug: "trainer-c", displayName: "เทรนเนอร์ ค." },
@@ -44,7 +53,7 @@ function bookingFixture(id: string, overrides: Partial<Booking> = {}): Booking {
     createdAt: "2026-08-01T00:00:00.000Z",
     demo: false,
     ...overrides,
-  };
+  } as Booking;
 }
 
 const bookings = [
@@ -167,12 +176,12 @@ describe("member role dashboard", () => {
 
     render(<RoleDashboard role="member" />);
     const summary = await screen.findByTestId("booking-summary");
-    expect(within(summary).getByText("ยืนยันการชำระแล้ว")).toBeInTheDocument();
+    expect(within(summary).getByText("ยืนยันแล้ว")).toBeInTheDocument();
 
     fireEvent.focus(window);
 
     await waitFor(() => expect(authenticatedRequest).toHaveBeenCalledTimes(2));
-    expect(within(summary).getByText("ฝึกเสร็จแล้ว")).toBeInTheDocument();
+    expect(within(summary).getByText("เสร็จสิ้น")).toBeInTheDocument();
     openBooking(summary);
     const dialog = screen.getByRole("dialog", { name: "เทรนเนอร์ ค." });
     fireEvent.click(within(dialog).getByText("เขียนรีวิว"));
@@ -281,10 +290,12 @@ describe("member role dashboard", () => {
 
     expect(screen.getByRole("dialog", { name: "ยกเลิกการจองนี้?" })).toBeInTheDocument();
     expect(screen.getByText("ช่วงเวลาจะถูกคืนให้สมาชิกคนอื่นทันที")).toBeInTheDocument();
+    fireEvent.change(screen.getByLabelText(/เหตุผลการยกเลิก/), { target: { value: "  ติดธุระในวันนัด  " } });
     fireEvent.click(screen.getByRole("button", { name: "ยืนยันยกเลิกการจอง" }));
 
     await waitFor(() => expect(authenticatedRequest).toHaveBeenCalledWith("/v1/bookings/BK-CANCEL/cancel", {
       method: "POST",
+      body: JSON.stringify({ reason: "ติดธุระในวันนัด" }),
     }));
     await waitFor(() => expect(screen.getByText("คำขอนี้สิ้นสุดแล้ว")).toBeInTheDocument());
     expect(screen.queryByRole("button", { name: "ยกเลิกการจอง" })).not.toBeInTheDocument();
@@ -356,6 +367,48 @@ describe("member role dashboard", () => {
 
     fireEvent.click(screen.getByRole("button", { name: "จบแล้ว 1" }));
     expect(screen.getAllByTestId("booking-summary").map((summary) => summary.id)).toEqual(["booking-BK-OLDER"]);
+  });
+
+  it("shows the confirmed period the trainer set on the member's booking card", async () => {
+    vi.mocked(authenticatedRequest).mockResolvedValue([bookingFixture("BK-CONFIRMED-TIME", {
+      status: "confirmed",
+      paymentStatus: "approved",
+      startsAt: "2026-08-13T02:00:00.000Z",
+      endsAt: "2026-08-13T03:00:00.000Z",
+      confirmedStartsAt: "2026-08-13T05:00:00.000Z",
+      confirmedEndsAt: "2026-08-13T06:00:00.000Z",
+    })]);
+
+    render(<RoleDashboard role="member" />);
+    const [summary] = await screen.findAllByTestId("booking-summary");
+    openBooking(summary);
+    const dialog = screen.getByRole("dialog", { name: "เทรนเนอร์ ค." });
+
+    expect(within(dialog).getByText("ช่วงเวลาที่ยืนยัน")).toBeInTheDocument();
+    expect(within(dialog).getByText(/12:00 น\. – 13:00 น\./)).toBeInTheDocument();
+    expect(within(dialog).getByText("เวลาที่ขอไว้")).toBeInTheDocument();
+  });
+
+  it("hides the payment panel and the payment clock while the trainer has not answered", async () => {
+    vi.mocked(authenticatedRequest).mockResolvedValue([bookingFixture("BK-WAITING", {
+      status: "pending_trainer",
+      requestedStartsAt: "2026-08-13T02:00:00.000Z",
+      paymentRecipient: { accountName: "เทรนเนอร์ ค.", promptPayId: "0812345678" },
+      // Even a stale `canPay` must not open the payment step early.
+      actions: { ...bookingFixture("unused").actions, canPay: true },
+    })]);
+
+    render(<RoleDashboard role="member" />);
+    const [summary] = await screen.findAllByTestId("booking-summary");
+    expect(screen.getByRole("button", { name: "รอเทรนเนอร์ตอบรับ 1" })).toBeInTheDocument();
+    openBooking(summary);
+    const dialog = screen.getByRole("dialog", { name: "เทรนเนอร์ ค." });
+
+    expect(within(dialog).getByText("รอเทรนเนอร์ตอบรับ")).toBeInTheDocument();
+    expect(within(dialog).getByText("รอเทรนเนอร์ตอบรับ ระบบจะแจ้งผลให้คุณในรอบ 12:00 หรือ 18:00 น. แล้วจึงชำระเงินได้ เวลาฝึกยังเป็นเวลาที่คุณขอ")).toBeInTheDocument();
+    expect(within(dialog).queryByRole("button", { name: "ส่งสลิปให้ตรวจ" })).not.toBeInTheDocument();
+    expect(within(dialog).queryByText("อัปโหลดสลิปภายใน 10 นาที")).not.toBeInTheDocument();
+    expect(within(dialog).queryByLabelText("เวลาที่เหลือสำหรับส่งสลิป")).not.toBeInTheDocument();
   });
 });
 

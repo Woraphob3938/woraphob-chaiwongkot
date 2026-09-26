@@ -30,6 +30,7 @@ final class Http
 
     public static function json(mixed $data, int $status = 200, array $meta = []): never
     {
+        self::discardBufferedOutput();
         http_response_code($status);
         header('Content-Type: application/json; charset=utf-8');
         $payload = ['data' => $data];
@@ -42,6 +43,7 @@ final class Http
 
     public static function error(HttpException $error): never
     {
+        self::discardBufferedOutput();
         http_response_code($error->status);
         header('Content-Type: application/json; charset=utf-8');
         $payload = [
@@ -86,16 +88,75 @@ final class Http
         return $decoded;
     }
 
+    /**
+     * A request value that may safely enter a string context: text, or a number
+     * a client sent without quotes. `true`, `null`, an array and an object are
+     * all refused, because casting any of them yields a value the field never
+     * meant to hold — an array becomes the literal "Array", which is non-empty
+     * and therefore slips past every required-field check.
+     */
+    public static function isText(mixed $value): bool
+    {
+        return is_string($value) || is_int($value) || is_float($value);
+    }
+
+    /** Reads a value as text; anything that is not text reads as empty. */
+    public static function text(mixed $value): string
+    {
+        return self::isText($value) ? (string) $value : '';
+    }
+
+    /**
+     * Reads one request field as text without ever turning an array into
+     * "Array". A value that is not text reads as '' (or the given default), so
+     * the field's own validation reports it instead of PHP emitting a warning
+     * into the response body.
+     */
+    public static function stringField(array $input, string $field, string $default = ''): string
+    {
+        return array_key_exists($field, $input) ? self::text($input[$field]) : $default;
+    }
+
+    /**
+     * Refuses the listed fields when a request carries them as something other
+     * than text. `null` stays allowed: it is how an optional field is cleared.
+     */
+    public static function assertTextFields(array $input, array $fields): void
+    {
+        $errors = [];
+        foreach ($fields as $field) {
+            if (array_key_exists($field, $input) && $input[$field] !== null && !self::isText($input[$field])) {
+                $errors[$field] = 'ต้องเป็นข้อความ';
+            }
+        }
+        if ($errors !== []) {
+            throw new HttpException(422, 'ข้อมูลไม่ถูกต้อง', 'VALIDATION_FAILED', $errors);
+        }
+    }
+
     public static function requireFields(array $input, array $fields): void
     {
         $errors = [];
         foreach ($fields as $field) {
-            if (!array_key_exists($field, $input) || trim((string) $input[$field]) === '') {
+            $value = $input[$field] ?? null;
+            if (!array_key_exists($field, $input) || !self::isText($value) || trim((string) $value) === '') {
                 $errors[$field] = 'จำเป็นต้องระบุข้อมูล';
             }
         }
         if ($errors !== []) {
             throw new HttpException(422, 'กรอกข้อมูลที่จำเป็นให้ครบ', 'VALIDATION_FAILED', $errors);
+        }
+    }
+
+    /**
+     * Anything already echoed — a PHP warning under `display_errors`, a stray
+     * `print` — would be prepended to the JSON and break the client's parse. The
+     * response is the API's only output, so whatever is buffered is dropped.
+     */
+    private static function discardBufferedOutput(): void
+    {
+        while (ob_get_level() > 0) {
+            ob_end_clean();
         }
     }
 

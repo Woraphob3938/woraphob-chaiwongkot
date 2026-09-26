@@ -35,8 +35,8 @@ export default async function LoginPage({
           <li className="auth-feature-item">
             <Zap aria-hidden="true" size={20} />
             <div>
-              <strong>ล็อกเวลาไว้ 10 นาที</strong>
-              <span>ช่วงเวลาที่เลือกถูกกันไว้ระหว่างส่งหลักฐานการชำระเงิน</span>
+              <strong>ยืนยันก่อนชำระเงิน</strong>
+              <span>ระบบแจ้งการตอบรับในรอบ 12:00 หรือ 18:00 น. แล้วสมาชิกชำระเงินภายใน 10 นาที</span>
             </div>
           </li>
           <li className="auth-feature-item">

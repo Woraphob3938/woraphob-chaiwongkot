@@ -1,7 +1,7 @@
-# RTK — token-optimized shell proxy
+﻿# RTK — token-optimized shell proxy
 
 `rtk` sits in front of shell commands and filters their output before it reaches
-an agent's context. It is installed at `C:\Users\HP\.local\bin\rtk.exe` (v0.46.0)
+an agent's context. It is installed at `C:\Users\HP\.local\bin\rtk.exe` (v0.50.0)
 and is already on `PATH`. Check savings with `rtk gain`.
 
 ## Rule

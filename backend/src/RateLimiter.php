@@ -16,6 +16,7 @@ final class RateLimiter
     public const REGISTER = 'register';
     public const PASSWORD_RESET_REQUEST = 'password_reset_request';
     public const PASSWORD_RESET_CONFIRM = 'password_reset_confirm';
+    public const ACCOUNT_DELETE = 'account_delete';
     public const TRAINER_APPLICATION = 'trainer_application';
     public const PROFILE_IMAGE = 'profile_image';
     public const PAYMENT_SLIP = 'payment_slip';
@@ -27,6 +28,7 @@ final class RateLimiter
         self::REGISTER => ['limit' => 5, 'window' => 3600, 'message' => 'สร้างบัญชีจากเครือข่ายนี้หลายครั้งเกินไป กรุณาลองใหม่ภายหลัง'],
         self::PASSWORD_RESET_REQUEST => ['limit' => 5, 'window' => 3600, 'message' => 'ขอรหัสตั้งรหัสผ่านใหม่หลายครั้งเกินไป กรุณาลองใหม่ภายหลัง'],
         self::PASSWORD_RESET_CONFIRM => ['limit' => 10, 'window' => 900, 'message' => 'ยืนยันรหัสหลายครั้งเกินไป กรุณาขอรหัสใหม่'],
+        self::ACCOUNT_DELETE => ['limit' => 5, 'window' => 900, 'message' => 'ยืนยันการลบบัญชีหลายครั้งเกินไป กรุณาลองใหม่ภายหลัง'],
         self::TRAINER_APPLICATION => ['limit' => 10, 'window' => 3600, 'message' => 'ส่งใบสมัครหลายครั้งเกินไป กรุณาลองใหม่ภายหลัง'],
         self::PROFILE_IMAGE => ['limit' => 20, 'window' => 3600, 'message' => 'อัปโหลดรูปหลายครั้งเกินไป กรุณาลองใหม่ภายหลัง'],
         self::PAYMENT_SLIP => ['limit' => 20, 'window' => 3600, 'message' => 'อัปโหลดหลักฐานหลายครั้งเกินไป กรุณาลองใหม่ภายหลัง'],
@@ -94,16 +96,87 @@ final class RateLimiter
         return $normalized === '' ? 'unknown' : 'account:' . $normalized;
     }
 
+    /**
+     * The address behind the request. X-Forwarded-For is caller-supplied, so
+     * honouring it unconditionally (as this once did) let anyone rotate the
+     * header and hand every request a fresh rate-limit bucket — which is a
+     * free bypass of the register and login caps. The header is therefore only
+     * read when the peer that sent it is one of the proxies named in
+     * TRUSTED_PROXIES; with that unset the header is ignored entirely and the
+     * socket address is the only truth.
+     */
     public static function clientKey(string $fallback = 'unknown'): string
     {
-        $forwarded = $_SERVER['HTTP_X_FORWARDED_FOR'] ?? '';
-        $address = $forwarded !== ''
-            ? trim(explode(',', (string) $forwarded)[0])
-            : (string) ($_SERVER['REMOTE_ADDR'] ?? '');
+        $address = self::forwardedAddress() ?? (string) ($_SERVER['REMOTE_ADDR'] ?? '');
         if (filter_var($address, FILTER_VALIDATE_IP) === false) {
             $address = $fallback;
         }
         return 'client:' . $address;
+    }
+
+    /**
+     * The left-most hop of X-Forwarded-For, but only for a trusted peer. The
+     * chain is written client-first, so the first entry is the original client
+     * and the entries after it are proxies we already know.
+     */
+    private static function forwardedAddress(): ?string
+    {
+        $forwarded = $_SERVER['HTTP_X_FORWARDED_FOR'] ?? '';
+        if (!is_string($forwarded) || $forwarded === '' || !self::fromTrustedProxy()) {
+            return null;
+        }
+
+        $address = trim(explode(',', $forwarded)[0]);
+        return $address === '' ? null : $address;
+    }
+
+    /** Whether the direct peer is in the TRUSTED_PROXIES allowlist. */
+    private static function fromTrustedProxy(): bool
+    {
+        $remote = (string) ($_SERVER['REMOTE_ADDR'] ?? '');
+        if (filter_var($remote, FILTER_VALIDATE_IP) === false) {
+            return false;
+        }
+
+        foreach (self::trustedProxies() as $proxy) {
+            if (self::sameAddress($proxy, $remote)) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    /**
+     * TRUSTED_PROXIES is a comma-separated list of proxy addresses. Unset or
+     * empty means no proxy is trusted, which is the correct default: a
+     * deployment that is not behind a reverse proxy must never believe the
+     * header, and one that is must say so explicitly.
+     *
+     * @return list<string>
+     */
+    private static function trustedProxies(): array
+    {
+        $configured = function_exists('env') ? env('TRUSTED_PROXIES', '') : getenv('TRUSTED_PROXIES');
+        if (!is_string($configured) || trim($configured) === '') {
+            return [];
+        }
+
+        $proxies = [];
+        foreach (explode(',', $configured) as $proxy) {
+            $proxy = trim($proxy);
+            if (filter_var($proxy, FILTER_VALIDATE_IP) !== false) {
+                $proxies[] = $proxy;
+            }
+        }
+        return $proxies;
+    }
+
+    /** Compares two validated addresses, folding IPv6 spellings together. */
+    private static function sameAddress(string $left, string $right): bool
+    {
+        $leftBinary = inet_pton($left);
+        $rightBinary = inet_pton($right);
+        return $leftBinary !== false && $rightBinary !== false && $leftBinary === $rightBinary;
     }
 
     private static function normalizeSubject(string $subject): string

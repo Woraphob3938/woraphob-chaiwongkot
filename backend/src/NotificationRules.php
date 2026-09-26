@@ -11,26 +11,53 @@ final class NotificationRules
     public const BOOKING_EXPIRED = 'booking_expired';
     public const BOOKING_CANCELLED = 'booking_cancelled';
     public const APPOINTMENT_REMINDER = 'appointment_reminder';
+    public const BOOKING_ACCEPTED = 'booking_accepted';
+    public const BOOKING_REJECTED = 'booking_rejected';
+    public const MESSAGE_RECEIVED = 'message_received';
+    /** A message in a room a member opened from a trainer profile, before any booking. */
+    public const INQUIRY_MESSAGE_RECEIVED = 'inquiry_message_received';
+    public const TRAINER_APPLICATION_APPROVED = 'trainer_application_approved';
+    public const TRAINER_APPLICATION_REJECTED = 'trainer_application_rejected';
 
     private const MEMBER_BOOKINGS = '/member';
     private const TRAINER_WORKSPACE = '/trainer';
     private const TRAINER_SEARCH = '/trainers';
+    private const CHAT = '/chat';
+    private const TRAINER_APPLY = '/trainer/apply';
 
     public static function forEvent(string $event, array $context): array
     {
-        self::requireContext($context);
-        $booking = (string) $context['bookingPublicId'];
-        $memberId = (int) $context['memberUserId'];
-        $trainerId = (int) $context['trainerUserId'];
+        self::requireContext($event, $context);
+        $booking = (string) ($context['bookingPublicId'] ?? '');
+        $memberId = (int) ($context['memberUserId'] ?? 0);
+        $trainerId = (int) ($context['trainerUserId'] ?? 0);
 
         return match ($event) {
             self::BOOKING_CREATED => [self::definition(
                 $memberId,
                 'booking_created',
                 'booking',
-                'เริ่มเวลาชำระเงินแล้ว',
-                "การจอง {$booking} ถูกเก็บไว้ 10 นาที กรุณาส่งหลักฐานการชำระภายในเวลาที่กำหนด",
+                'ส่งคำขอจองแล้ว',
+                "การจอง {$booking} ส่งถึงเทรนเนอร์แล้ว รอการตอบรับและยืนยันช่วงเวลา",
                 self::MEMBER_BOOKINGS,
+                true
+            )],
+            self::BOOKING_ACCEPTED => [self::definition(
+                $memberId,
+                'booking_accepted',
+                'booking',
+                'เทรนเนอร์ตอบรับการจองแล้ว',
+                "เทรนเนอร์ตอบรับการจอง {$booking} เวลาฝึก " . self::confirmedRangeLabel($context) . " กรุณาชำระเงินและส่งสลิปภายใน 10 นาที",
+                self::MEMBER_BOOKINGS,
+                true
+            )],
+            self::BOOKING_REJECTED => [self::definition(
+                $memberId,
+                'booking_rejected',
+                'booking',
+                'เทรนเนอร์ไม่ตอบรับการจอง',
+                "เทรนเนอร์ไม่ตอบรับการจอง {$booking} เหตุผล: " . trim((string) ($context['reviewNote'] ?? '')),
+                self::TRAINER_SEARCH,
                 true
             )],
             self::PAYMENT_SUBMITTED => [self::definition(
@@ -90,6 +117,42 @@ final class NotificationRules
                 true
             )],
             self::BOOKING_CANCELLED => self::cancelledDefinitions($context, $booking, $memberId, $trainerId),
+            self::MESSAGE_RECEIVED => [self::definition(
+                (int) $context['recipientUserId'],
+                'message_received' . (isset($context['messageId']) ? '_' . (int) $context['messageId'] : ''),
+                'booking',
+                'มีข้อความใหม่',
+                'มีข้อความใหม่จาก ' . (string) $context['senderName'] . " ในการจอง {$booking}",
+                self::CHAT,
+                false
+            )],
+            self::INQUIRY_MESSAGE_RECEIVED => [self::definition(
+                (int) $context['recipientUserId'],
+                'message_received_' . (int) $context['messageId'],
+                'booking',
+                'มีข้อความใหม่',
+                'มีข้อความใหม่จาก ' . (string) $context['senderName'] . ' ในห้องสอบถามก่อนจอง',
+                self::CHAT . '?booking=CHAT-' . (int) $context['roomId'],
+                false
+            )],
+            self::TRAINER_APPLICATION_APPROVED => [self::definition(
+                $trainerId,
+                'trainer_application_approved',
+                'booking',
+                'ใบสมัครเทรนเนอร์ได้รับการอนุมัติ',
+                'ใบสมัครเทรนเนอร์ได้รับการอนุมัติแล้ว พร้อมรับการจองจากสมาชิก',
+                self::TRAINER_WORKSPACE,
+                true
+            )],
+            self::TRAINER_APPLICATION_REJECTED => [self::definition(
+                $trainerId,
+                'trainer_application_rejected',
+                'booking',
+                'ใบสมัครเทรนเนอร์ไม่ผ่าน',
+                'ใบสมัครเทรนเนอร์ไม่ผ่านการอนุมัติ เหตุผล: ' . trim((string) ($context['reviewNote'] ?? '')),
+                self::TRAINER_APPLY,
+                true
+            )],
             self::APPOINTMENT_REMINDER => [
                 self::definition(
                     $memberId,
@@ -151,9 +214,31 @@ final class NotificationRules
         return compact('recipientUserId', 'type', 'category', 'title', 'message', 'actionPath', 'emailRequired');
     }
 
-    private static function requireContext(array $context): void
+    /** "31/12/2026 12:00–13:00 น." from the confirmed window in the context. */
+    private static function confirmedRangeLabel(array $context): string
     {
-        foreach (['bookingId', 'bookingPublicId', 'memberUserId', 'trainerUserId'] as $key) {
+        // Stored in UTC; members read Bangkok time in the Buddhist-era year.
+        $bangkok = new DateTimeZone('Asia/Bangkok');
+        $starts = (new DateTimeImmutable((string) $context['confirmedStartsAt'], new DateTimeZone('UTC')))->setTimezone($bangkok);
+        $ends = (new DateTimeImmutable((string) $context['confirmedEndsAt'], new DateTimeZone('UTC')))->setTimezone($bangkok);
+        $year = (int) $starts->format('Y') + 543;
+        return $starts->format('d/m/') . $year . ' ' . $starts->format('H:i') . '–' . $ends->format('H:i') . ' น.';
+    }
+
+    /**
+     * Booking events need the whole booking; a chat message needs its recipient
+     * and sender; an application decision only the trainer it belongs to.
+     */
+    private static function requireContext(string $event, array $context): void
+    {
+        $required = match ($event) {
+            self::MESSAGE_RECEIVED => ['recipientUserId', 'senderName', 'bookingId', 'bookingPublicId'],
+            self::INQUIRY_MESSAGE_RECEIVED => ['recipientUserId', 'senderName', 'roomId', 'messageId'],
+            self::TRAINER_APPLICATION_APPROVED, self::TRAINER_APPLICATION_REJECTED => ['trainerUserId'],
+            self::BOOKING_ACCEPTED => ['bookingId', 'bookingPublicId', 'memberUserId', 'trainerUserId', 'confirmedStartsAt', 'confirmedEndsAt'],
+            default => ['bookingId', 'bookingPublicId', 'memberUserId', 'trainerUserId'],
+        };
+        foreach ($required as $key) {
             if (!array_key_exists($key, $context)) {
                 throw new InvalidArgumentException("Missing notification context: {$key}");
             }

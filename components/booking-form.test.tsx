@@ -56,7 +56,7 @@ describe("BookingForm", () => {
     render(<BookingForm trainerSlug="live-trainer" slotId="44" />);
     await screen.findByText("เทรนเนอร์จริง");
     expect(screen.queryByLabelText("สถานที่ที่สะดวก")).not.toBeInTheDocument();
-    fireEvent.click(screen.getByRole("button", { name: /ตรวจสอบและยืนยัน/ }));
+    fireEvent.click(screen.getByRole("button", { name: /ตรวจสอบและส่งคำขอ/ }));
     expect(await screen.findByText("กรุณาเข้าสู่ระบบเพื่อทำการขอจอง")).toBeInTheDocument();
     expect(authenticatedRequest).not.toHaveBeenCalled();
   });
@@ -73,9 +73,9 @@ describe("BookingForm", () => {
     await screen.findByText("เทรนเนอร์จริง");
     fireEvent.change(screen.getByLabelText(/เป้าหมายหรือข้อจำกัดที่ควรรู้/), { target: { value: "เริ่มฝึกเวท" } });
     fireEvent.submit(screen.getByRole("form", { name: "ยืนยันการจอง" }));
-    expect(screen.getByRole("dialog", { name: "ยืนยันและเริ่มเวลา 10 นาที" })).toBeInTheDocument();
+    expect(screen.getByRole("dialog", { name: "ส่งคำขอจองนี้?" })).toBeInTheDocument();
     expect(authenticatedRequest).not.toHaveBeenCalled();
-    fireEvent.click(screen.getByRole("button", { name: "ยืนยันและเริ่มเวลา 10 นาที" }));
+    fireEvent.click(screen.getByRole("button", { name: "ส่งคำขอจอง" }));
     await waitFor(() => expect(authenticatedRequest).toHaveBeenCalledWith("/v1/bookings", {
       method: "POST",
       body: JSON.stringify({ trainerId: 1, slotId: 44, note: "เริ่มฝึกเวท" }),
@@ -89,20 +89,20 @@ describe("BookingForm", () => {
 
     const trainerName = await screen.findByText("เทรนเนอร์จริง");
     const note = screen.getByLabelText("เป้าหมายหรือข้อจำกัดที่ควรรู้ (ไม่บังคับ)");
-    const submit = screen.getByRole("button", { name: /ตรวจสอบและยืนยัน/ });
+    const submit = screen.getByRole("button", { name: /ตรวจสอบและส่งคำขอ/ });
     expect(trainerName.compareDocumentPosition(note) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
     expect(note.compareDocumentPosition(submit) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
-    expect(screen.getAllByRole("button", { name: /ตรวจสอบและยืนยัน/ })).toHaveLength(1);
+    expect(screen.getAllByRole("button", { name: /ตรวจสอบและส่งคำขอ/ })).toHaveLength(1);
   });
 
   it("returns keyboard focus to the review button after dismissing confirmation", async () => {
     vi.mocked(apiRequest).mockResolvedValue(liveTrainer);
     render(<BookingForm trainerSlug="live-trainer" slotId="44" />);
 
-    const reviewButton = await screen.findByRole("button", { name: /ตรวจสอบและยืนยัน/ });
+    const reviewButton = await screen.findByRole("button", { name: /ตรวจสอบและส่งคำขอ/ });
     reviewButton.focus();
     fireEvent.click(reviewButton);
-    expect(screen.getByRole("dialog", { name: "ยืนยันและเริ่มเวลา 10 นาที" })).toBeInTheDocument();
+    expect(screen.getByRole("dialog", { name: "ส่งคำขอจองนี้?" })).toBeInTheDocument();
 
     fireEvent.keyDown(document, { key: "Escape" });
 
@@ -117,7 +117,7 @@ describe("BookingForm", () => {
     rerender(<BookingForm trainerSlug="live-trainer" slotId="99" />);
 
     expect(await screen.findByRole("heading", { name: "ช่วงเวลาที่เลือกถูกเปลี่ยน" })).toBeInTheDocument();
-    expect(screen.queryByRole("button", { name: /ตรวจสอบและยืนยัน/ })).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: /ตรวจสอบและส่งคำขอ/ })).not.toBeInTheDocument();
   });
 
   it("keeps typed values but blocks a stale slot until a fresh valid slot is selected", async () => {
@@ -131,12 +131,12 @@ describe("BookingForm", () => {
     await screen.findByText("เทรนเนอร์จริง");
     const note = screen.getByLabelText(/เป้าหมายหรือข้อจำกัดที่ควรรู้/);
     fireEvent.change(note, { target: { value: "รักษาข้อมูลนี้ไว้" } });
-    fireEvent.click(screen.getByRole("button", { name: /ตรวจสอบและยืนยัน/ }));
-    fireEvent.click(screen.getByRole("button", { name: "ยืนยันและเริ่มเวลา 10 นาที" }));
+    fireEvent.click(screen.getByRole("button", { name: /ตรวจสอบและส่งคำขอ/ }));
+    fireEvent.click(screen.getByRole("button", { name: "ส่งคำขอจอง" }));
     expect(await screen.findByText("ช่วงเวลานี้ไม่พร้อมจองแล้ว")).toBeInTheDocument();
     await waitFor(() => expect(apiRequest).toHaveBeenCalledTimes(2));
     expect(screen.getByLabelText(/เป้าหมายหรือข้อจำกัดที่ควรรู้/)).toHaveValue("รักษาข้อมูลนี้ไว้");
-    const staleSubmit = screen.getByRole("button", { name: /ตรวจสอบและยืนยัน/ });
+    const staleSubmit = screen.getByRole("button", { name: /ตรวจสอบและส่งคำขอ/ });
     expect(staleSubmit).toBeDisabled();
     expect(screen.getByText("เวลาที่เลือกไม่ว่างแล้ว กรุณาเลือกเวลาใหม่")).toBeInTheDocument();
     expect(screen.getByRole("link", { name: "เลือกเวลาอื่น" })).toHaveAttribute("href", "/trainers/live-trainer");
@@ -145,7 +145,7 @@ describe("BookingForm", () => {
 
     rerender(<BookingForm trainerSlug="live-trainer" slotId="45" />);
     await waitFor(() => expect(apiRequest).toHaveBeenCalledTimes(3));
-    await waitFor(() => expect(screen.getByRole("button", { name: /ตรวจสอบและยืนยัน/ })).toBeEnabled());
+    await waitFor(() => expect(screen.getByRole("button", { name: /ตรวจสอบและส่งคำขอ/ })).toBeEnabled());
     expect(screen.queryByText("เวลาที่เลือกไม่ว่างแล้ว กรุณาเลือกเวลาใหม่")).not.toBeInTheDocument();
     expect(screen.queryByText("ช่วงเวลานี้ไม่พร้อมจองแล้ว")).not.toBeInTheDocument();
     expect(screen.getByLabelText(/เป้าหมายหรือข้อจำกัดที่ควรรู้/)).toHaveValue("รักษาข้อมูลนี้ไว้");
@@ -160,8 +160,8 @@ describe("BookingForm", () => {
     ));
     render(<BookingForm trainerSlug="live-trainer" slotId="44" />);
     await screen.findByText("เทรนเนอร์จริง");
-    fireEvent.click(screen.getByRole("button", { name: /ตรวจสอบและยืนยัน/ }));
-    fireEvent.click(screen.getByRole("button", { name: "ยืนยันและเริ่มเวลา 10 นาที" }));
+    fireEvent.click(screen.getByRole("button", { name: /ตรวจสอบและส่งคำขอ/ }));
+    fireEvent.click(screen.getByRole("button", { name: "ส่งคำขอจอง" }));
     expect(await screen.findByText("เกิดข้อผิดพลาดจากระบบ")).toBeInTheDocument();
   });
 
@@ -177,8 +177,8 @@ describe("BookingForm", () => {
     render(<BookingForm trainerSlug="live-trainer" slotId="44" />);
     await screen.findByText("เทรนเนอร์จริง");
     expect(screen.queryByText("เลือกรูปแบบบริการ")).not.toBeInTheDocument();
-    fireEvent.click(screen.getByRole("button", { name: /ตรวจสอบและยืนยัน/ }));
-    fireEvent.click(screen.getByRole("button", { name: "ยืนยันและเริ่มเวลา 10 นาที" }));
+    fireEvent.click(screen.getByRole("button", { name: /ตรวจสอบและส่งคำขอ/ }));
+    fireEvent.click(screen.getByRole("button", { name: "ส่งคำขอจอง" }));
 
     await waitFor(() => expect(authenticatedRequest).toHaveBeenCalledWith("/v1/bookings", {
       method: "POST",
@@ -199,9 +199,9 @@ describe("BookingForm", () => {
     await screen.findByText("แพ็กเกจ 30 วัน");
     expect(screen.getByText("นัดแรก 1 จาก 2 ครั้ง")).toBeInTheDocument();
     expect(screen.getByText("อีก 1 นัดจัดเวลาได้หลังการชำระเงินผ่าน")).toBeInTheDocument();
-    expect(screen.getByText(/หากไม่ส่งสลิปภายในเวลา การจองจะหมดอายุ/)).toBeInTheDocument();
-    fireEvent.click(screen.getByRole("button", { name: /ตรวจสอบและยืนยัน/ }));
-    fireEvent.click(screen.getByRole("button", { name: "ยืนยันและเริ่มเวลา 10 นาที" }));
+    expect(screen.getByText(/ถ้าไม่ส่งทันการจองจะหมดอายุ/)).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: /ตรวจสอบและส่งคำขอ/ }));
+    fireEvent.click(screen.getByRole("button", { name: "ส่งคำขอจอง" }));
 
     await waitFor(() => expect(authenticatedRequest).toHaveBeenCalledWith("/v1/bookings", {
       method: "POST",

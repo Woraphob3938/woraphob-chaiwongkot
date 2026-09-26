@@ -2,6 +2,7 @@ import { render, screen, within } from "@testing-library/react";
 import { describe, expect, it } from "vitest";
 
 import { TrainerMarketplaceCard } from "@/components/trainer-marketplace-card";
+import { API_URL } from "@/lib/api";
 import { trainers } from "@/lib/demo-data";
 
 describe("TrainerMarketplaceCard", () => {
@@ -43,5 +44,16 @@ describe("TrainerMarketplaceCard", () => {
     );
     expect(screen.getByRole("link", { name: "ดูโปรไฟล์" })).toHaveAttribute("data-variant", "outline");
     expect(screen.queryByRole("link", { name: "ดูโปรไฟล์และเลือกเวลา" })).not.toBeInTheDocument();
+  });
+
+  it("resolves a live profile image against the API origin, not the Next origin", () => {
+    // The API answers with a relative `/v1/profile-images/...` path; passing it
+    // to next/image unchanged made the optimizer fetch it from Next and 400.
+    const trainer = { ...trainers[0], image: "/v1/profile-images/trainer/2" };
+
+    render(<TrainerMarketplaceCard trainer={trainer} />);
+
+    const image = screen.getByRole("img", { name: `รูปโปรไฟล์ของ${trainer.displayName}` });
+    expect(decodeURIComponent(image.getAttribute("src") ?? "")).toContain(`${API_URL}/v1/profile-images/trainer/2`);
   });
 });

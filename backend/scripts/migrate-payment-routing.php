@@ -1,5 +1,13 @@
 <?php
 declare(strict_types=1);
+
+// One-off migration: CLI only. Over HTTP this would run mysqldump and ALTER
+// TABLE for any anonymous caller, so the web SAPI answers 404.
+if (PHP_SAPI !== 'cli') {
+    http_response_code(404);
+    exit;
+}
+
 require_once __DIR__ . '/../src/Database.php';
 $config = require __DIR__ . '/../src/config.php';
 $db = new Database($config['database']);

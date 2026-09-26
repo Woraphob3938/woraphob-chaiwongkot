@@ -18,11 +18,18 @@ export function hasValidBookingPeriod(booking: Pick<Booking, "startsAt" | "endsA
 }
 
 export function getMemberNextAction(bookings: Booking[]): DashboardAction {
-  const payment = bookings.find((booking) => booking.actions.canPay);
+  // A request the trainer has not answered yet can still carry `canPay`, but the
+  // payment panel renders nothing for that status, so the CTA would open a
+  // booking whose upload form is empty. Waiting for the trainer comes after the
+  // two actions the member can actually take, and before the later waiting states.
+  const payment = bookings.find((booking) => booking.actions.canPay && booking.status !== "pending_trainer");
   if (payment) return { title: "ส่งหลักฐานการชำระเงิน", description: memberBookingDescription(payment), href: `/member#booking-${payment.id}`, cta: "อัปโหลดสลิป", state: "action" };
 
   const review = bookings.find((booking) => booking.actions.canReview);
   if (review) return { title: "แบ่งปันผลการฝึก", description: memberBookingDescription(review), href: `/member#booking-${review.id}`, cta: "เขียนรีวิว", state: "action" };
+
+  const pendingTrainer = bookings.find((booking) => booking.status === "pending_trainer");
+  if (pendingTrainer) return { title: "รอเทรนเนอร์ตอบรับคำขอ", description: memberBookingDescription(pendingTrainer), href: `/member#booking-${pendingTrainer.id}`, cta: "ดูสถานะ", state: "waiting" };
 
   const paymentReview = bookings.find((booking) => booking.status === "payment_review");
   if (paymentReview) return { title: "รอตรวจหลักฐาน", description: memberBookingDescription(paymentReview), href: `/member#booking-${paymentReview.id}`, cta: "ดูสถานะ", state: "waiting" };
@@ -71,6 +78,23 @@ export function getTrainerNextAction(workspace: TrainerWorkspace | null, booking
     };
   }
 
+  // บทที่ 1: the trainer answers each request and picks the 12:00 or 18:00
+  // round at which the member hears back;
+  // the member cannot pay until then.
+  const unanswered = (booking: Booking) => booking.status === "pending_trainer" && !booking.confirmationReleaseAt;
+  const request = bookings.find(unanswered);
+  if (request) {
+    const memberName = request.member?.displayName ?? "สมาชิก FitConnect";
+    const waiting = bookings.filter(unanswered).length;
+    return {
+      title: waiting > 1 ? `ตอบรับคำขอจอง ${waiting} รายการ` : "ตอบรับคำขอจอง",
+      description: `${memberName} · ${formatDateTime(request.requestedStartsAt ?? request.startsAt)} · คำขอ ${request.id}`,
+      href: `/trainer#request-${request.id}`,
+      cta: "ตอบคำขอ",
+      state: "action",
+    };
+  }
+
   const completable = bookings.find((booking) => booking.status === "confirmed" && booking.actions.canComplete && hasValidBookingPeriod(booking));
   if (completable) {
     const memberName = completable.member?.displayName ?? "สมาชิก FitConnect";
@@ -93,12 +117,12 @@ export function getTrainerNextAction(workspace: TrainerWorkspace | null, booking
   const upcoming = bookings
     .filter((booking) => booking.status === "confirmed")
     .slice()
-    .sort((left, right) => new Date(left.startsAt).getTime() - new Date(right.startsAt).getTime())[0];
+    .sort((left, right) => new Date(left.confirmedStartsAt ?? left.startsAt).getTime() - new Date(right.confirmedStartsAt ?? right.startsAt).getTime())[0];
   if (upcoming) {
     const memberName = upcoming.member?.displayName ?? "สมาชิก FitConnect";
     return {
       title: `นัดถัดไป · ${memberName}`,
-      description: formatDateTime(upcoming.startsAt),
+      description: formatDateTime(upcoming.confirmedStartsAt ?? upcoming.startsAt),
       href: upcoming.actions.canReadChat
         ? `/chat?booking=${encodeURIComponent(upcoming.id)}`
         : `/trainer#booking-${upcoming.id}`,

@@ -1,7 +1,7 @@
 import { fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { TrainerDetail } from "@/components/trainer-detail";
-import { authenticatedRequest } from "@/lib/api";
+import { authenticatedRequest, API_URL } from "@/lib/api";
 import { trainers } from "@/lib/demo-data";
 
 vi.mock("@/lib/api", async (importOriginal) => {
@@ -41,11 +41,12 @@ describe("TrainerDetail", () => {
     expect(credentials).not.toHaveAttribute("open");
     expect(appearsBefore(summary, bookingPanel)).toBe(true);
     expect(
-      within(bookingPanel).getByText(/ระบบกันเวลานัดแรกไว้ 10 นาที.*ผู้ดูแลระบบตรวจและยืนยัน/),
+      within(bookingPanel).getByText(/รอบ 12:00 หรือ 18:00 น\..*เทรนเนอร์ตรวจและยืนยัน/),
     ).toBeInTheDocument();
-    fireEvent.click(within(bookingPanel).getByText("ดู QR รับเงินของเทรนเนอร์"));
-    expect(within(bookingPanel).getByRole("img", { name: `QR รับเงินของ ${trainer.displayName}` })).toBeInTheDocument();
-    expect(within(bookingPanel).getByText(/ตรวจชื่อผู้รับในแอปธนาคารก่อนโอนทุกครั้ง/)).toBeInTheDocument();
+    // No payment QR before a booking exists: a scan here would leave the system
+    // (no hold, no slip, no record), and the amount is not known yet.
+    expect(within(bookingPanel).queryByText("ดู QR รับเงินของเทรนเนอร์")).not.toBeInTheDocument();
+    expect(within(bookingPanel).queryByRole("img", { name: `QR รับเงินของ ${trainer.displayName}` })).not.toBeInTheDocument();
   });
 
   it("opens the complete schedule in a dialog, then exposes the booking link", async () => {
@@ -165,5 +166,28 @@ describe("TrainerDetail", () => {
     render(<TrainerDetail trainer={trainer} />);
     await waitFor(() => expect(authenticatedRequest).toHaveBeenCalledWith("/v1/trainer/me"));
     expect(screen.queryByRole("button", { name: "ปรับราคา" })).not.toBeInTheDocument();
+  });
+
+  it("resolves a live profile image against the API origin, not the Next origin", () => {
+    // The API answers with a relative `/v1/profile-images/...` path, which
+    // next/image resolved against the Next origin and refused with a 400.
+    const trainer = { ...trainers[0], demo: false, image: "/v1/profile-images/trainer/2" };
+
+    render(<TrainerDetail trainer={trainer} />);
+
+    const image = screen.getByRole("img", { name: `รูปโปรไฟล์ของ${trainer.displayName}` });
+    expect(decodeURIComponent(image.getAttribute("src") ?? "")).toContain(`${API_URL}/v1/profile-images/trainer/2`);
+  });
+
+  it("lets members flip through the trainer's extra photos", () => {
+    const trainer = { ...trainers[0], photos: [{ id: 5, url: "/v1/trainer-photos/5" }, { id: 6, url: "/v1/trainer-photos/6" }] };
+    render(<TrainerDetail trainer={trainer} />);
+
+    const thumbs = within(screen.getByRole("list", { name: "รูปทั้งหมดของเทรนเนอร์" })).getAllByRole("button");
+    expect(thumbs).toHaveLength(3);
+    expect(thumbs[0]).toHaveAttribute("aria-pressed", "true");
+    fireEvent.click(thumbs[2]);
+    expect(thumbs[2]).toHaveAttribute("aria-pressed", "true");
+    expect(screen.getByText("3 / 3")).toBeInTheDocument();
   });
 });

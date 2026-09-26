@@ -10,14 +10,19 @@ final class Auth
     public function register(array $input): array
     {
         Http::requireFields($input, ['displayName', 'email', 'password', 'role']);
-        $email = strtolower(trim((string) $input['email']));
-        $role = (string) $input['role'];
+        // Every request value is read through Http::stringField(), which answers
+        // '' for anything that is not text: a cast would turn an array into the
+        // literal "Array" and write it to the row.
+        $email = strtolower(trim(Http::stringField($input, 'email')));
+        $role = Http::stringField($input, 'role');
+        $password = Http::stringField($input, 'password');
+        $displayName = trim(Http::stringField($input, 'displayName'));
 
         $fields = [];
         if (!filter_var($email, FILTER_VALIDATE_EMAIL)) {
             $fields['email'] = 'อีเมลไม่ถูกต้อง';
         }
-        if (mb_strlen((string) $input['password']) < 8) {
+        if (mb_strlen($password) < 8) {
             $fields['password'] = 'รหัสผ่านต้องมีอย่างน้อย 8 ตัวอักษร';
         }
         if (!in_array($role, ['member', 'trainer'], true)) {
@@ -30,12 +35,12 @@ final class Auth
             throw new HttpException(409, 'อีเมลนี้ถูกใช้งานแล้ว', 'EMAIL_EXISTS', ['email' => 'อีเมลนี้ถูกใช้งานแล้ว']);
         }
 
-        $userId = $this->database->transaction(function (PDO $pdo) use ($email, $input, $role): int {
+        $userId = $this->database->transaction(function (PDO $pdo) use ($email, $password, $displayName, $role): int {
             $statement = $pdo->prepare('INSERT INTO users (email, password_hash, display_name, role, status) VALUES (?, ?, ?, ?, "active")');
             $statement->execute([
                 $email,
-                password_hash((string) $input['password'], PASSWORD_DEFAULT),
-                trim((string) $input['displayName']),
+                password_hash($password, PASSWORD_DEFAULT),
+                $displayName,
                 $role,
             ]);
             $userId = (int) $pdo->lastInsertId();
@@ -53,9 +58,9 @@ final class Auth
         Http::requireFields($input, ['email', 'password']);
         $user = $this->database->fetchOne(
             'SELECT id, email, display_name, role, status, password_hash FROM users WHERE email = ?',
-            [strtolower(trim((string) $input['email']))]
+            [strtolower(trim(Http::stringField($input, 'email')))]
         );
-        if (!$user || !password_verify((string) $input['password'], $user['password_hash'])) {
+        if (!$user || !password_verify(Http::stringField($input, 'password'), $user['password_hash'])) {
             throw new HttpException(401, 'อีเมลหรือรหัสผ่านไม่ถูกต้อง', 'INVALID_CREDENTIALS');
         }
         if ($user['status'] !== 'active') {
@@ -124,19 +129,20 @@ final class Auth
         $token = Http::bearerToken();
         $user = $this->requireUser(['member', 'trainer', 'admin']);
         $row = $this->database->fetchOne('SELECT password_hash FROM users WHERE id = ?', [$user['id']]);
-        if (!$row || !password_verify((string) $input['currentPassword'], $row['password_hash'])) {
+        if (!$row || !password_verify(Http::stringField($input, 'currentPassword'), $row['password_hash'])) {
             throw new HttpException(401, 'รหัสผ่านปัจจุบันไม่ถูกต้อง', 'INVALID_CREDENTIALS', [
                 'currentPassword' => 'รหัสผ่านปัจจุบันไม่ถูกต้อง',
             ]);
         }
-        if (mb_strlen((string) $input['newPassword']) < 8) {
+        $newPassword = Http::stringField($input, 'newPassword');
+        if (mb_strlen($newPassword) < 8) {
             throw new HttpException(422, 'รหัสผ่านใหม่ไม่ถูกต้อง', 'VALIDATION_FAILED', [
                 'newPassword' => 'รหัสผ่านต้องมีอย่างน้อย 8 ตัวอักษร',
             ]);
         }
 
         $currentTokenHash = hash('sha256', (string) $token);
-        $newHash = password_hash((string) $input['newPassword'], PASSWORD_DEFAULT);
+        $newHash = password_hash($newPassword, PASSWORD_DEFAULT);
         $this->database->transaction(function (PDO $pdo) use ($user, $newHash, $currentTokenHash): void {
             $pdo->prepare('UPDATE users SET password_hash = ?, updated_at = UTC_TIMESTAMP() WHERE id = ?')
                 ->execute([$newHash, $user['id']]);

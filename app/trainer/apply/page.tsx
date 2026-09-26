@@ -1,16 +1,10 @@
-import { TrainerApplyForm } from "@/components/trainer-apply-form";
+import { TrainerApplyAccess } from "@/components/trainer-apply-access";
 
 export const metadata = { title: "สมัครเป็นเทรนเนอร์" };
 export default function TrainerApplyPage() {
   return (
     <main className="page-shell form-page">
-      <section className="form-page-heading">
-        <p className="workflow-current">ข้อมูลวิชาชีพ</p>
-        <h1>กรอกข้อมูลวิชาชีพให้ครบในที่เดียว</h1>
-        <p>ข้อมูลนี้เป็นชุดเดียวกับที่สมาชิกเห็นบนหน้าร้าน เมื่อส่งแล้วโปรไฟล์จะกลับเข้าคิวให้ผู้ดูแลระบบตรวจก่อนกลับมาแสดง พร้อมแนบไฟล์ PDF ใบรับรองเมื่อยังไม่มีเอกสารในระบบ</p>
-        <ol><li><span>01</span>ข้อมูลการให้บริการและราคา</li><li><span>02</span>บัญชีรับเงินและใบรับรอง PDF</li><li><span>03</span>ผู้ดูแลระบบตรวจและแจ้งผล</li></ol>
-      </section>
-      <TrainerApplyForm />
+      <TrainerApplyAccess />
     </main>
   );
 }

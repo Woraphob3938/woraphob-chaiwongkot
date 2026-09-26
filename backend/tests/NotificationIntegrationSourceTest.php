@@ -40,14 +40,22 @@ test('wires all approved notification events into booking workflows', function (
         'NotificationRules::PAYMENT_REJECTED_FINAL',
         'NotificationRules::BOOKING_EXPIRED',
         'NotificationRules::BOOKING_CANCELLED',
+        'NotificationRules::BOOKING_ACCEPTED',
+        'NotificationRules::BOOKING_REJECTED',
+        'NotificationRules::MESSAGE_RECEIVED',
+        'NotificationRules::TRAINER_APPLICATION_APPROVED',
+        'NotificationRules::TRAINER_APPLICATION_REJECTED',
     ] as $event) {
         assertSourceContains($source, $event);
     }
 });
 
-test('keeps trainer acceptance out of the workflow', function () use ($source): void {
-    assertSourceDoesNotContain($source, 'trainer_accept');
-    assertSourceDoesNotContain($source, 'notifyTrainerBeforePayment');
+test('starts the payment clock at the 12:00 / 18:00 round the trainer picked', function () use ($source): void {
+    assertSourceContains($source, 'WorkflowRules::confirmationRelease');
+    assertSourceContains($source, 'releaseScheduledAcceptancesInTransaction');
+    assertSourceContains($source, 'NotificationRules::BOOKING_ACCEPTED');
+    assertSourceContains($source, 'WorkflowRules::assertTrainerDecision');
+    assertSourceContains($source, 'WorkflowRules::assertTrainerCancellation');
 });
 
 test('delivers notification ids only after database transactions return', function () use ($source): void {

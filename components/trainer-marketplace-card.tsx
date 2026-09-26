@@ -3,6 +3,7 @@ import Link from "next/link";
 import { ArrowUpRight, BadgeCheck, CalendarClock, Star } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
+import { apiAssetUrl } from "@/lib/api";
 import { formatDay, formatMoney, formatTime, initials } from "@/lib/format";
 import type { Trainer } from "@/lib/types";
 
@@ -16,6 +17,10 @@ export function TrainerMarketplaceCard({
   returnTo?: string;
 }) {
   const firstSlot = trainer.slots[0];
+  // Live profiles carry a relative `/v1/profile-images/...` path that `next/image`
+  // would resolve against the Next origin and refuse with a 400; the API origin
+  // is what actually serves the file.
+  const imageUrl = apiAssetUrl(trainer.image ?? null);
   const profileHref = `/trainers/${trainer.slug}${returnTo && returnTo !== "/trainers" ? `?returnTo=${encodeURIComponent(returnTo)}` : ""}`;
   const canChooseTime = firstSlot !== undefined && trainer.priceFrom != null;
   const monthlyPrice = typeof trainer.monthlyPrice === "number" && trainer.monthlyPrice > 0
@@ -30,9 +35,9 @@ export function TrainerMarketplaceCard({
         href={profileHref}
         aria-label={`ดูโปรไฟล์ของ${trainer.displayName}`}
       >
-        {trainer.image ? (
+        {imageUrl ? (
           <Image
-            src={trainer.image}
+            src={imageUrl}
             alt={`รูปโปรไฟล์ของ${trainer.displayName}`}
             fill
             priority={priority}
@@ -56,6 +61,7 @@ export function TrainerMarketplaceCard({
 
         <div>
           <h2><Link href={profileHref}>{trainer.displayName}</Link></h2>
+          {trainer.nickname && <p className="trainer-nickname">ชื่อเล่น {trainer.nickname}</p>}
           <p className="trainer-marketplace-card__headline">{trainer.headline}</p>
         </div>
 

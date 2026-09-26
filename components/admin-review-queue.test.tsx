@@ -88,7 +88,7 @@ describe("AdminReviewQueue", () => {
 
     const nextActionLabel = await screen.findByTestId("next-action");
     const trainerCountLabel = screen.getByText("ใบสมัครรอตรวจ");
-    const paymentCountLabel = screen.getByText("สลิปรอตรวจ");
+    const paymentCountLabel = screen.getByText("สลิปรอเทรนเนอร์ตรวจ");
     expect(nextActionLabel.compareDocumentPosition(trainerCountLabel) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
     expect(nextActionLabel.compareDocumentPosition(paymentCountLabel) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
     expect(trainerCountLabel.nextElementSibling).toHaveTextContent("01");
@@ -106,7 +106,9 @@ describe("AdminReviewQueue", () => {
 
     fireEvent.click(paymentItem);
     expect(paymentItem).toHaveAttribute("aria-current", "true");
-    expect(screen.getByRole("button", { name: "อนุมัติสลิป PAY-000021" })).toBeInTheDocument();
+    // บทที่ 1: the booked trainer decides slips; the administrator only follows them.
+    expect(screen.queryByRole("button", { name: "อนุมัติสลิป PAY-000021" })).not.toBeInTheDocument();
+    expect(screen.getByText(/เทรนเนอร์ของการจองนี้เป็นผู้ตรวจและยืนยันสลิป/)).toBeInTheDocument();
   });
 
   it("uses one queue, evidence workspace, and decision panel for the selected review", async () => {
@@ -115,7 +117,7 @@ describe("AdminReviewQueue", () => {
       payments: [payment],
     });
 
-    render(<AdminReviewQueue />);
+    render(<AdminReviewQueue reviewer="trainer" />);
 
     const reviewQueue = await screen.findByRole("navigation", { name: "คิวรายการรอตรวจ" });
     const trainerItem = within(reviewQueue).getByRole("button", { name: "เลือกตรวจใบสมัคร ผู้สมัครทดสอบ" });
@@ -141,7 +143,7 @@ describe("AdminReviewQueue", () => {
       .mockResolvedValueOnce({ trainerId: 9, status: "rejected" })
       .mockResolvedValueOnce({ trainers: [], payments: [] });
 
-    render(<AdminReviewQueue />);
+    render(<AdminReviewQueue reviewer="trainer" />);
     await openQueueDisclosure("ใบสมัครเทรนเนอร์");
     await screen.findAllByText("ผู้สมัครทดสอบ");
     fireEvent.click(screen.getByRole("button", { name: "ปฏิเสธ" }));
@@ -162,7 +164,7 @@ describe("AdminReviewQueue", () => {
   it("renders the payment evidence with Thai appointment and currency formatting", async () => {
     vi.mocked(authenticatedRequest).mockResolvedValueOnce(paymentQueue());
 
-    render(<AdminReviewQueue />);
+    render(<AdminReviewQueue reviewer="trainer" />);
     await openQueueDisclosure("หลักฐานการชำระเงิน");
 
     const row = await screen.findByRole("article", { name: "ตรวจสลิป PAY-000021" });
@@ -175,7 +177,7 @@ describe("AdminReviewQueue", () => {
     expect(within(row).getByText("฿1,000.00")).toBeInTheDocument();
     expect(within(row).getByText("-฿200.00")).toBeInTheDocument();
     expect(within(row).getByText("เสาร์ 1 ส.ค. 2569 · 09:00 น.")).toBeInTheDocument();
-    expect(within(row).getByText("ตรวจหลักฐานของยิมที่คุณดูแล")).toBeInTheDocument();
+    expect(within(row).getByText("ตรวจหลักฐานการชำระเงินของคุณ")).toBeInTheDocument();
   });
 
   it("gives long unbroken evidence values an explicit wrapping contract", async () => {
@@ -187,7 +189,7 @@ describe("AdminReviewQueue", () => {
       trainerName: longTrainer,
     }]));
 
-    render(<AdminReviewQueue />);
+    render(<AdminReviewQueue reviewer="trainer" />);
     await openQueueDisclosure("หลักฐานการชำระเงิน");
     const row = await screen.findByRole("article", { name: "ตรวจสลิป PAY-000021" });
 
@@ -206,7 +208,7 @@ describe("AdminReviewQueue", () => {
       .mockResolvedValueOnce({ paymentId: 21, status: "rejected" })
       .mockResolvedValueOnce(paymentQueue([]));
 
-    render(<AdminReviewQueue />);
+    render(<AdminReviewQueue reviewer="trainer" />);
     await openQueueDisclosure("หลักฐานการชำระเงิน");
     await screen.findAllByText("PAY-000021");
 
@@ -232,7 +234,7 @@ describe("AdminReviewQueue", () => {
       .mockResolvedValueOnce({ paymentId: 21, status: "rejected", bookingStatus, paymentDeadlineAt: bookingStatus === "awaiting_payment" ? "2099-08-10T02:10:00.000Z" : null })
       .mockResolvedValueOnce(paymentQueue([]));
 
-    render(<AdminReviewQueue />);
+    render(<AdminReviewQueue reviewer="trainer" />);
     await openQueueDisclosure("หลักฐานการชำระเงิน");
     fireEvent.change(screen.getByLabelText("ผลตรวจสลิป PAY-000021"), { target: { value: "สลิปไม่ชัด" } });
     fireEvent.click(screen.getByRole("button", { name: "ไม่อนุมัติสลิป PAY-000021" }));
@@ -247,7 +249,7 @@ describe("AdminReviewQueue", () => {
       { ...payment, id: 22, bookingId: "BK-000778", fileUrl: "/v1/admin/files/payment/22" },
     ]));
 
-    render(<AdminReviewQueue />);
+    render(<AdminReviewQueue reviewer="trainer" />);
     await openQueueDisclosure("หลักฐานการชำระเงิน");
     await screen.findAllByText("PAY-000021");
 
@@ -265,7 +267,7 @@ describe("AdminReviewQueue", () => {
       .mockResolvedValueOnce({ paymentId: 21, status: "approved" })
       .mockResolvedValueOnce(paymentQueue([]));
 
-    render(<AdminReviewQueue />);
+    render(<AdminReviewQueue reviewer="trainer" />);
     await openQueueDisclosure("หลักฐานการชำระเงิน");
     await screen.findAllByText("PAY-000021");
     const approve = screen.getByRole("button", { name: "อนุมัติสลิป PAY-000021" });
@@ -289,7 +291,7 @@ describe("AdminReviewQueue", () => {
       ]))
       .mockReturnValueOnce(pendingDecision);
 
-    render(<AdminReviewQueue />);
+    render(<AdminReviewQueue reviewer="trainer" />);
     await openQueueDisclosure("หลักฐานการชำระเงิน");
     const firstApprove = await screen.findByRole("button", { name: "อนุมัติสลิป PAY-000021" });
     confirmCurrentBankPayment();
@@ -312,7 +314,7 @@ describe("AdminReviewQueue", () => {
     vi.mocked(authenticatedRequest).mockResolvedValueOnce(paymentQueue());
     vi.mocked(openProtectedFile).mockRejectedValueOnce(new Error("เปิดไฟล์สลิปไม่ได้"));
 
-    render(<AdminReviewQueue />);
+    render(<AdminReviewQueue reviewer="trainer" />);
     await openQueueDisclosure("หลักฐานการชำระเงิน");
     await screen.findAllByText("PAY-000021");
     fireEvent.click(screen.getByRole("button", { name: "เปิดสลิป PAY-000021" }));
@@ -328,7 +330,7 @@ describe("AdminReviewQueue", () => {
       .mockResolvedValueOnce({ paymentId: 21, status: "approved" })
       .mockResolvedValueOnce(paymentQueue([]));
 
-    render(<AdminReviewQueue />);
+    render(<AdminReviewQueue reviewer="trainer" />);
     await openQueueDisclosure("หลักฐานการชำระเงิน");
     const approve = await screen.findByRole("button", { name: "อนุมัติสลิป PAY-000021" });
     confirmCurrentBankPayment();
@@ -348,7 +350,7 @@ describe("AdminReviewQueue", () => {
       .mockRejectedValueOnce(new ApiError("หลักฐานนี้ได้รับการตัดสินแล้ว", 409, "PAYMENT_ALREADY_REVIEWED"))
       .mockResolvedValueOnce(paymentQueue([]));
 
-    render(<AdminReviewQueue />);
+    render(<AdminReviewQueue reviewer="trainer" />);
     await openQueueDisclosure("หลักฐานการชำระเงิน");
     await screen.findAllByText("PAY-000021");
     confirmCurrentBankPayment();
@@ -366,7 +368,7 @@ describe("AdminReviewQueue", () => {
       .mockRejectedValueOnce(new Error("โหลดคิวล่าสุดไม่สำเร็จ"))
       .mockResolvedValueOnce(paymentQueue([]));
 
-    render(<AdminReviewQueue />);
+    render(<AdminReviewQueue reviewer="trainer" />);
     await openQueueDisclosure("หลักฐานการชำระเงิน");
     await screen.findAllByText("PAY-000021");
     confirmCurrentBankPayment();
@@ -396,7 +398,7 @@ describe("AdminReviewQueue", () => {
       return queueLoads === 2 ? olderRefresh.promise : newerRefresh.promise;
     });
 
-    render(<AdminReviewQueue />);
+    render(<AdminReviewQueue reviewer="trainer" />);
     await openQueueDisclosure("หลักฐานการชำระเงิน");
     await screen.findAllByText("PAY-000021");
     confirmCurrentBankPayment();
@@ -436,7 +438,7 @@ describe("AdminReviewQueue", () => {
       return queueLoads === 2 ? olderRefresh.promise : newerRefresh.promise;
     });
 
-    render(<AdminReviewQueue />);
+    render(<AdminReviewQueue reviewer="trainer" />);
     await openQueueDisclosure("หลักฐานการชำระเงิน");
     await screen.findAllByText("PAY-000021");
     confirmCurrentBankPayment();
@@ -473,7 +475,7 @@ describe("AdminReviewQueue", () => {
       return queueLoads === 2 ? olderRefresh.promise : newerRefresh.promise;
     });
 
-    render(<AdminReviewQueue />);
+    render(<AdminReviewQueue reviewer="trainer" />);
     await openQueueDisclosure("หลักฐานการชำระเงิน");
     await screen.findAllByText("PAY-000021");
     confirmCurrentBankPayment();
@@ -516,7 +518,7 @@ describe("AdminReviewQueue", () => {
       return queueLoads === 3 ? olderRetry.promise : newerRefresh.promise;
     });
 
-    render(<AdminReviewQueue />);
+    render(<AdminReviewQueue reviewer="trainer" />);
     await openQueueDisclosure("หลักฐานการชำระเงิน");
     await screen.findAllByText("PAY-000021");
     confirmCurrentBankPayment();
@@ -552,7 +554,7 @@ describe("AdminReviewQueue", () => {
       difference: null,
     }]));
 
-    render(<AdminReviewQueue />);
+    render(<AdminReviewQueue reviewer="trainer" />);
     await openQueueDisclosure("หลักฐานการชำระเงิน");
     const row = await screen.findByRole("article", { name: "ตรวจสลิป PAY-000021" });
     expect(within(row).getAllByText("ไม่มียอดที่บันทึก")).toHaveLength(2);

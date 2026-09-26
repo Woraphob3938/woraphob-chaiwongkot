@@ -1,7 +1,7 @@
 import { fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { AdminOperations } from "@/components/admin-operations";
-import { authenticatedRequest } from "@/lib/api";
+import { ApiError, authenticatedRequest } from "@/lib/api";
 
 const push = vi.fn();
 vi.mock("next/navigation", () => ({ useRouter: () => ({ push }) }));
@@ -246,5 +246,138 @@ describe("AdminOperations", () => {
     fireEvent.click(screen.getByRole("button", { name: "หน้าบัญชีถัดไป" }));
     expect(await screen.findByText("สมาชิกลำดับ 11")).toBeInTheDocument();
     await waitFor(() => expect(screen.queryByText("สมาชิกลำดับ 1")).not.toBeInTheDocument());
+  });
+
+  it("searches by name, email, or phone and deletes an account only after permanent-deletion confirmation", async () => {
+    vi.mocked(authenticatedRequest)
+      .mockResolvedValueOnce(operations)
+      .mockResolvedValueOnce({ deleted: true })
+      .mockResolvedValueOnce({ ...operations, users: operations.users.filter((user) => user.id !== 7) });
+    render(<AdminOperations />);
+    fireEvent.click(await screen.findByRole("tab", { name: "บัญชีผู้ใช้" }));
+
+    expect(screen.getByPlaceholderText("ค้นหาด้วยชื่อ อีเมล หรือเบอร์โทรศัพท์")).toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole("button", { name: "ลบบัญชี สมาชิกหนึ่ง" }));
+    const dialog = screen.getByRole("dialog", { name: "ลบบัญชีถาวร" });
+    expect(dialog).toHaveTextContent("การลบถาวร");
+    expect(dialog).toHaveTextContent("ไม่สามารถกู้คืนได้");
+    expect(dialog).toHaveTextContent("member@example.com");
+    fireEvent.click(within(dialog).getByRole("button", { name: "ยืนยันลบบัญชีถาวร" }));
+
+    await waitFor(() => expect(authenticatedRequest).toHaveBeenCalledWith("/v1/admin/users/7", { method: "DELETE" }));
+    expect(await screen.findByRole("status")).toHaveTextContent("ลบบัญชี “สมาชิกหนึ่ง” ออกจากระบบแล้ว");
+  });
+
+  it.each([
+    ["SELF_DELETION", "ไม่สามารถลบบัญชีของตัวเองได้"],
+    ["LAST_USER_MANAGER", "ต้องเหลือผู้ดูแลที่จัดการบัญชีได้อย่างน้อย 1 คน"],
+  ] as const)("surfaces the %s guard message and keeps the dialog open", async (code, message) => {
+    vi.mocked(authenticatedRequest)
+      .mockResolvedValueOnce(operations)
+      .mockRejectedValueOnce(new ApiError(message, 409, code));
+    render(<AdminOperations />);
+    fireEvent.click(await screen.findByRole("tab", { name: "บัญชีผู้ใช้" }));
+    fireEvent.click(screen.getByRole("button", { name: "ลบบัญชี สมาชิกหนึ่ง" }));
+    fireEvent.click(screen.getByRole("button", { name: "ยืนยันลบบัญชีถาวร" }));
+
+    expect(await screen.findByRole("alert")).toHaveTextContent(message);
+    expect(screen.getByRole("dialog", { name: "ลบบัญชีถาวร" })).toBeInTheDocument();
+  });
+
+  it("renders only the report sections the API returned", async () => {
+    vi.mocked(authenticatedRequest).mockImplementation((path) => {
+      if (isOperationsRequest(path)) return Promise.resolve(operations);
+      if (path.startsWith("/v1/admin/reports?")) return Promise.resolve({ usersByRole: [{ role: "member", count: 4 }] });
+      return Promise.resolve({ trainers: [], payments: [] });
+    });
+    render(<AdminOperations />);
+    fireEvent.click(await screen.findByRole("tab", { name: "รายงาน" }));
+
+    expect(await screen.findByRole("table", { name: "จำนวนผู้ใช้แยกตามประเภทบัญชี" })).toBeInTheDocument();
+    expect(screen.queryByRole("heading", { name: "การจองแยกตามสถานะ" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("heading", { name: "รายได้ที่อนุมัติแล้ว" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("heading", { name: "การชำระเงิน" })).not.toBeInTheDocument();
+  });
+
+  it("renders the monthly report tables and downloads a Thai CSV with a BOM", async () => {
+    const year = new Date().getFullYear();
+    const reportsPayload = {
+      year,
+      bookingsByMonth: [
+        { month: 1, total: 3, byStatus: { pending_trainer: 1, confirmed: 2 } },
+        { month: 2, total: 1, byStatus: { completed: 1 } },
+      ],
+      incomeByMonth: [{ month: 1, amount: 1200 }, { month: 2, amount: 0 }],
+      paymentsByMonth: [{ month: 1, submitted: 5, approved: 4, rejected: 1 }],
+      usersByRole: [{ role: "member", count: 10 }, { role: "trainer", count: 2 }, { role: "admin", count: 1 }],
+    };
+    vi.mocked(authenticatedRequest).mockImplementation((path) => {
+      if (isOperationsRequest(path)) return Promise.resolve(operations);
+      if (path.startsWith("/v1/admin/reports?")) return Promise.resolve(reportsPayload);
+      return Promise.resolve({ trainers: [], payments: [] });
+    });
+    render(<AdminOperations />);
+    fireEvent.click(await screen.findByRole("tab", { name: "รายงาน" }));
+
+    expect(authenticatedRequest).toHaveBeenCalledWith(`/v1/admin/reports?year=${year}`);
+    const bookingsTable = await screen.findByRole("table", { name: "จำนวนการจองรายเดือนแยกตามสถานะ" });
+    expect(within(bookingsTable).getByRole("columnheader", { name: "รอเทรนเนอร์ตอบรับ" })).toBeInTheDocument();
+    expect(within(bookingsTable).getByRole("columnheader", { name: "รวม" })).toBeInTheDocument();
+    expect(within(bookingsTable).getByText("มกราคม")).toBeInTheDocument();
+
+    const incomeTable = screen.getByRole("table", { name: "ผลรวมรายได้ที่อนุมัติแล้วรายเดือน" });
+    expect(within(incomeTable).getByText("฿1,200")).toBeInTheDocument();
+
+    const paymentsTable = screen.getByRole("table", { name: "การชำระเงินรายเดือนแยกตามผลการตรวจ" });
+    for (const header of ["ส่งตรวจ", "อนุมัติ", "ปฏิเสธ"]) {
+      expect(within(paymentsTable).getByRole("columnheader", { name: header })).toBeInTheDocument();
+    }
+
+    const usersTable = screen.getByRole("table", { name: "จำนวนผู้ใช้แยกตามประเภทบัญชี" });
+    expect(within(usersTable).getByText("สมาชิก")).toBeInTheDocument();
+    expect(within(usersTable).getByText("10")).toBeInTheDocument();
+
+    const links: HTMLAnchorElement[] = [];
+    const clickSpy = vi.spyOn(HTMLAnchorElement.prototype, "click").mockImplementation(function (this: HTMLAnchorElement) {
+      links.push(this);
+    });
+    Object.defineProperty(URL, "createObjectURL", { configurable: true, writable: true, value: undefined });
+    fireEvent.click(screen.getByRole("button", { name: "ดาวน์โหลด CSV" }));
+    clickSpy.mockRestore();
+
+    expect(links).toHaveLength(1);
+    expect(links[0].download).toBe(`fitconnect-reports-${year}.csv`);
+    const csv = decodeURIComponent(links[0].href.replace(/^data:text\/csv;charset=utf-8,/, ""));
+    expect(csv.startsWith("\uFEFF")).toBe(true);
+    expect(csv).toContain("การจองแยกตามสถานะ");
+    expect(csv).toContain("เดือน,รอเทรนเนอร์ตอบรับ,ยืนยันแล้ว,เสร็จสิ้น,รวม");
+    expect(csv).toContain("รายได้ที่อนุมัติแล้ว");
+    expect(csv).toContain("เดือน,ส่งตรวจ,อนุมัติ,ปฏิเสธ");
+    expect(csv).toContain("ผู้ใช้แยกตามประเภท");
+    expect(csv).toContain("สมาชิก,10");
+    expect(csv).toContain("มกราคม,1,2,0,3");
+  });
+
+  it("shows the gym trainer salary table from the operations payload", async () => {
+    const withSalaries = {
+      ...operations,
+      gymSalaries: [
+        { trainerId: 3, trainerName: "เทรนเนอร์หนึ่ง", month: "2026-08", sessions: 4, amount: 4800 },
+        { trainerId: 3, trainerName: "เทรนเนอร์หนึ่ง", month: "2026-09", sessions: 2, amount: 2400 },
+      ],
+    };
+    vi.mocked(authenticatedRequest).mockResolvedValue(withSalaries);
+    render(<AdminOperations />);
+    fireEvent.click(await screen.findByRole("tab", { name: "การเงิน" }));
+
+    const table = await screen.findByRole("table", { name: "เงินเดือนเทรนเนอร์ประจำยิมแยกตามเดือน" });
+    for (const header of ["เทรนเนอร์", "เดือน", "จำนวนครั้ง", "จำนวนเงิน"]) {
+      expect(within(table).getByRole("columnheader", { name: header })).toBeInTheDocument();
+    }
+    expect(within(table).getByText("สิงหาคม 2569")).toBeInTheDocument();
+    expect(within(table).getByText("กันยายน 2569")).toBeInTheDocument();
+    expect(within(table).getByText("฿4,800")).toBeInTheDocument();
+    expect(within(table).getByText("฿2,400")).toBeInTheDocument();
   });
 });

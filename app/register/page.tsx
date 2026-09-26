@@ -24,15 +24,15 @@ export default function RegisterPage() {
           <li className="auth-feature-item">
             <CalendarClock aria-hidden="true" size={20} />
             <div>
-              <strong>สมาชิกเลือกเวลาแล้วล็อกไว้ 10 นาที</strong>
-              <span>ช่วงเวลาถูกกันไว้ระหว่างส่งหลักฐานการชำระเงิน ไม่มีขั้นตอนให้เทรนเนอร์กดตอบรับ</span>
+              <strong>ยืนยันเป็นรอบ แล้วชำระภายใน 10 นาที</strong>
+              <span>สมาชิกส่งคำขอตามเวลาที่อยากฝึก เทรนเนอร์ตอบรับ แล้วระบบแจ้งยืนยันในรอบ 12:00 หรือ 18:00 น. จากนั้นส่งสลิปภายใน 10 นาที</span>
             </div>
           </li>
           <li className="auth-feature-item">
             <MessagesSquare aria-hidden="true" size={20} />
             <div>
               <strong>คุยกันได้ในระบบ</strong>
-              <span>ห้องสนทนาเปิดให้ทั้งสองฝ่ายหลังการจอง พร้อมไฟล์แนบและประวัติที่ตรวจย้อนหลังได้</span>
+              <span>ทักถามเทรนเนอร์ได้ตั้งแต่ก่อนจอง และคุยนัดหมายต่อได้จนจบการฝึก</span>
             </div>
           </li>
         </ul>

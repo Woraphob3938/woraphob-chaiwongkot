@@ -40,7 +40,7 @@ export function PaymentRoutingSettings() {
   return <details className="admin-record-disclosure">
     <summary>กำหนดผู้ตรวจสลิปของการจองเดิม</summary>
     <div className="admin-editor">
-      <p>FitConnect ใช้ยิมเดียว เทรนเนอร์ฟรีแลนซ์ตรวจสลิปของตนเอง ส่วนผู้ดูแลระบบที่มีสิทธิ์ตรวจการชำระเงินตรวจสลิปของเทรนเนอร์ประจำยิม</p>
+      <p>FitConnect ใช้ยิมเดียว เทรนเนอร์เป็นผู้ยืนยันสลิปของการจองตนเองทั้งแบบฟรีแลนซ์และประจำยิม ส่วนผู้ดูแลระบบที่มีสิทธิ์ตรวจการชำระเงินดูสลิปและรายได้ของเทรนเนอร์ประจำยิมเพื่อสรุปเงินเดือน</p>
       {error && <div role="alert"><p>{error}</p><Button variant="outline" disabled={busy} onClick={() => void load().then(() => setError("")).catch((reason: Error) => setError(reason.message))}>ลองโหลดใหม่</Button></div>}
       {notice && <p role="status">{notice}</p>}
       {!data && !error && <p role="status">กำลังโหลดสังกัดยิม…</p>}

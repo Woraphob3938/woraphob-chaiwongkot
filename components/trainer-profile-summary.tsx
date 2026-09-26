@@ -1,17 +1,10 @@
 "use client";
 
-import Link from "next/link";
-import { PencilLine } from "lucide-react";
+import { LockKeyhole, PencilLine, Store } from "lucide-react";
 import { StatusBadge } from "@/components/status-badge";
 import type { AccountProfile, TrainerAccountProfile } from "@/lib/types";
 
-/**
- * The account profile no longer duplicates the professional editor. Trainers
- * read their approval state, certificates and storefront readiness here and
- * make changes on the application page, so one submit path owns the record and
- * every change is re-reviewed.
- */
-export function TrainerProfileSummary({ profile, onEdit }: { profile: TrainerAccountProfile; onEdit?: () => void }) {
+export function TrainerProfileSummary({ profile, onEdit }: { profile: TrainerAccountProfile; onEdit: () => void }) {
   const { trainer } = profile;
   const storefrontComplete = Boolean(
     profile.user.displayName.trim()
@@ -23,11 +16,19 @@ export function TrainerProfileSummary({ profile, onEdit }: { profile: TrainerAcc
     && trainer.trainingTypeIds.length > 0,
   );
 
+  const maskedPromptPay = (trainer.promptPayId ?? "").replace(/\D/g, "");
+  const promptPayLabel = maskedPromptPay
+    ? `${maskedPromptPay.slice(0, 3)}••••${maskedPromptPay.slice(-3)}`
+    : "ยังไม่ระบุ";
+
   return (
     <section className="profile-section" aria-labelledby="trainer-details-title">
-      <div className="profile-section__heading">
-        <h2 id="trainer-details-title">ข้อมูลเทรนเนอร์</h2>
-        <p>ข้อมูลวิชาชีพทั้งหมดแก้ที่หน้าใบสมัคร เพื่อให้ผู้ดูแลระบบตรวจก่อนขึ้นหน้าร้าน</p>
+      <div className="profile-section__heading profile-section__heading--action">
+        <div>
+          <h2 id="trainer-details-title">ข้อมูลเทรนเนอร์</h2>
+          <p>แก้ไขข้อมูลได้จากหน้านี้ และส่งให้ผู้ดูแลระบบตรวจอีกครั้งก่อนแสดงบนหน้าค้นหา</p>
+        </div>
+        <button className="button button--accent" type="button" onClick={onEdit}><PencilLine aria-hidden="true" size={17} /> แก้ไขข้อมูล</button>
       </div>
 
       <div className="profile-readiness" aria-label="ความพร้อมของหน้าร้าน">
@@ -36,59 +37,60 @@ export function TrainerProfileSummary({ profile, onEdit }: { profile: TrainerAcc
         <div><span>ใบรับรอง</span><strong>{trainer.certificates.length} รายการ</strong></div>
       </div>
 
-      <dl className="profile-ledger">
-        <div><dt>ชื่อที่แสดง</dt><dd>{profile.user.displayName}</dd></div>
-        <div><dt>ชื่อ-นามสกุลจริง</dt><dd>{trainer.legalName || "ยังไม่ระบุ"}</dd></div>
-        <div><dt>เบอร์โทรศัพท์</dt><dd>{trainer.phone || "ยังไม่ระบุ"}</dd></div>
-        <div><dt>ประสบการณ์</dt><dd>{trainer.yearsExperience} ปี</dd></div>
-        <div><dt>ค่าฝึกเริ่มต้น</dt><dd>{trainer.priceFrom === null ? "ยังไม่กำหนด" : `${trainer.priceFrom} บาท`}</dd></div>
-        <div><dt>แพ็กเกจ 30 วัน</dt><dd>{trainer.monthlyPrice === null ? "ยังไม่เปิด" : `${trainer.monthlyPrice} บาท · ${trainer.monthlySessionCount} ครั้ง`}</dd></div>
-        <div><dt>บัญชีรับเงิน</dt><dd>{trainer.paymentAccountName || "ยังไม่ระบุ"}</dd></div>
-        <div>
-          <dt>สถานะการตรวจ</dt>
-          <dd><StatusBadge status={trainer.approvalStatus} /></dd>
-        </div>
-        {trainer.approvalNote && (
-          <div><dt>หมายเหตุจากผู้ดูแลระบบ</dt><dd>{trainer.approvalNote}</dd></div>
-        )}
-        <div className="profile-ledger__stack">
-          <dt className="sr-only">ใบรับรอง</dt>
-          <dd>
-            <details className="profile-certificates-disclosure">
-              <summary>
-                <span>
-                  <strong>ใบรับรองและคุณสมบัติ</strong>
-                  <small>{trainer.certificates.length} รายการ</small>
-                </span>
-                <span aria-hidden="true">ดูรายละเอียด</span>
-              </summary>
-              <div className="profile-certificates-disclosure__content">
-                {trainer.certificates.length === 0
-                  ? <p className="profile-certificates-empty">ยังไม่มีใบรับรอง แนบเอกสารได้จากหน้าใบสมัคร</p>
-                  : (
-                    <ul className="profile-certificates">
-                      {trainer.certificates.map((certificate) => (
-                        <li key={certificate.id}>
-                          <span>
-                            <strong>{certificate.name}</strong>
-                            <small>{certificate.issuer}{certificate.issuedYear ? ` · ${certificate.issuedYear}` : ""}</small>
-                          </span>
-                          <StatusBadge status={certificate.status} />
-                        </li>
-                      ))}
-                    </ul>
-                  )}
-              </div>
-            </details>
-          </dd>
-        </div>
-      </dl>
+      {trainer.approvalNote && (
+        <p className="profile-approval-note"><strong>หมายเหตุจากผู้ดูแลระบบ</strong>{trainer.approvalNote}</p>
+      )}
 
-      <div className="trainer-apply-actions">
-        {onEdit
-          ? <button className="button button--accent" type="button" onClick={onEdit}><PencilLine aria-hidden="true" size={17} /> แก้ข้อมูลวิชาชีพ</button>
-          : <Link className="button button--accent" href="/trainer/apply"><PencilLine aria-hidden="true" size={17} /> แก้ข้อมูลวิชาชีพ</Link>}
+      <div className="profile-card-grid">
+        <section className="profile-card" aria-labelledby="trainer-storefront-title">
+          <h3 className="profile-card__title" id="trainer-storefront-title"><Store aria-hidden="true" size={18} /> ข้อมูลหน้าร้าน</h3>
+          <p className="profile-card__hint">สมาชิกเห็นข้อมูลนี้บนหน้าค้นหาและหน้าโปรไฟล์</p>
+          <dl className="profile-ledger">
+            <div><dt>ชื่อที่แสดง</dt><dd>{profile.user.displayName}</dd></div>
+            <div><dt>ชื่อเล่น</dt><dd>{trainer.nickname || "ยังไม่ระบุ"}</dd></div>
+            <div><dt>ประสบการณ์</dt><dd>{trainer.yearsExperience} ปี</dd></div>
+            <div><dt>ค่าฝึกเริ่มต้น</dt><dd>{trainer.priceFrom === null ? "ยังไม่กำหนด" : `${trainer.priceFrom} บาท`}</dd></div>
+            <div><dt>แพ็กเกจ 30 วัน</dt><dd>{trainer.monthlyPrice === null ? "ยังไม่เปิด" : `${trainer.monthlyPrice} บาท · ${trainer.monthlySessionCount} ครั้ง`}</dd></div>
+          </dl>
+        </section>
+        <section className="profile-card" aria-labelledby="trainer-private-title">
+          <h3 className="profile-card__title" id="trainer-private-title"><LockKeyhole aria-hidden="true" size={18} /> ข้อมูลส่วนตัว</h3>
+          <p className="profile-card__hint">เห็นเฉพาะคุณและผู้ดูแลระบบ</p>
+          <dl className="profile-ledger">
+            <div><dt>ชื่อ-นามสกุลจริง</dt><dd>{trainer.legalName || "ยังไม่ระบุ"}</dd></div>
+            <div><dt>เบอร์โทรศัพท์</dt><dd>{trainer.phone || "ยังไม่ระบุ"}</dd></div>
+            <div><dt>ชื่อบัญชีพร้อมเพย์</dt><dd>{trainer.paymentAccountName || "ยังไม่ระบุ"}</dd></div>
+            <div><dt>พร้อมเพย์</dt><dd>{promptPayLabel}</dd></div>
+          </dl>
+        </section>
       </div>
+
+      <details className="profile-certificates-disclosure">
+        <summary>
+          <span>
+            <strong>ใบรับรองและคุณสมบัติ</strong>
+            <small>{trainer.certificates.length} รายการ</small>
+          </span>
+          <span aria-hidden="true">ดูรายละเอียด</span>
+        </summary>
+        <div className="profile-certificates-disclosure__content">
+          {trainer.certificates.length === 0
+            ? <p className="profile-certificates-empty">ยังไม่มีใบรับรอง แนบเอกสารได้จากหน้าใบสมัคร</p>
+            : (
+              <ul className="profile-certificates">
+                {trainer.certificates.map((certificate) => (
+                  <li key={certificate.id}>
+                    <span>
+                      <strong>{certificate.name}</strong>
+                      <small>{certificate.issuer}{certificate.issuedYear ? ` · ${certificate.issuedYear}` : ""}</small>
+                    </span>
+                    <StatusBadge status={certificate.status} />
+                  </li>
+                ))}
+              </ul>
+            )}
+        </div>
+      </details>
     </section>
   );
 }

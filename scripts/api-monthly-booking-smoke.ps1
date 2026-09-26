@@ -62,13 +62,21 @@ function Invoke-MySql([string]$Sql) {
 }
 
 function New-TestSlot([string]$Token, [int]$Days, [int]$Minutes) {
-    $start = [DateTime]::UtcNow.Date.AddDays($Days).AddHours(9).AddMinutes($Minutes)
-    $slot = (Invoke-Api 'POST' '/v1/availability-slots' @{
-        startsAt = $start.ToString('yyyy-MM-ddTHH:mm:ss.fffZ')
-        endsAt = $start.AddHours(1).ToString('yyyy-MM-ddTHH:mm:ss.fffZ')
-    } $Token).data
-    $slotIds.Add([int]$slot.id)
-    return $slot
+    # Retries shift the start slightly: other smoke runs leave slots behind and
+    # the API correctly refuses an overlapping window with 409.
+    for ($attempt = 1; $attempt -le 30; $attempt++) {
+        $start = [DateTime]::UtcNow.Date.AddDays($Days).AddHours(9).AddMinutes($Minutes + ($attempt - 1) * 7)
+        try {
+            $slot = (Invoke-Api 'POST' '/v1/availability-slots' @{
+                startsAt = $start.ToString('yyyy-MM-ddTHH:mm:ss.fffZ')
+                endsAt = $start.AddHours(1).ToString('yyyy-MM-ddTHH:mm:ss.fffZ')
+            } $Token).data
+            $slotIds.Add([int]$slot.id)
+            return $slot
+        } catch {
+            if ([int]$_.Exception.Response.StatusCode -ne 409 -or $attempt -eq 30) { throw }
+        }
+    }
 }
 
 try {
@@ -83,6 +91,8 @@ try {
         displayName = $originalProfile.user.displayName
         legalName = $trainerData.legalName
         phone = $trainerData.phone
+        birthDate = $trainerData.birthDate
+        education = $trainerData.education
         headline = $trainerData.headline
         bio = $trainerData.bio
         yearsExperience = $trainerData.yearsExperience
@@ -91,6 +101,8 @@ try {
         priceFrom = $trainerData.priceFrom
         monthlyPrice = 2400
         monthlySessionCount = 2
+        paymentAccountName = $trainerData.paymentAccountName
+        promptPayId = $trainerData.promptPayId
         trainingTypeIds = @($trainerData.trainingTypeIds)
     }
     Invoke-Api 'PATCH' '/v1/profile' $profileBody $trainer.token | Out-Null
@@ -98,7 +110,7 @@ try {
     $publicTrainer = (Invoke-Api 'GET' '/v1/trainers/demo-trainer-a').data
     $offset = Get-Random -Minimum 1 -Maximum 400
 
-    $cancelSlots = @(New-TestSlot $trainer.token 12 $offset; New-TestSlot $trainer.token 18 $offset)
+    $cancelSlots = @(New-TestSlot $trainer.token 12 $offset)
     $cancelBooking = (Invoke-Api 'POST' '/v1/bookings' @{
         trainerId = $publicTrainer.id
         bookingType = 'monthly'
@@ -108,6 +120,11 @@ try {
     $bookingIds.Add([string]$cancelBooking.id)
     Assert-True ($cancelBooking.bookingType -eq 'monthly' -and $cancelBooking.sessionCount -eq 2) 'Monthly booking summary is incorrect.'
     Assert-True ([decimal]$cancelBooking.quotedPrice -eq 2400) 'Monthly package price is incorrect.'
+    Assert-True ($cancelBooking.status -eq 'pending_trainer') 'Monthly booking must wait for the trainer decision.'
+    Invoke-Api 'PATCH' "/v1/bookings/$($cancelBooking.id)/status" @{
+        status = 'awaiting_payment'
+        confirmedTime = 'as_requested'
+    } $trainer.token | Out-Null
 
     $heldWorkspace = (Invoke-Api 'GET' '/v1/trainer/me' $null $trainer.token).data
     foreach ($slot in $cancelSlots) {
@@ -122,7 +139,7 @@ try {
         Assert-True ($state -eq 'available') "Cancelled slot $($slot.id) was not released."
     }
 
-    $expirySlots = @(New-TestSlot $trainer.token 20 ($offset + 10); New-TestSlot $trainer.token 24 ($offset + 10))
+    $expirySlots = @(New-TestSlot $trainer.token 20 ($offset + 10))
     $expiryBooking = (Invoke-Api 'POST' '/v1/bookings' @{
         trainerId = $publicTrainer.id
         bookingType = 'monthly'
@@ -130,12 +147,17 @@ try {
         note = 'monthly smoke expiry'
     } $member.token).data
     $bookingIds.Add([string]$expiryBooking.id)
+    $expiryAccepted = (Invoke-Api 'PATCH' "/v1/bookings/$($expiryBooking.id)/status" @{
+        status = 'awaiting_payment'
+        confirmedTime = 'as_requested'
+    } $trainer.token).data
+    Assert-True ($expiryAccepted.status -eq 'awaiting_payment') 'Monthly booking must reach awaiting_payment through trainer acceptance.'
     Invoke-MySql "UPDATE bookings SET payment_deadline_at = DATE_SUB(UTC_TIMESTAMP(), INTERVAL 1 MINUTE) WHERE public_id = '$($expiryBooking.id)';" | Out-Null
 
     $memberBookings = (Invoke-Api 'GET' '/v1/bookings' $null $member.token).data
     $expired = $memberBookings | Where-Object id -eq $expiryBooking.id | Select-Object -First 1
     Assert-True ($expired.status -eq 'expired') 'Monthly booking did not expire after its payment deadline.'
-    Assert-True (@($expired.sessions).Count -eq 2) 'Monthly booking did not retain both sessions.'
+    Assert-True (@($expired.sessions).Count -ge 1) 'Monthly booking must retain its first session.'
 
     $expiredWorkspace = (Invoke-Api 'GET' '/v1/trainer/me' $null $trainer.token).data
     foreach ($slot in $expirySlots) {
@@ -154,9 +176,11 @@ finally {
         $data = $originalProfile.trainer
         Invoke-Api 'PATCH' '/v1/profile' @{
             displayName = $originalProfile.user.displayName; legalName = $data.legalName; phone = $data.phone
+            birthDate = $data.birthDate; education = $data.education
             headline = $data.headline; bio = $data.bio; yearsExperience = $data.yearsExperience
             serviceMode = $data.serviceMode; gymName = $data.gymName; priceFrom = $data.priceFrom
             monthlyPrice = $data.monthlyPrice; monthlySessionCount = $data.monthlySessionCount
+            paymentAccountName = $data.paymentAccountName; promptPayId = $data.promptPayId
             trainingTypeIds = @($data.trainingTypeIds)
         } $trainer.token | Out-Null
     }

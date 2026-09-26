@@ -16,13 +16,13 @@ import {
   ChevronLeft,
   ChevronRight,
   CircleAlert,
-  Clock3,
   CreditCard,
   Search,
   TriangleAlert,
 } from "lucide-react";
 import { ApiError, authenticatedRequest } from "@/lib/api";
-import { formatDateTime, formatDay } from "@/lib/format";
+import { formatDateTime, formatDay, formatTime } from "@/lib/format";
+import { bookingStatusLabel } from "@/lib/payment-copy";
 import type {
   NotificationCategory,
   NotificationDetail,
@@ -50,15 +50,6 @@ const emptyResponse: NotificationListResponse = {
   items: [],
   unread: { all: 0, booking: 0, payment: 0, appointment: 0 },
   pagination: { page: 0, pageSize: 10, total: 0, totalPages: 0 },
-};
-
-const bookingStatus: Record<string, string> = {
-  awaiting_payment: "รอชำระเงิน",
-  payment_review: "กำลังตรวจการชำระเงิน",
-  confirmed: "ยืนยันแล้ว",
-  completed: "เสร็จสิ้น",
-  cancelled: "ยกเลิก",
-  expired: "หมดเวลา",
 };
 
 function formatRelativeTime(value: string) {
@@ -99,6 +90,8 @@ function getCategoryIcon(category: NotificationItem["category"]) {
 
 function isUrgentNotification(item: NotificationItem) {
   const text = `${item.title} ${item.message}`.toLowerCase();
+  // A booking that already expired or was cancelled leaves nothing to do.
+  if (text.includes("หมดเวลา") || text.includes("ถูกยกเลิก")) return false;
   return (
     text.includes("รอชำระเงิน") ||
     text.includes("รอการชำระเงิน") ||
@@ -146,6 +139,8 @@ function isTrainerWorkspacePath(path: string) {
  */
 export function isSettledReview(detail: NotificationDetail) {
   if (!detail.type.startsWith("payment_review_")) return false;
+  // แจ้งเตือนที่ไม่ผูกกับการจอง (เช่น ผลอนุมัติใบสมัคร) ไม่มีสถานะการชำระเงินให้เทียบ
+  if (!detail.booking) return false;
   return detail.booking.paymentStatus !== "reviewing" || detail.booking.status !== "payment_review";
 }
 
@@ -153,6 +148,13 @@ export function isSettledReview(detail: NotificationDetail) {
 // booking status and the action path, and one prefix slip sent an expired
 // notification to the trainer list under the wrong label.
 export function actionLabel(detail: NotificationDetail) {
+  // การแจ้งเตือนที่ไม่มีการจอง (ผลการอนุมัติใบสมัคร, ข้อความใหม่) ต้องตัดสินจากเส้นทางแทนสถานะ
+  if (!detail.booking) {
+    if (detail.actionPath.startsWith("/trainer/apply")) return "เปิดแบบฟอร์มสมัคร";
+    if (detail.actionPath.startsWith("/chat")) return "เปิดแชต";
+    if (isTrainerWorkspacePath(detail.actionPath)) return "ดูพื้นที่เทรนเนอร์";
+    return "ดูรายละเอียด";
+  }
   if (detail.actionPath === "/admin" || detail.actionPath.startsWith("/admin#")) {
     if (isSettledReview(detail)) return "ดูการจองที่ตรวจแล้ว";
     return detail.booking.status === "payment_review" ? "ตรวจสอบการชำระเงิน" : "ดูการจองในหน้าผู้ดูแลระบบ";
@@ -187,18 +189,6 @@ function UrgencyBadge() {
     </span>
   );
 }
-function PaymentStatusBadge({ status }: { status: NotificationDetail["booking"]["paymentStatus"] }) {
-  if (status === "not_submitted") {
-    return (
-      <span className="status-badge status-badge--warning">
-        <Clock3 aria-hidden="true" size={15} strokeWidth={2} />
-        ยังไม่ส่งหลักฐาน
-      </span>
-    );
-  }
-  return <StatusBadge status={status} />;
-}
-
 function LoadError({ kind, onRetry }: { kind: LoadErrorKind; onRetry: () => void }) {
   if (kind === "auth") {
     return (
@@ -395,7 +385,7 @@ export function NotificationCenter() {
     return (
       item.title.toLowerCase().includes(q) ||
       item.message.toLowerCase().includes(q) ||
-      item.bookingId.toLowerCase().includes(q)
+      (item.bookingId ?? "").toLowerCase().includes(q)
     );
   });
 
@@ -424,6 +414,17 @@ export function NotificationCenter() {
 
       {loadState === "error" && (
         <LoadError kind={loadError ?? "server"} onRetry={() => setReloadVersion((version) => version + 1)} />
+      )}
+
+      {loadState === "ready" && (
+        <header className="notification-center__header">
+          <div>
+            <p className="notification-center__title">กล่องแจ้งเตือน</p>
+            <p className="notification-center__summary">
+              {response.unread.all > 0 ? <>ยังไม่ได้อ่าน <strong>{response.unread.all}</strong> รายการ</> : "อ่านครบทุกรายการแล้ว"}
+            </p>
+          </div>
+        </header>
       )}
 
       {loadState === "ready" && (
@@ -551,7 +552,7 @@ export function NotificationCenter() {
                           </span>
                           <strong>{item.title}</strong>
                           <small>{item.message}</small>
-                          <code>{item.bookingId}</code>
+                          {item.bookingId ? <code>{item.bookingId}</code> : null}
                         </span>
                       </button>
                     </li>
@@ -655,9 +656,9 @@ export function NotificationCenter() {
                   <div><dt>รหัสการจอง</dt><dd>{detail.booking.id}</dd></div>
                   <div><dt>สมาชิก</dt><dd>{detail.booking.memberName}</dd></div>
                   <div><dt>เทรนเนอร์</dt><dd>{detail.booking.trainerName}</dd></div>
-                  <div><dt>วันและเวลา</dt><dd>{formatDateTime(detail.booking.startsAt)}–{formatDateTime(detail.booking.endsAt)}</dd></div>
+                  <div><dt>วันและเวลา</dt><dd>{formatDateTime(detail.booking.startsAt)}–{formatTime(detail.booking.endsAt)} น.</dd></div>
                   <div><dt>สถานะการจอง</dt><dd><StatusBadge status={detail.booking.status} /></dd></div>
-                  <div><dt>การชำระเงิน</dt><dd><PaymentStatusBadge status={detail.booking.paymentStatus} /></dd></div>
+                  <div><dt>การชำระเงิน</dt><dd><StatusBadge status={detail.booking.paymentStatus} source="payment" /></dd></div>
                   <div><dt>ยอดชำระ</dt><dd>{detail.booking.quotedPrice === null ? "—" : new Intl.NumberFormat("th-TH", { style: "currency", currency: "THB", maximumFractionDigits: 0 }).format(detail.booking.quotedPrice)}</dd></div>
                 </dl>
 
@@ -667,7 +668,7 @@ export function NotificationCenter() {
                     <ol>
                       {detail.booking.history.map((entry, index) => (
                         <li key={`${entry.createdAt}-${index}`}>
-                          <span>{bookingStatus[entry.toStatus] ?? entry.toStatus}</span>
+                          <span>{bookingStatusLabel(entry.toStatus)}</span>
                           <time dateTime={entry.createdAt}>{formatDateTime(entry.createdAt)}</time>
                           {entry.note && <small>{entry.note}</small>}
                         </li>

@@ -28,7 +28,7 @@ final class NotificationService
             $reviewers = $pdo->prepare('SELECT DISTINCT u.id, u.role,
                     (SELECT MAX(id) FROM payments WHERE booking_id = b.id) AS payment_id
                 FROM bookings b JOIN trainer_profiles tp ON tp.id = b.trainer_profile_id
-                JOIN users u ON (b.payment_service_mode = "freelance" AND u.role = "trainer" AND u.id = tp.user_id)
+                JOIN users u ON (u.role = "trainer" AND u.id = tp.user_id)
                     OR (b.payment_service_mode = "gym" AND u.role = "admin" AND EXISTS (
                         SELECT 1 FROM admin_permissions ap
                         WHERE ap.user_id = u.id AND ap.review_payments = 1
@@ -40,10 +40,12 @@ final class NotificationService
                     'recipientUserId' => (int) $reviewer['id'],
                     'type' => 'payment_review_' . $reviewer['payment_id'],
                     'category' => 'payment',
-                    'title' => 'มีสลิปรอตรวจ',
-                    'message' => 'สมาชิกส่งหลักฐานการชำระเงินของการจอง ' . $context['bookingPublicId'],
+                    'title' => $reviewer['role'] === 'trainer' ? 'มีสลิปรอตรวจ' : 'มีสลิปของเทรนเนอร์ประจำยิม',
+                    'message' => $reviewer['role'] === 'trainer'
+                        ? 'สมาชิกส่งหลักฐานการชำระเงินของการจอง ' . $context['bookingPublicId'] . ' กรุณาตรวจและยืนยัน'
+                        : 'สมาชิกส่งหลักฐานการชำระเงินของการจอง ' . $context['bookingPublicId'] . ' เทรนเนอร์เป็นผู้ยืนยัน',
                     'actionPath' => $reviewer['role'] === 'trainer' ? '/trainer#payment-review' : '/admin',
-                    'emailRequired' => true,
+                    'emailRequired' => $reviewer['role'] === 'trainer',
                 ];
             }
         }
@@ -55,7 +57,8 @@ final class NotificationService
                 $definition['category'],
                 $definition['title'],
                 $definition['message'],
-                (int) $context['bookingId'],
+                // Events such as an application decision have no booking.
+                array_key_exists('bookingId', $context) ? (int) $context['bookingId'] : null,
                 $definition['actionPath'],
                 $emailStatus,
                 $definition['emailRequired'] ? gmdate('Y-m-d H:i:s') : null,
@@ -181,7 +184,7 @@ final class NotificationService
             "SELECT n.id, n.type, n.category, n.title, n.message, n.action_path, n.read_at,
                     n.created_at, b.public_id AS booking_public_id
              FROM notifications n
-             JOIN bookings b ON b.id = n.booking_id
+             LEFT JOIN bookings b ON b.id = n.booking_id
              WHERE {$whereSql}
              ORDER BY n.created_at DESC, n.id DESC
              LIMIT 10 OFFSET {$offset}"
@@ -221,10 +224,10 @@ final class NotificationService
                     b.status, b.payment_status, b.quoted_price,
                     member.display_name AS member_name, trainer.display_name AS trainer_name
              FROM notifications n
-             JOIN bookings b ON b.id = n.booking_id
-             JOIN trainer_profiles tp ON tp.id = b.trainer_profile_id
-             JOIN users member ON member.id = b.member_user_id
-             JOIN users trainer ON trainer.id = tp.user_id
+             LEFT JOIN bookings b ON b.id = n.booking_id
+             LEFT JOIN trainer_profiles tp ON tp.id = b.trainer_profile_id
+             LEFT JOIN users member ON member.id = b.member_user_id
+             LEFT JOIN users trainer ON trainer.id = tp.user_id
              WHERE n.id = ? AND n.recipient_user_id = ?',
             [$notificationId, $userId]
         );
@@ -235,6 +238,11 @@ final class NotificationService
              FROM booking_status_history WHERE booking_id = ? ORDER BY created_at, id',
             [(int) $row['booking_internal_id']]
         );
+        // การแจ้งเตือนที่ไม่มีการจอง (ผลการอนุมัติใบสมัคร) ส่ง booking: null
+        // เพราะฝั่ง UI ตัดสินปุ่มถัดไปจาก !detail.booking
+        if ($row['booking_internal_id'] === null) {
+            return $this->itemPayload($row) + ['booking' => null];
+        }
         return $this->itemPayload($row) + [
             'booking' => [
                 'id' => (string) $row['booking_public_id'],
@@ -378,7 +386,8 @@ final class NotificationService
             'category' => (string) $row['category'],
             'title' => (string) $row['title'],
             'message' => (string) $row['message'],
-            'bookingId' => (string) $row['booking_public_id'],
+            // Booking-less events (application decisions) carry no booking id.
+            'bookingId' => $row['booking_public_id'] ?? null,
             'actionPath' => (string) $row['action_path'],
             'readAt' => $row['read_at'] === null ? null : self::iso((string) $row['read_at']),
             'createdAt' => self::iso((string) $row['created_at']),

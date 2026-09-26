@@ -1,7 +1,8 @@
 import { render, screen } from "@testing-library/react";
 import { describe, expect, it } from "vitest";
-import { trainers } from "@/lib/demo-data";
 import { TrainerPreviewCard } from "@/components/trainer-preview-card";
+import { API_URL } from "@/lib/api";
+import { trainers } from "@/lib/demo-data";
 
 describe("TrainerPreviewCard", () => {
   it("shows a compact verified trainer profile without the biography", () => {
@@ -43,5 +44,14 @@ describe("TrainerPreviewCard", () => {
 
     expect(screen.getByRole("img", { name: `ยังไม่มีรูปโปรไฟล์ของ${trainer.displayName}` })).toBeInTheDocument();
     expect(container.querySelector(".trainer-preview-card__initials")).not.toBeInTheDocument();
+  });
+
+  it("resolves a live profile image against the API origin, not the Next origin", () => {
+    const trainer = { ...trainers[0], image: "/v1/profile-images/trainer/2" };
+
+    render(<TrainerPreviewCard trainer={trainer} />);
+
+    const image = screen.getByRole("img", { name: `รูปโปรไฟล์ของ${trainer.displayName}` });
+    expect(decodeURIComponent(image.getAttribute("src") ?? "")).toContain(`${API_URL}/v1/profile-images/trainer/2`);
   });
 });

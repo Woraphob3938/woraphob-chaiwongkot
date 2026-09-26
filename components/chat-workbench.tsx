@@ -10,9 +10,13 @@ import Image from "next/image";
 import Link from "next/link";
 import { FormEvent, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
+  ArrowLeft,
   Check,
   CheckCheck,
+  ChevronDown,
+  Lock,
   ExternalLink,
+  FileImage,
   FileText,
   MessageSquareText,
   Paperclip,
@@ -31,7 +35,7 @@ import {
   DialogTitle,
   DialogTrigger,
 } from "@/components/ui/dialog";
-import { ApiError, apiAssetUrl, authenticatedRequest, openProtectedFile } from "@/lib/api";
+import { ApiError, apiAssetUrl, authHeaders, authenticatedRequest, openProtectedFile } from "@/lib/api";
 import { formatDateTime, formatShortDay, initials } from "@/lib/format";
 import { formatAmount, paymentStatusCopy } from "@/lib/payment-copy";
 import { readStoredUser } from "@/lib/session";
@@ -39,10 +43,17 @@ import type { Booking, ChatMessage, UserRole } from "@/lib/types";
 
 const MAX_ATTACHMENT_SIZE = 5 * 1024 * 1024;
 const DESKTOP_FACTS_QUERY = "(min-width: 58.001rem)";
-const ACCEPTED_ATTACHMENT_TYPES = new Set([
+const ACCEPTED_IMAGE_TYPES = new Set([
   "image/jpeg",
   "image/png",
   "image/webp",
+  "image/gif",
+]);
+const ACCEPTED_FILE_TYPES = new Set([
+  "image/jpeg",
+  "image/png",
+  "image/webp",
+  "image/gif",
   "application/pdf",
 ]);
 
@@ -64,9 +75,63 @@ function readableMime(mime: string): string {
     "image/jpeg": "JPEG",
     "image/png": "PNG",
     "image/webp": "WebP",
+    "image/gif": "GIF",
     "application/pdf": "PDF",
   };
-  return known[mime] ?? mime;
+  return known[mime] ?? (mime || "ไฟล์");
+}
+
+/**
+ * The message payload keeps the legacy `attachment` object and adds the split
+ * `image*` / `attachment*` fields from the contract. Both are read defensively
+ * until `lib/types.ts` carries them.
+ */
+type MessageExtras = {
+  imageUrl?: string | null;
+  imageName?: string | null;
+  imageSize?: number | null;
+  attachmentUrl?: string | null;
+  attachmentName?: string | null;
+  attachmentSize?: number | null;
+};
+
+type MessageImageSlot = { url: string; name: string | null; size: number | null };
+type MessageFileSlot = { url: string; name: string; mime: string; size: number | null };
+
+function mimeFromName(name: string): string {
+  const lower = name.toLowerCase();
+  if (lower.endsWith(".pdf")) return "application/pdf";
+  if (lower.endsWith(".jpg") || lower.endsWith(".jpeg")) return "image/jpeg";
+  if (lower.endsWith(".png")) return "image/png";
+  if (lower.endsWith(".webp")) return "image/webp";
+  if (lower.endsWith(".gif")) return "image/gif";
+  return "";
+}
+
+function messageSlots(message: ChatMessage): { image: MessageImageSlot | null; file: MessageFileSlot | null } {
+  const extra = message as ChatMessage & MessageExtras;
+  const image: MessageImageSlot | null = extra.imageUrl
+    ? { url: extra.imageUrl, name: extra.imageName ?? null, size: extra.imageSize ?? null }
+    : null;
+  if (extra.attachmentUrl) {
+    return {
+      image,
+      file: {
+        url: extra.attachmentUrl,
+        name: extra.attachmentName ?? "ไฟล์แนบ",
+        mime: mimeFromName(extra.attachmentName ?? ""),
+        size: extra.attachmentSize ?? null,
+      },
+    };
+  }
+  const legacy = message.attachment;
+  if (!legacy) return { image, file: null };
+  // A payload that still mirrors the single image in `attachment` must not
+  // render the same picture twice; with no separate file URL the legacy card is
+  // the image itself.
+  const legacyIsImageMirror = image !== null && extra.imageName != null && legacy.name === extra.imageName;
+  if (legacyIsImageMirror) return { image, file: null };
+  return { image, file: { url: legacy.url, name: legacy.name, mime: legacy.mime, size: legacy.size } };
 }
 
 function formatDateDivider(value: string) {
@@ -107,6 +172,25 @@ function isSameDay(a: string, b: string) {
     return false;
   }
 }
+
+const CLOSED_STATUSES = new Set(["expired", "cancelled", "completed"]);
+
+/** Open rooms first — the ones you can write in, then the ones waiting, then inquiries. */
+function roomRank(room: Booking): number {
+  if (CLOSED_STATUSES.has(room.status) && !room.inquiry) return 3;
+  if (room.actions.canSendChat && !room.inquiry) return 0;
+  if (room.inquiry) return 2;
+  return 1;
+}
+
+function isClosedRoom(room: Booking) {
+  return !room.inquiry && CLOSED_STATUSES.has(room.status);
+}
+
+const QUICK_REPLIES: Record<"member" | "trainer", string[]> = {
+  member: ["สวัสดีครับ/ค่ะ ขอสอบถามรายละเอียดการฝึก", "ต้องเตรียมอะไรไปบ้าง"],
+  trainer: ["สวัสดีครับ/ค่ะ ยินดีที่ได้ดูแลนะ", "ช่วยแจ้งเป้าหมายและข้อจำกัดด้านสุขภาพก่อนฝึก", "เจอกันที่สถานที่ฝึกตามนัดนะ"],
+};
 
 function readChatIdentity(): { id: number | null; role: UserRole | null } {
   // This surface only needs identity, not a guaranteed live token, so it reads
@@ -151,6 +235,77 @@ function ChatAvatar({
         ? <Image src={source} alt="" width={44} height={44} unoptimized onError={() => setFailed(true)} />
         : initials(name)}
     </span>
+  );
+}
+
+/**
+ * A message image lives behind the participant guard, so it is fetched with the
+ * session token and shown from a blob URL instead of a bare `<img src>` that the
+ * guard would reject.
+ */
+function ChatMessageImage({
+  image,
+  opening,
+  onOpen,
+}: {
+  image: MessageImageSlot;
+  opening: boolean;
+  onOpen: () => void;
+}) {
+  const [src, setSrc] = useState<string | null>(null);
+  const target = apiAssetUrl(image.url);
+  const [failed, setFailed] = useState(() => target === null);
+
+  useEffect(() => {
+    if (!target) return;
+    let active = true;
+    let objectUrl: string | null = null;
+    fetch(target, { headers: authHeaders() })
+      .then((response) => (response.ok ? response.blob() : Promise.reject(new Error("โหลดรูปภาพไม่สำเร็จ"))))
+      .then((blob) => {
+        if (!active) return;
+        if (typeof URL.createObjectURL !== "function") {
+          setFailed(true);
+          return;
+        }
+        objectUrl = URL.createObjectURL(blob);
+        setSrc(objectUrl);
+      })
+      .catch(() => {
+        if (active) setFailed(true);
+      });
+    return () => {
+      active = false;
+      if (objectUrl) URL.revokeObjectURL(objectUrl);
+    };
+  }, [target]);
+
+  const alt = image.name ?? "รูปภาพแนบในข้อความ";
+  return (
+    <div className="chat-message-image">
+      {src && !failed ? (
+        <img src={src} alt={alt} />
+      ) : failed ? (
+        <div className="chat-attachment-row">
+          <div>
+            <FileImage aria-hidden="true" size={18} />
+            <span className="chat-breakable">
+              <strong>{image.name ?? "รูปภาพแนบ"}</strong>
+              <small>เปิดดูรูปภาพในการเชื่อมต่อที่ปลอดภัย</small>
+            </span>
+          </div>
+          <button
+            className="certificate-action"
+            type="button"
+            disabled={opening}
+            aria-label={`เปิดรูปภาพ ${image.name ?? ""}`.trim()}
+            onClick={onOpen}
+          >
+            {opening ? "กำลังเปิด…" : "เปิดรูปภาพ"}
+          </button>
+        </div>
+      ) : null}
+    </div>
   );
 }
 
@@ -207,6 +362,10 @@ function ChatPeerProfile({
   );
 }
 
+function InquiryBadge() {
+  return <span className="status-badge status-badge--inquiry">สอบถามก่อนจอง</span>;
+}
+
 type ChatWorkbenchProps = {
   initialBookingId?: string;
 };
@@ -224,11 +383,14 @@ export function ChatWorkbench({ initialBookingId }: ChatWorkbenchProps) {
   const [attachmentError, setAttachmentError] = useState("");
   const [notice, setNotice] = useState("");
   const [messageText, setMessageText] = useState("");
-  const [attachment, setAttachment] = useState<File | null>(null);
+  const [imageAttachment, setImageAttachment] = useState<File | null>(null);
+  const [fileAttachment, setFileAttachment] = useState<File | null>(null);
   const [sending, setSending] = useState(false);
   const [retrying, setRetrying] = useState(false);
-  const [openingAttachment, setOpeningAttachment] = useState<number | null>(null);
+  const [openingAttachment, setOpeningAttachment] = useState<string | null>(null);
   const [factsOpen, setFactsOpen] = useState(false);
+  // Phones show the list or the open room, never both squeezed together.
+  const [mobileView, setMobileView] = useState<"list" | "thread">(initialBookingId ? "thread" : "list");
   const [{ id: currentUserId, role: currentUserRole }] = useState(readChatIdentity);
 
   const mountedRef = useRef(true);
@@ -241,6 +403,7 @@ export function ChatWorkbench({ initialBookingId }: ChatWorkbenchProps) {
   const retryCursorRef = useRef<number | null>(null);
   const sendLockRef = useRef(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const imageInputRef = useRef<HTMLInputElement>(null);
   const selectedRoomRef = useRef<HTMLButtonElement>(null);
   const messagesRef = useRef<HTMLDivElement>(null);
   const followLatestRef = useRef(true);
@@ -279,16 +442,29 @@ export function ChatWorkbench({ initialBookingId }: ChatWorkbenchProps) {
     setRoomsLoading(true);
     setRoomsError("");
     try {
-      const bookings = await authenticatedRequest<Booking[]>("/v1/bookings");
+      // Booking rooms and pre-booking inquiry rooms share one list. An older
+      // API without inquiry rooms simply contributes none.
+      const [bookings, inquiries] = await Promise.all([
+        authenticatedRequest<Booking[]>("/v1/bookings"),
+        authenticatedRequest<Booking[]>("/v1/chat-rooms").catch(() => [] as Booking[]),
+      ]);
       if (!mountedRef.current) return;
-      const readableRooms = bookings.filter(
-        (booking): booking is Booking & { chatRoomId: number } => booking.chatRoomId !== null && booking.actions.canReadChat,
-      );
-      setRooms(readableRooms);
+      const readableRooms = [
+        ...bookings.filter(
+          (booking): booking is Booking & { chatRoomId: number } => booking.chatRoomId !== null && booking.actions.canReadChat,
+        ),
+        ...(Array.isArray(inquiries) ? inquiries : []).filter((room) => room.inquiry && typeof room.chatRoomId === "number"),
+      ];
+      const ordered = readableRooms
+        .map((room, index) => ({ room, index }))
+        .sort((left, right) => roomRank(left.room) - roomRank(right.room) || left.index - right.index)
+        .map(({ room }) => room);
+      setRooms(ordered);
       setSelectedBookingId((current) => {
-        if (current && readableRooms.some((booking) => booking.id === current)) return current;
-        if (initialBookingId && readableRooms.some((booking) => booking.id === initialBookingId)) return initialBookingId;
-        return readableRooms[0]?.id ?? "";
+        if (current && ordered.some((booking) => booking.id === current)) return current;
+        if (initialBookingId && ordered.some((booking) => booking.id === initialBookingId)) return initialBookingId;
+        // Land on a room the reader can actually write in.
+        return ordered[0]?.id ?? "";
       });
     } catch (error) {
       if (mountedRef.current) {
@@ -368,12 +544,14 @@ export function ChatWorkbench({ initialBookingId }: ChatWorkbenchProps) {
       setAttachmentError("");
       setNotice("");
       setMessageText("");
-      setAttachment(null);
+      setImageAttachment(null);
+      setFileAttachment(null);
       setSending(false);
       setRetrying(false);
       setOpeningAttachment(null);
       setThreadLoading(true);
       if (fileInputRef.current) fileInputRef.current.value = "";
+      if (imageInputRef.current) imageInputRef.current.value = "";
       void loadMessages(roomId, 0, generation);
     });
 
@@ -391,30 +569,58 @@ export function ChatWorkbench({ initialBookingId }: ChatWorkbenchProps) {
     };
   }, [loadMessages, selectedBooking]);
 
-  function selectAttachment(file: File | null) {
+  function selectImage(file: File | null) {
     setNotice("");
     setComposerError("");
     if (!file) {
-      setAttachment(null);
+      setImageAttachment(null);
       return;
     }
-    if (!ACCEPTED_ATTACHMENT_TYPES.has(file.type)) {
-      setAttachment(null);
-      setComposerError("รองรับเฉพาะ JPEG, PNG, WebP หรือ PDF");
+    if (!ACCEPTED_IMAGE_TYPES.has(file.type)) {
+      setImageAttachment(null);
+      setComposerError("รองรับเฉพาะ JPEG, PNG, WebP หรือ GIF");
+      if (imageInputRef.current) imageInputRef.current.value = "";
+      return;
+    }
+    if (file.size > MAX_ATTACHMENT_SIZE) {
+      setImageAttachment(null);
+      setComposerError("รูปภาพต้องมีขนาดไม่เกิน 5 MB");
+      if (imageInputRef.current) imageInputRef.current.value = "";
+      return;
+    }
+    setImageAttachment(file);
+  }
+
+  function selectFile(file: File | null) {
+    setNotice("");
+    setComposerError("");
+    if (!file) {
+      setFileAttachment(null);
+      return;
+    }
+    if (!ACCEPTED_FILE_TYPES.has(file.type)) {
+      setFileAttachment(null);
+      setComposerError("รองรับเฉพาะ JPEG, PNG, WebP, GIF หรือ PDF");
       if (fileInputRef.current) fileInputRef.current.value = "";
       return;
     }
     if (file.size > MAX_ATTACHMENT_SIZE) {
-      setAttachment(null);
+      setFileAttachment(null);
       setComposerError("ไฟล์ต้องมีขนาดไม่เกิน 5 MB");
       if (fileInputRef.current) fileInputRef.current.value = "";
       return;
     }
-    setAttachment(file);
+    setFileAttachment(file);
   }
 
-  function removeAttachment() {
-    setAttachment(null);
+  function removeImage() {
+    setImageAttachment(null);
+    setComposerError("");
+    if (imageInputRef.current) imageInputRef.current.value = "";
+  }
+
+  function removeFile() {
+    setFileAttachment(null);
     setComposerError("");
     if (fileInputRef.current) fileInputRef.current.value = "";
   }
@@ -424,7 +630,7 @@ export function ChatWorkbench({ initialBookingId }: ChatWorkbenchProps) {
     if (sendLockRef.current || !selectedBooking?.chatRoomId || !selectedBooking.actions.canSendChat) return;
 
     const trimmedMessage = messageText.trim();
-    if (!trimmedMessage && !attachment) {
+    if (!trimmedMessage && !imageAttachment && !fileAttachment) {
       setComposerError("กรุณาพิมพ์ข้อความหรือแนบไฟล์");
       return;
     }
@@ -435,8 +641,14 @@ export function ChatWorkbench({ initialBookingId }: ChatWorkbenchProps) {
     sendOperationRef.current = operation;
     const previousCursor = cursorRef.current;
     const body = new FormData();
-    if (trimmedMessage) body.set("message", trimmedMessage);
-    if (attachment) body.set("attachment", attachment);
+    if (trimmedMessage) {
+      body.set("text", trimmedMessage);
+      // Legacy key kept as an alias so one multipart message works against the
+      // old `message` reader and the contract's `text` reader alike.
+      body.set("message", trimmedMessage);
+    }
+    if (imageAttachment) body.set("image", imageAttachment);
+    if (fileAttachment) body.set("file", fileAttachment);
 
     sendLockRef.current = true;
     setSending(true);
@@ -459,8 +671,10 @@ export function ChatWorkbench({ initialBookingId }: ChatWorkbenchProps) {
       setMessages((current) => mergeMessages(current, [created]));
       cursorRef.current = Math.max(cursorRef.current, created.id);
       setMessageText("");
-      setAttachment(null);
+      setImageAttachment(null);
+      setFileAttachment(null);
       if (fileInputRef.current) fileInputRef.current.value = "";
+      if (imageInputRef.current) imageInputRef.current.value = "";
       setNotice("ส่งข้อความแล้ว");
 
       const refreshed = await loadMessages(
@@ -512,15 +726,15 @@ export function ChatWorkbench({ initialBookingId }: ChatWorkbenchProps) {
     }
   }
 
-  async function openAttachment(message: ChatMessage) {
-    if (!message.attachment || openingAttachment !== null) return;
+  async function openAttachment(target: MessageFileSlot | MessageImageSlot) {
+    if (openingAttachment !== null) return;
     const generation = generationRef.current;
     const operation = attachmentOperationRef.current + 1;
     attachmentOperationRef.current = operation;
-    setOpeningAttachment(message.id);
+    setOpeningAttachment(target.url);
     setAttachmentError("");
     try {
-      await openProtectedFile(message.attachment.url);
+      await openProtectedFile(target.url);
     } catch (error) {
       if (
         mountedRef.current
@@ -560,7 +774,7 @@ export function ChatWorkbench({ initialBookingId }: ChatWorkbenchProps) {
       <section className="selection-missing" role="region" aria-labelledby="chat-empty-title">
         <MessageSquareText aria-hidden="true" size={28} />
         <h2 id="chat-empty-title">ยังไม่มีห้องสนทนาที่เปิดอ่านได้</h2>
-        <p>ห้องสนทนาจะเปิดตามสถานะของคำขอจอง</p>
+        <p>เริ่มแชทได้จากหน้าโปรไฟล์เทรนเนอร์ หรือห้องจะเปิดเองเมื่อมีคำขอจอง</p>
         <Link className="button button--dark" href="/member">กลับไปดูการจอง</Link>
       </section>
     );
@@ -575,11 +789,51 @@ export function ChatWorkbench({ initialBookingId }: ChatWorkbenchProps) {
     ? "การจองนี้ถูกยกเลิกแล้ว จึงส่งข้อความเพิ่มไม่ได้"
     : selectedBooking.status === "expired"
       ? "การจองหมดเวลาแล้ว ประวัติยังอ่านได้แต่ส่งข้อความเพิ่มไม่ได้"
+    : selectedBooking.status === "pending_trainer"
+      ? currentUserRole === "trainer"
+        ? "ห้องนี้เปิดให้พิมพ์หลังคุณตอบรับและระบบแจ้งยืนยันสมาชิกในรอบ 12:00 หรือ 18:00 น."
+        : "ห้องนี้เปิดให้พิมพ์หลังเทรนเนอร์ตอบรับและระบบแจ้งยืนยันในรอบ 12:00 หรือ 18:00 น."
     : "สถานะการจองนี้ยังไม่เปิดให้ส่งข้อความเพิ่ม";
 
+  const selectedId = selectedBooking.id;
+  function renderRoom(booking: Booking) {
+            const peer = chatPeer(booking, currentUserRole);
+            return (
+              <button
+                className={`chat-contact${booking.id === selectedId ? " is-active" : ""}${booking.actions.canSendChat ? " is-open" : ""}`}
+                type="button"
+                key={booking.id}
+                ref={booking.id === selectedId ? selectedRoomRef : undefined}
+                aria-pressed={booking.id === selectedId}
+                onClick={() => {
+                  setFactsOpen(false);
+                  setSelectedBookingId(booking.id);
+                  setMobileView("thread");
+                }}
+              >
+                <ChatAvatar className="chat-contact__avatar" name={peer.name} imageUrl={peer.imageUrl} />
+                <div className="chat-contact__body">
+                  <strong>{peer.name}</strong>
+                  <time className="chat-contact__appointment" dateTime={booking.startsAt}>
+                    {booking.inquiry ? `ล่าสุด ${formatDateTime(booking.startsAt)}` : formatDateTime(booking.startsAt)}
+                  </time>
+                  <div className="chat-contact__meta">
+                    <small>{booking.inquiry ? "ก่อนจอง" : booking.id}</small>
+                    {booking.inquiry ? <InquiryBadge /> : <StatusBadge status={booking.status} />}
+                  </div>
+                </div>
+              </button>
+            );
+  }
+
+  const openRooms = visibleRooms.filter((room) => !isClosedRoom(room));
+  const closedRooms = visibleRooms.filter(isClosedRoom);
+  const inquiryWithTrainer = rooms.find((room) => room.inquiry && room.trainer.id === selectedBooking.trainer.id && room.id !== selectedBooking.id);
+  const quickReplies = QUICK_REPLIES[currentUserRole === "trainer" ? "trainer" : "member"];
+
   return (
-    <div className="chat-guided-layout">
-      <aside className="chat-room-list" aria-label="ห้องตามคำขอจอง">
+    <div className={`chat-guided-layout chat-guided-layout--${mobileView}`}>
+      <aside className="chat-room-list" aria-label="ห้องสนทนา">
         <div className="chat-room-list__heading">
           <h2>ข้อความ</h2>
           <span>{rooms.length} ห้อง</span>
@@ -596,34 +850,13 @@ export function ChatWorkbench({ initialBookingId }: ChatWorkbenchProps) {
           />
         </label>
         <div className="chat-room-list__items">
-          {visibleRooms.map((booking) => {
-            const peer = chatPeer(booking, currentUserRole);
-            return (
-              <button
-                className={`chat-contact${booking.id === selectedBooking.id ? " is-active" : ""}`}
-                type="button"
-                key={booking.id}
-                ref={booking.id === selectedBooking.id ? selectedRoomRef : undefined}
-                aria-pressed={booking.id === selectedBooking.id}
-                onClick={() => {
-                  setFactsOpen(false);
-                  setSelectedBookingId(booking.id);
-                }}
-              >
-                <ChatAvatar className="chat-contact__avatar" name={peer.name} imageUrl={peer.imageUrl} />
-                <div className="chat-contact__body">
-                  <strong>{peer.name}</strong>
-                  <time className="chat-contact__appointment" dateTime={booking.startsAt}>
-                    {formatDateTime(booking.startsAt)}
-                  </time>
-                  <div className="chat-contact__meta">
-                    <small>{booking.id}</small>
-                    <StatusBadge status={booking.status} />
-                  </div>
-                </div>
-              </button>
-            );
-          })}
+          {openRooms.map(renderRoom)}
+          {closedRooms.length > 0 && (
+            <details className="chat-room-list__closed" open={closedRooms.some((room) => room.id === selectedBooking.id) || undefined}>
+              <summary>ห้องที่ปิดแล้ว <span>{closedRooms.length}</span><ChevronDown aria-hidden="true" size={16} /></summary>
+              {closedRooms.map(renderRoom)}
+            </details>
+          )}
           {visibleRooms.length === 0 && <p className="chat-room-list__empty" role="status">ไม่พบห้องสนทนาที่ตรงกับคำค้นหา</p>}
         </div>
       </aside>
@@ -631,20 +864,34 @@ export function ChatWorkbench({ initialBookingId }: ChatWorkbenchProps) {
       <section className="chat-conversation chat-thread" aria-labelledby="chat-thread-title">
         <header className="chat-thread-header">
           <div className="chat-thread__heading">
+            <button className="chat-thread__back" type="button" aria-label="กลับไปที่รายการห้อง" onClick={() => setMobileView("list")}>
+              <ArrowLeft aria-hidden="true" size={20} />
+            </button>
             <div className="chat-thread__peer-card">
               <ChatAvatar className="chat-thread__peer-avatar" name={selectedPeer.name} imageUrl={selectedPeer.imageUrl} />
               <div className="chat-thread__peer-meta">
                 <div className="chat-thread__peer-title">
                   <h2 id="chat-thread-title"><span className="sr-only">สนทนากับ</span>{" "}{selectedPeer.name}</h2>
                 </div>
-                <p>{selectedPeer.roleLabel} · {selectedBooking.id}</p>
+                <p>{selectedPeer.roleLabel} · {selectedBooking.inquiry ? "สอบถามก่อนจอง" : selectedBooking.id}</p>
               </div>
             </div>
             <ChatPeerProfile bookingId={selectedBooking.id} peer={selectedPeer} />
           </div>
-          <StatusBadge status={selectedBooking.status} />
+          {selectedBooking.inquiry ? <InquiryBadge /> : <StatusBadge status={selectedBooking.status} />}
         </header>
 
+        {selectedBooking.inquiry ? (
+          <div className="chat-inquiry-note">
+            <MessageSquareText aria-hidden="true" size={18} />
+            <p>
+              ห้องนี้ใช้สอบถามและตกลงรายละเอียดก่อนจอง
+              {currentUserRole === "member" && selectedBooking.trainer.slug && (
+                <> · <Link href={`/trainers/${selectedBooking.trainer.slug}`}>ไปหน้าเทรนเนอร์เพื่อจอง</Link></>
+              )}
+            </p>
+          </div>
+        ) : (
         <details
           key={selectedBooking.id}
           className="trainer-booking-list chat-booking-facts"
@@ -662,6 +909,7 @@ export function ChatWorkbench({ initialBookingId }: ChatWorkbenchProps) {
           {selectedBooking.bookingType === "monthly" && <div className="ledger-row"><span>จำนวนครั้ง</span><strong>{selectedBooking.sessionCount ?? selectedBooking.sessions?.length ?? 0} ครั้ง ภายใน 30 วัน</strong></div>}
           <div className="ledger-row"><span>หมายเหตุ</span><strong className="chat-breakable">{selectedBooking.note || "ไม่มีหมายเหตุ"}</strong></div>
         </details>
+        )}
 
         <div
           className="messages"
@@ -680,10 +928,18 @@ export function ChatWorkbench({ initialBookingId }: ChatWorkbenchProps) {
             <div className="empty-state">
               <strong>ยังไม่มีข้อความในห้องนี้</strong>
               <p>{selectedBooking.actions.canSendChat ? "เริ่มคุยเรื่องเวลาและการเตรียมตัวได้" : "ประวัติข้อความจะปรากฏที่นี่เมื่อมีการสนทนา"}</p>
+              {selectedBooking.actions.canSendChat && (
+                <div className="chat-quick-replies" aria-label="ข้อความเริ่มต้น">
+                  {quickReplies.map((reply) => (
+                    <button key={reply} type="button" onClick={() => setMessageText(reply)}>{reply}</button>
+                  ))}
+                </div>
+              )}
             </div>
           )}
           {messages.map((message, index) => {
             const mine = currentUserId !== null && message.sender.id === currentUserId;
+            const { image: imageSlot, file: fileSlot } = messageSlots(message);
             const previous = messages[index - 1];
             const stacked = previous?.sender.id === message.sender.id && isSameDay(previous.createdAt, message.createdAt);
             const showDateDivider = !previous || !isSameDay(previous.createdAt, message.createdAt);
@@ -706,24 +962,31 @@ export function ChatWorkbench({ initialBookingId }: ChatWorkbenchProps) {
                   <div className="chat-message__stack">
                     <div className="chat-message__bubble chat-message-content">
                       {message.message && <p>{message.message}</p>}
-                      {message.attachment && (
+                      {imageSlot && (
+                        <ChatMessageImage
+                          image={imageSlot}
+                          opening={openingAttachment === imageSlot.url}
+                          onOpen={() => void openAttachment(imageSlot)}
+                        />
+                      )}
+                      {fileSlot && (
                         <ul className="certificate-list">
                           <li className="chat-attachment-row">
                             <div>
                               <FileText aria-hidden="true" size={18} />
                               <span className="chat-breakable">
-                                <strong>{message.attachment.name}</strong>
-                                <small>{readableMime(message.attachment.mime)} · {readableSize(message.attachment.size)}</small>
+                                <strong>{fileSlot.name}</strong>
+                                <small>{readableMime(fileSlot.mime)}{fileSlot.size === null ? "" : ` · ${readableSize(fileSlot.size)}`}</small>
                               </span>
                             </div>
                             <button
                               className="certificate-action"
                               type="button"
                               disabled={openingAttachment !== null}
-                              aria-label={`เปิดไฟล์ ${message.attachment.name}`}
-                              onClick={() => void openAttachment(message)}
+                              aria-label={`เปิดไฟล์ ${fileSlot.name}`}
+                              onClick={() => void openAttachment(fileSlot)}
                             >
-                              {openingAttachment === message.id ? "กำลังเปิด…" : "เปิดไฟล์"}
+                              {openingAttachment === fileSlot.url ? "กำลังเปิด…" : "เปิดไฟล์"}
                             </button>
                           </li>
                         </ul>
@@ -781,6 +1044,15 @@ export function ChatWorkbench({ initialBookingId }: ChatWorkbenchProps) {
                   className="icon-button"
                   type="button"
                   disabled={sending}
+                  aria-label="แนบรูปภาพ"
+                  onClick={() => imageInputRef.current?.click()}
+                >
+                  <FileImage aria-hidden="true" size={18} />
+                </button>
+                <button
+                  className="icon-button"
+                  type="button"
+                  disabled={sending}
                   aria-label="แนบไฟล์"
                   onClick={() => fileInputRef.current?.click()}
                 >
@@ -813,27 +1085,52 @@ export function ChatWorkbench({ initialBookingId }: ChatWorkbenchProps) {
                 <Send aria-hidden="true" size={17} /> {sending ? "กำลังส่ง…" : "ส่งข้อความ"}
               </button>
             </div>
-            <small className="sr-only" id="chat-composer-guide">เขียนข้อความไม่เกิน 4,000 ตัวอักษร หรือส่งไฟล์อย่างเดียวได้</small>
+            <small className="sr-only" id="chat-composer-guide">เขียนข้อความไม่เกิน 4,000 ตัวอักษร แนบรูปภาพหนึ่งไฟล์และไฟล์อื่นอีกหนึ่งไฟล์พร้อมกันได้</small>
+            <label className="sr-only" htmlFor="chat-image">รูปภาพแนบ</label>
+            <input
+              className="sr-only"
+              ref={imageInputRef}
+              id="chat-image"
+              type="file"
+              accept="image/png,image/jpeg,image/webp,image/gif"
+              disabled={sending}
+              aria-describedby="chat-image-guide chat-composer-feedback"
+              onChange={(event) => selectImage(event.target.files?.[0] ?? null)}
+            />
+            <small className="sr-only" id="chat-image-guide">รองรับ JPEG, PNG, WebP หรือ GIF ขนาดไม่เกิน 5 MB</small>
             <label className="sr-only" htmlFor="chat-attachment">ไฟล์แนบ</label>
             <input
               className="sr-only"
               ref={fileInputRef}
               id="chat-attachment"
               type="file"
-              accept="image/jpeg,image/png,image/webp,application/pdf"
+              accept="image/png,image/jpeg,image/webp,image/gif,application/pdf"
               disabled={sending}
               aria-describedby="chat-attachment-guide chat-composer-feedback"
-              onChange={(event) => selectAttachment(event.target.files?.[0] ?? null)}
+              onChange={(event) => selectFile(event.target.files?.[0] ?? null)}
             />
-            <small className="sr-only" id="chat-attachment-guide">รองรับ JPEG, PNG, WebP หรือ PDF ขนาดไม่เกิน 5 MB</small>
+            <small className="sr-only" id="chat-attachment-guide">รองรับ JPEG, PNG, WebP, GIF หรือ PDF ขนาดไม่เกิน 5 MB</small>
 
-            {attachment && (
+            {imageAttachment && (
+              <div className="ledger-row">
+                <span>รูปภาพที่เลือก</span>
+                <div className="queue-actions chat-selected-file">
+                  <strong className="chat-breakable">{imageAttachment.name}</strong>
+                  <small>{readableMime(imageAttachment.type)} · {readableSize(imageAttachment.size)}</small>
+                  <button type="button" disabled={sending} aria-label={`เอารูปภาพ ${imageAttachment.name} ออก`} onClick={removeImage}>
+                    <X aria-hidden="true" size={15} /> เอารูปภาพออก
+                  </button>
+                </div>
+              </div>
+            )}
+
+            {fileAttachment && (
               <div className="ledger-row">
                 <span>ไฟล์ที่เลือก</span>
                 <div className="queue-actions chat-selected-file">
-                  <strong className="chat-breakable">{attachment.name}</strong>
-                  <small>{readableMime(attachment.type)} · {readableSize(attachment.size)}</small>
-                  <button type="button" disabled={sending} aria-label={`เอาไฟล์ ${attachment.name} ออก`} onClick={removeAttachment}>
+                  <strong className="chat-breakable">{fileAttachment.name}</strong>
+                  <small>{readableMime(fileAttachment.type)} · {readableSize(fileAttachment.size)}</small>
+                  <button type="button" disabled={sending} aria-label={`เอาไฟล์ ${fileAttachment.name} ออก`} onClick={removeFile}>
                     <X aria-hidden="true" size={15} /> เอาไฟล์ออก
                   </button>
                 </div>
@@ -845,9 +1142,17 @@ export function ChatWorkbench({ initialBookingId }: ChatWorkbenchProps) {
             </div>
           </form>
         ) : (
-          <div className="ledger-row">
-            <span>การส่งข้อความ</span>
-            <strong>{readOnlyCopy}</strong>
+          <div className="chat-composer-locked" role="note">
+            <Lock aria-hidden="true" size={18} />
+            <p>{readOnlyCopy}</p>
+            {selectedBooking.status === "pending_trainer" && currentUserRole === "member" && (
+              inquiryWithTrainer
+                ? <button className="button button--outline" type="button" onClick={() => { setSelectedBookingId(inquiryWithTrainer.id); setMobileView("thread"); }}>ไปห้องสอบถามก่อนจอง</button>
+                : <Link className="button button--outline" href={`/trainers/${selectedBooking.trainer.slug}`}>สอบถามจากหน้าเทรนเนอร์</Link>
+            )}
+            {selectedBooking.status === "pending_trainer" && currentUserRole === "trainer" && (
+              <Link className="button button--outline" href={`/trainer#request-${selectedBooking.id}`}>ไปตอบคำขอ</Link>
+            )}
             {selectedBooking.status === "completed" && currentUserRole === "member" && (
               <Link className="button button--accent" href={`/trainers/${selectedBooking.trainer.slug}`}>จองอีกครั้ง</Link>
             )}

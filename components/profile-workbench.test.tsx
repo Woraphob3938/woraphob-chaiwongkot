@@ -120,6 +120,17 @@ describe("ProfileWorkbench", () => {
     expect(authenticatedRequest).toHaveBeenCalledTimes(2);
   });
 
+  it("passes the stored birth date through to the member form", async () => {
+    localStorage.setItem("fitconnect_token", "token");
+    localStorage.setItem("fitconnect_user", JSON.stringify({ role: "member" }));
+    const withBirthDate = { ...memberProfile, member: { ...memberProfile.member, birthDate: "1998-04-12" } };
+    vi.mocked(authenticatedRequest).mockResolvedValue(withBirthDate);
+
+    render(<ProfileWorkbench />);
+
+    expect(await screen.findByLabelText("วันเกิด")).toHaveValue("1998-04-12");
+  });
+
   it("returns a guest to login without requesting profile data", async () => {
     render(<ProfileWorkbench />);
     await waitFor(() => expect(push).toHaveBeenCalledWith("/login"));

@@ -3,15 +3,15 @@
 import Image from "next/image";
 import Link from "next/link";
 import { useEffect, useState } from "react";
-import { ArrowLeft, CalendarClock, MessageSquareText, Pencil } from "lucide-react";
+import { ArrowLeft, Award, CalendarClock, Dumbbell, MessageSquareText, Pencil, Star } from "lucide-react";
 import { CredentialCard } from "@/components/credential-card";
 import { DisclosureSection } from "@/components/disclosure-section";
 import { ProfileBookingPanel } from "@/components/profile-booking-panel";
 import { StatusBadge } from "@/components/status-badge";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { authenticatedRequest } from "@/lib/api";
-import { formatMoney, formatShortDay } from "@/lib/format";
+import { apiAssetUrl, authenticatedRequest } from "@/lib/api";
+import { formatMoney, formatShortDay, formatTrainingTypeName } from "@/lib/format";
 import type { AvailabilitySlot, PublicTrainerReview, Trainer, TrainerWorkspace } from "@/lib/types";
 
 function TrainerReview({ review }: { review: PublicTrainerReview }) {
@@ -35,6 +35,7 @@ export function TrainerDetail({ trainer, returnTo = "/trainers" }: { trainer: Tr
   const [priceMessage, setPriceMessage] = useState("");
   const [priceError, setPriceError] = useState(false);
   const [reviewPage, setReviewPage] = useState(1);
+  const [activeIndex, setActiveIndex] = useState(0);
   const headingId = `trainer-profile-heading-${trainer.id}`;
   const currentPrice = priceOverride?.trainerId === trainer.id
     ? priceOverride.value
@@ -100,6 +101,12 @@ export function TrainerDetail({ trainer, returnTo = "/trainers" }: { trainer: Tr
   }
 
   const currentTrainer = { ...trainer, priceFrom: currentPrice };
+  // Live profiles carry a relative `/v1/profile-images/...` path that
+  // `next/image` would resolve against the Next origin and refuse with a 400.
+  const imageUrl = apiAssetUrl(trainer.image ?? null);
+  const gallery = [imageUrl, ...(trainer.photos ?? []).map((photo) => apiAssetUrl(photo.url))]
+    .filter((url): url is string => Boolean(url));
+  const activeImage = gallery[Math.min(activeIndex, gallery.length - 1)] ?? null;
 
   return (
     <>
@@ -111,26 +118,67 @@ export function TrainerDetail({ trainer, returnTo = "/trainers" }: { trainer: Tr
       <div className="trainer-detail-layout trainer-commerce-layout">
         <section className="trainer-detail-media" aria-label={`ภาพโปรไฟล์ของ ${trainer.displayName}`}>
           <div className="trainer-detail-photo">
-            {trainer.image && (
+            {activeImage && (
               <Image
-                src={trainer.image}
-                alt={`รูปโปรไฟล์ของ${trainer.displayName}`}
+                key={activeImage}
+                src={activeImage}
+                alt={activeIndex === 0 ? `รูปโปรไฟล์ของ${trainer.displayName}` : `รูปที่ ${activeIndex + 1} ของ${trainer.displayName}`}
                 fill
-                priority
-                loading="eager"
-                fetchPriority="high"
-                sizes="(max-width: 768px) 50vw, 31vw"
+                priority={activeIndex === 0}
+                loading={activeIndex === 0 ? "eager" : undefined}
+                fetchPriority={activeIndex === 0 ? "high" : undefined}
+                sizes="(max-width: 768px) 90vw, 24vw"
               />
             )}
             {trainer.demo && <span className="trainer-demo-label">ภาพสาธิต</span>}
+            {gallery.length > 1 && <span className="trainer-gallery__count">{activeIndex + 1} / {gallery.length}</span>}
           </div>
+          {gallery.length > 1 && (
+            <ul className="trainer-gallery__thumbs" aria-label="รูปทั้งหมดของเทรนเนอร์">
+              {gallery.map((url, index) => (
+                <li key={url}>
+                  <button
+                    type="button"
+                    className={index === activeIndex ? "is-active" : undefined}
+                    aria-label={`ดูรูปที่ ${index + 1}`}
+                    aria-pressed={index === activeIndex}
+                    onClick={() => setActiveIndex(index)}
+                  >
+                    <Image src={url} alt="" fill sizes="80px" />
+                  </button>
+                </li>
+              ))}
+            </ul>
+          )}
         </section>
 
         <section className="trainer-detail-copy trainer-profile-summary" aria-labelledby={headingId}>
           <h1 id={headingId}>{trainer.displayName}</h1>
+          {trainer.nickname && <p className="trainer-nickname">ชื่อเล่น {trainer.nickname}</p>}
           <p className="lead">{trainer.headline}</p>
           <p>{trainer.bio}</p>
           <div className="trainer-detail-status"><StatusBadge status={trainer.verification} /></div>
+          {trainer.trainingTypes.length > 0 && (
+            <ul className="trainer-type-chips" aria-label="ความเชี่ยวชาญ">
+              {trainer.trainingTypes.map((type) => (
+                <li key={type.id}>{formatTrainingTypeName(type.nameTh)}</li>
+              ))}
+            </ul>
+          )}
+          <dl className="trainer-quick-facts">
+            <div>
+              <dt><Award aria-hidden="true" size={16} /> ประสบการณ์</dt>
+              <dd>{trainer.yearsExperience} <small>ปี</small></dd>
+            </div>
+            <div>
+              <dt><Star aria-hidden="true" size={16} /> คะแนนรีวิว</dt>
+              <dd>{trainer.reviewCount > 0 && trainer.rating != null ? trainer.rating.toFixed(1) : "–"} <small>{trainer.reviewCount} รีวิว</small></dd>
+            </div>
+            <div>
+              <dt><Dumbbell aria-hidden="true" size={16} /> ใบรับรอง</dt>
+              <dd>{trainer.certificates.length} <small>รายการ</small></dd>
+            </div>
+          </dl>
           <div className="detail-meta">
             {reviews.length > 0
               ? <a className="trainer-review-jump" href="#trainer-reviews"><MessageSquareText aria-hidden="true" size={17} /> {reviewSummary}</a>

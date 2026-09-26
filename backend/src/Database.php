@@ -19,6 +19,14 @@ final class Database
             PDO::ATTR_DEFAULT_FETCH_MODE => PDO::FETCH_ASSOC,
             PDO::ATTR_EMULATE_PREPARES => false,
         ]);
+
+        // Every timestamp the application writes comes from UTC_TIMESTAMP(), but
+        // a column left to DEFAULT CURRENT_TIMESTAMP() takes the session time
+        // zone, which is SYSTEM — Asia/Bangkok here. That split put created_at
+        // seven hours in the future while Handlers::iso() labelled it "Z". Pin
+        // the session to UTC so both clocks agree. The value is an offset, not a
+        // named zone, because that needs no time zone tables loaded on the server.
+        $this->pdo->exec("SET time_zone = '+00:00'");
     }
 
     public function pdo(): PDO

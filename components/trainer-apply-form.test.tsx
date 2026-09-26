@@ -1,4 +1,4 @@
-import { fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { TrainerApplyForm } from "@/components/trainer-apply-form";
 import { ApiError, authenticatedRequest } from "@/lib/api";
@@ -86,6 +86,8 @@ describe("TrainerApplyForm", () => {
     mockApi(null);
     render(<TrainerApplyForm />);
     await fillRequiredFields();
+    fireEvent.change(screen.getByLabelText("วันเกิด"), { target: { value: "1990-05-20" } });
+    fireEvent.change(screen.getByLabelText("ข้อมูลการศึกษา"), { target: { value: "ปริญญาตรี วิทยาศาสตร์การกีฬา" } });
     fireEvent.change(screen.getByLabelText(/ไฟล์ใบรับรอง/), { target: { files: [certificateFile()] } });
     fireEvent.click(screen.getByRole("button", { name: /ส่งใบสมัครให้ผู้ดูแลระบบตรวจ/ }));
 
@@ -101,9 +103,39 @@ describe("TrainerApplyForm", () => {
     expect(body.get("bio")).toBe("ดูแลการฝึกเวทอย่างปลอดภัย");
     expect(body.get("priceFrom")).toBe("650");
     expect(body.get("paymentAccountName")).toBe("สมชาย ใจดี");
+    expect(body.get("birthDate")).toBe("1990-05-20");
+    expect(body.get("education")).toBe("ปริญญาตรี วิทยาศาสตร์การกีฬา");
     expect(body.getAll("trainingTypeIds[]")).toEqual(["1"]);
     expect(body.get("certificate")).toBeInstanceOf(File);
     expect(body.has("provinceId")).toBe(false);
+  });
+
+  it("rejects impossible birth dates and education over 255 characters", async () => {
+    mockApi(null);
+    render(<TrainerApplyForm />);
+    await fillRequiredFields();
+    fireEvent.change(screen.getByLabelText("วันเกิด"), { target: { value: "2100-01-01" } });
+    fireEvent.click(screen.getByRole("button", { name: /ส่งใบสมัครให้ผู้ดูแลระบบตรวจ/ }));
+
+    expect(await screen.findByText("วันเกิดต้องเป็นวันที่ผ่านมาแล้ว")).toBeInTheDocument();
+    expect(vi.mocked(authenticatedRequest).mock.calls.some(([path]) => path === "/v1/trainer-applications")).toBe(false);
+
+    fireEvent.change(screen.getByLabelText("วันเกิด"), { target: { value: "1990-05-20" } });
+    fireEvent.change(screen.getByLabelText("ข้อมูลการศึกษา"), { target: { value: "ว".repeat(256) } });
+    fireEvent.click(screen.getByRole("button", { name: /ส่งใบสมัครให้ผู้ดูแลระบบตรวจ/ }));
+
+    expect(await screen.findByText("ข้อมูลการศึกษาต้องไม่เกิน 255 ตัวอักษร")).toBeInTheDocument();
+    expect(vi.mocked(authenticatedRequest).mock.calls.some(([path]) => path === "/v1/trainer-applications")).toBe(false);
+  });
+
+  it("prefills the stored birth date and education", async () => {
+    const base = profileWith("verified");
+    const stored = { ...base, trainer: { ...base.trainer, birthDate: "1990-05-20", education: "ปริญญาตรี วิทยาศาสตร์การกีฬา" } };
+    mockApi(stored);
+    render(<TrainerApplyForm />);
+
+    await waitFor(() => expect(screen.getByLabelText("วันเกิด")).toHaveValue("1990-05-20"));
+    expect(screen.getByLabelText("ข้อมูลการศึกษา")).toHaveValue("ปริญญาตรี วิทยาศาสตร์การกีฬา");
   });
 
   it("keeps the service mode to two choices and collects no gym name", async () => {
@@ -113,7 +145,9 @@ describe("TrainerApplyForm", () => {
 
     // The record offers freelance or gym only and no longer asks where the
     // trainer works, so a submission carries no gym name at all.
-    expect(screen.getAllByRole("option").map((option) => option.textContent)).toEqual(["ฟรีแลนซ์", "ประจำฟิตเนส"]);
+    const modes = within(screen.getByRole("group", { name: "รูปแบบการให้บริการ" })).getAllByRole("radio");
+    expect(modes.map((radio) => (radio as HTMLInputElement).value)).toEqual(["freelance", "gym"]);
+    expect(screen.getByRole("radio", { name: /ฟรีแลนซ์/ })).toBeChecked();
     expect(screen.queryByLabelText("ชื่อสถานที่ฝึก")).not.toBeInTheDocument();
 
     fireEvent.click(screen.getByRole("button", { name: /ส่งใบสมัครให้ผู้ดูแลระบบตรวจ/ }));
