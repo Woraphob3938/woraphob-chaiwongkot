@@ -92,7 +92,7 @@ describe("TrainerWorkbench", () => {
     vi.useRealTimers();
   });
 
-  it("puts the next action first, then the weekly calendar, then appointments", async () => {
+  it("says nothing when all is set, and keeps the calendar before the appointments", async () => {
     vi.mocked(authenticatedRequest)
       .mockResolvedValueOnce({
         ...approvedWorkspace,
@@ -102,13 +102,50 @@ describe("TrainerWorkbench", () => {
 
     render(<TrainerWorkbench />);
 
-    const actionTitle = await screen.findByRole("heading", { name: "พร้อมดูแลสมาชิกแล้ว" });
-    const appointments = screen.getByRole("region", { name: "นัดของสมาชิก" });
+    const appointments = await screen.findByRole("region", { name: "นัดของสมาชิก" });
     const calendar = scheduleDisclosure();
-    expect(actionTitle.compareDocumentPosition(calendar) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
-    expect(screen.getByRole("link", { name: "ดูตารางงาน" })).toHaveAttribute("href", "/trainer#schedule");
+    // The "all set" card only repeated the calendar and pushed the work down.
+    expect(screen.queryByRole("heading", { name: "พร้อมดูแลสมาชิกแล้ว" })).not.toBeInTheDocument();
     expect(screen.queryByText("สถานที่")).not.toBeInTheDocument();
     expect(calendar.compareDocumentPosition(appointments) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+  });
+
+  it("puts a next action that asks for something before the calendar", async () => {
+    vi.mocked(authenticatedRequest)
+      .mockResolvedValueOnce(approvedWorkspace)
+      .mockResolvedValueOnce([bookingFixture({ id: "BK-ASK", status: "pending_trainer" })]);
+
+    render(<TrainerWorkbench />);
+
+    const actionTitle = await screen.findByRole("heading", { name: "ตอบรับคำขอจอง" });
+    expect(actionTitle.compareDocumentPosition(scheduleDisclosure()) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+  });
+
+  it("counts an accepted request as waiting on the member, not on the trainer", async () => {
+    const accepted = bookingFixture({
+      id: "BK-HELD",
+      status: "pending_trainer",
+      confirmationReleaseAt: "2026-08-12T11:00:00.000Z",
+      actions: { ...bookingFixture().actions, canAccept: false, canReject: true },
+    });
+    vi.mocked(authenticatedRequest)
+      .mockResolvedValueOnce(approvedWorkspace)
+      .mockResolvedValueOnce([accepted]);
+
+    render(<TrainerWorkbench />);
+
+    const requests = await screen.findByRole("region", { name: "คำขอจอง" });
+    expect(within(requests).getByText("รอสมาชิก 1")).toBeInTheDocument();
+    expect(within(requests).queryByText(/รอคุณ/)).not.toBeInTheDocument();
+    expect(document.getElementById("request-BK-HELD")).toHaveClass("is-waiting");
+    // Nothing to answer, so the KPI and the tab stay calm.
+    expect(screen.getByRole("link", { name: /คำขอรอตอบรับ/ })).toHaveTextContent("0");
+    expect(screen.getByRole("tab", { name: "งานและตาราง" })).toBeInTheDocument();
+    // An accepted request is withdrawn, not rejected.
+    expect(screen.queryByRole("button", { name: "ปฏิเสธ BK-HELD" })).not.toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "ยกเลิกการตอบรับ BK-HELD" }));
+    expect(screen.getByRole("dialog", { name: "ยกเลิกการตอบรับ" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "ยืนยันยกเลิกการตอบรับ" })).toBeInTheDocument();
   });
 
   it("shows availability and confirmed appointments in a seven-day weekly workspace", async () => {
@@ -144,15 +181,18 @@ describe("TrainerWorkbench", () => {
     // Week navigation belongs to the calendar, not the unfiltered appointment list.
     expect(await screen.findByRole("heading", { name: "นัดของสมาชิก" })).toBeInTheDocument();
     expect(screen.getByText(/นัด · \d+ ช่วงเวลา$/)).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: "สัปดาห์ก่อนหน้า" })).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: "สัปดาห์ถัดไป" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "7 วันก่อนหน้า" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "7 วันถัดไป" })).toBeInTheDocument();
 
     const weeklySchedule = scheduleDisclosure();
-    expect(within(weeklySchedule).getByRole("button", { name: "สัปดาห์ก่อนหน้า" })).toBeInTheDocument();
-    expect(within(screen.getByRole("region", { name: "นัดของสมาชิก" })).queryByRole("button", { name: "สัปดาห์ก่อนหน้า" })).not.toBeInTheDocument();
-    expect(within(weeklySchedule).getAllByRole("group")).toHaveLength(7);
+    expect(within(weeklySchedule).getByRole("button", { name: "7 วันก่อนหน้า" })).toBeInTheDocument();
+    expect(within(screen.getByRole("region", { name: "นัดของสมาชิก" })).queryByRole("button", { name: "7 วันก่อนหน้า" })).not.toBeInTheDocument();
+    const days = within(weeklySchedule).getAllByRole("group");
+    expect(days).toHaveLength(7);
+    // Seven days from today: tomorrow's session is always in view.
+    expect(days[0]).toHaveClass("is-today");
     expect(within(weeklySchedule).getAllByText("พร้อมจอง")).not.toHaveLength(0);
-    expect(within(weeklySchedule).getAllByText("ล็อกชั่วคราว")).not.toHaveLength(0);
+    expect(within(weeklySchedule).getAllByText("มีคำขอจอง")).not.toHaveLength(0);
     expect(within(weeklySchedule).getByText("สมาชิกทดสอบ")).toBeInTheDocument();
     expect(within(weeklySchedule).getAllByText("นัดยืนยันแล้ว").length).toBeGreaterThan(0);
     // The open slot is edited from the calendar; the held one stays read-only.
@@ -177,7 +217,7 @@ describe("TrainerWorkbench", () => {
       .mockResolvedValueOnce(["A", "B", "C"].map((id) => bookingFixture({ id: `BK-${id}` })));
 
     render(<TrainerWorkbench />);
-    expect(await screen.findByRole("heading", { name: "งานที่ต้องจัดการ" })).toBeInTheDocument();
+    expect(await screen.findByRole("heading", { name: "คำขอจอง" })).toBeInTheDocument();
     expect(document.querySelectorAll("[id^='request-BK-']")).toHaveLength(2);
     fireEvent.click(screen.getByRole("button", { name: "ดูอีก 1 รายการ" }));
     expect(document.querySelectorAll("[id^='request-BK-']")).toHaveLength(3);
@@ -323,7 +363,7 @@ describe("TrainerWorkbench", () => {
     render(<TrainerWorkbench />);
 
     const workTab = await screen.findByRole("tab", { name: /งานและตาราง/ });
-    const financeTab = screen.getByRole("tab", { name: /สรุปการเงิน/ });
+    const financeTab = screen.getByRole("tab", { name: /การเงิน/ });
     expect(workTab).toHaveAttribute("aria-selected", "true");
     expect(document.getElementById("trainer-finance-panel")).toHaveAttribute("hidden");
     expect(document.getElementById("trainer-work-panel")).not.toHaveAttribute("hidden");
@@ -494,7 +534,7 @@ describe("TrainerWorkbench", () => {
 
     render(<TrainerWorkbench />);
 
-    expect(await screen.findAllByText("ล็อกชั่วคราว")).not.toHaveLength(0);
+    expect(await screen.findAllByText("มีคำขอจอง")).not.toHaveLength(0);
     expect(screen.queryByRole("button", { name: /^แก้ไขช่วงเวลา/ })).not.toBeInTheDocument();
     expect(screen.queryByRole("button", { name: /ตอบรับ|ปฏิเสธ/ })).not.toBeInTheDocument();
     expect(screen.queryByLabelText(/ค่าฝึกสำหรับคำขอ/)).not.toBeInTheDocument();
@@ -1024,7 +1064,7 @@ describe("TrainerWorkbench", () => {
     });
 
     render(<TrainerWorkbench />);
-    fireEvent.click(await screen.findByRole("tab", { name: /สรุปการเงิน/ }));
+    fireEvent.click(await screen.findByRole("tab", { name: /การเงิน/ }));
 
     expect(await screen.findByRole("heading", { name: "สถิติ" })).toBeInTheDocument();
     expect(authenticatedRequest).toHaveBeenCalledWith("/v1/trainer/stats?year=2026");

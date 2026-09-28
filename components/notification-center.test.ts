@@ -5,8 +5,8 @@ import type { NotificationDetail } from "@/lib/types";
 function detail(overrides: {
   type?: string;
   actionPath: string;
-  status: NotificationDetail["booking"]["status"];
-  paymentStatus?: NotificationDetail["booking"]["paymentStatus"];
+  status: NonNullable<NotificationDetail["booking"]>["status"];
+  paymentStatus?: NonNullable<NotificationDetail["booking"]>["paymentStatus"];
 }): NotificationDetail {  return {
     id: 1,
     type: overrides.type ?? "booking_expired",

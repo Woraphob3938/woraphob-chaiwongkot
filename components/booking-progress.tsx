@@ -11,7 +11,7 @@ import type { Booking } from "@/lib/types";
 export const bookingSteps = [
   { title: "ส่งคำขอ", detail: "เลือกเวลาที่ต้องการ" },
   { title: "เทรนเนอร์ตอบรับ", detail: "แจ้งผลรอบ 12:00 หรือ 18:00 น." },
-  { title: "ชำระเงิน", detail: "ส่งสลิปภายใน 10 นาที" },
+  { title: "รอการชำระเงิน", detail: "ส่งสลิปภายใน 10 นาที" },
   { title: "จองสำเร็จ", detail: "เทรนเนอร์ยืนยันสลิป" },
 ] as const;
 

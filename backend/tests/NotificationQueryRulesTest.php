@@ -47,6 +47,10 @@ test('accepts only approved notification categories', function (): void {
 });
 
 test('parses an explicit unread boolean', function (): void {
+    assertSameValue('', NotificationService::parseQuery(null));
+    assertSameValue('', NotificationService::parseQuery(['x']));
+    assertSameValue('FC-123', NotificationService::parseQuery('  FC-123  '));
+    assertSameValue(100, mb_strlen(NotificationService::parseQuery(str_repeat('ก', 150))));
     assertSameValue(false, NotificationService::parseUnread('false'));
     assertSameValue(true, NotificationService::parseUnread('true'));
     expectHttp(422, 'VALIDATION_FAILED', fn() => NotificationService::parseUnread('sometimes'));

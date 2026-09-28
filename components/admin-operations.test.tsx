@@ -51,24 +51,24 @@ describe("AdminOperations", () => {
       : Promise.resolve({ trainers: [], payments: [] }));
     render(<AdminOperations />);
 
-    const reviewTab = await screen.findByRole("tab", { name: "คิวตรวจสอบ" });
+    const reviewTab = await screen.findByRole("tab", { name: "อนุมัติเทรนเนอร์" });
     expect(reviewTab).toHaveAttribute("aria-selected", "true");
-    for (const name of ["บัญชีผู้ใช้", "การจองทั้งหมด", "การเงิน", "ผู้ดูแลระบบ"]) {
+    for (const name of ["สมาชิกและเทรนเนอร์", "การจอง", "การชำระเงิน", "ผู้ดูแลระบบ"]) {
       expect(screen.getByRole("tab", { name })).toBeInTheDocument();
     }
 
     fireEvent.keyDown(reviewTab, { key: "ArrowRight" });
-    expect(screen.getByRole("tab", { name: "บัญชีผู้ใช้" })).toHaveAttribute("aria-selected", "true");
+    expect(screen.getByRole("tab", { name: "สมาชิกและเทรนเนอร์" })).toHaveAttribute("aria-selected", "true");
     expect(screen.getByText("สมาชิกหนึ่ง")).toBeInTheDocument();
     expect(screen.getByText("เทรนเนอร์หนึ่ง")).toBeInTheDocument();
 
-    fireEvent.click(screen.getByRole("tab", { name: "การจองทั้งหมด" }));
+    fireEvent.click(screen.getByRole("tab", { name: "การจอง" }));
     const bookingDetails = screen.getByText("BK-ONE").closest("details");
     expect(bookingDetails).not.toBeNull();
     fireEvent.click(within(bookingDetails!).getByText("BK-ONE"));
     expect(screen.getByText("ตรวจแล้ว")).toBeInTheDocument();
 
-    fireEvent.click(screen.getByRole("tab", { name: "การเงิน" }));
+    fireEvent.click(screen.getByRole("tab", { name: "การชำระเงิน" }));
     expect(screen.getAllByText("฿1,200").length).toBeGreaterThan(0);
   });
 
@@ -78,7 +78,7 @@ describe("AdminOperations", () => {
       .mockResolvedValueOnce({ id: 7, status: "suspended" })
       .mockResolvedValueOnce({ ...operations, users: operations.users.map((user) => user.id === 7 ? { ...user, status: "suspended" } : user) });
     render(<AdminOperations />);
-    fireEvent.click(await screen.findByRole("tab", { name: "บัญชีผู้ใช้" }));
+    fireEvent.click(await screen.findByRole("tab", { name: "สมาชิกและเทรนเนอร์" }));
     fireEvent.click(screen.getByRole("button", { name: "ระงับบัญชี สมาชิกหนึ่ง" }));
     expect(screen.getByRole("dialog", { name: "ระงับบัญชี" })).toHaveTextContent("member@example.com");
     fireEvent.click(screen.getByRole("button", { name: "ยืนยันการเปลี่ยนสถานะ" }));
@@ -96,7 +96,7 @@ describe("AdminOperations", () => {
       .mockResolvedValueOnce({ id: "BK-ONE", status: "cancelled" })
       .mockResolvedValueOnce(operations);
     render(<AdminOperations />);
-    fireEvent.click(await screen.findByRole("tab", { name: "การจองทั้งหมด" }));
+    fireEvent.click(await screen.findByRole("tab", { name: "การจอง" }));
     fireEvent.click(screen.getByText("BK-ONE"));
     fireEvent.click(screen.getByRole("button", { name: "ยกเลิกคำขอจองนี้" }));
 
@@ -166,7 +166,7 @@ describe("AdminOperations", () => {
       .mockResolvedValueOnce({ id: 7, displayName: "สมาชิกแก้ไขแล้ว" })
       .mockResolvedValueOnce(operations);
     render(<AdminOperations />);
-    fireEvent.click(await screen.findByRole("tab", { name: "บัญชีผู้ใช้" }));
+    fireEvent.click(await screen.findByRole("tab", { name: "สมาชิกและเทรนเนอร์" }));
     const details = screen.getByText("สมาชิกหนึ่ง").closest("details");
     expect(details).not.toBeNull();
     fireEvent.click(within(details!).getByText("สมาชิกหนึ่ง"));
@@ -239,7 +239,7 @@ describe("AdminOperations", () => {
       });
     });
     render(<AdminOperations />);
-    fireEvent.click(await screen.findByRole("tab", { name: "บัญชีผู้ใช้" }));
+    fireEvent.click(await screen.findByRole("tab", { name: "สมาชิกและเทรนเนอร์" }));
 
     expect(screen.getByText("สมาชิกลำดับ 10")).toBeInTheDocument();
     expect(screen.queryByText("สมาชิกลำดับ 11")).not.toBeInTheDocument();
@@ -254,7 +254,7 @@ describe("AdminOperations", () => {
       .mockResolvedValueOnce({ deleted: true })
       .mockResolvedValueOnce({ ...operations, users: operations.users.filter((user) => user.id !== 7) });
     render(<AdminOperations />);
-    fireEvent.click(await screen.findByRole("tab", { name: "บัญชีผู้ใช้" }));
+    fireEvent.click(await screen.findByRole("tab", { name: "สมาชิกและเทรนเนอร์" }));
 
     expect(screen.getByPlaceholderText("ค้นหาด้วยชื่อ อีเมล หรือเบอร์โทรศัพท์")).toBeInTheDocument();
 
@@ -277,7 +277,7 @@ describe("AdminOperations", () => {
       .mockResolvedValueOnce(operations)
       .mockRejectedValueOnce(new ApiError(message, 409, code));
     render(<AdminOperations />);
-    fireEvent.click(await screen.findByRole("tab", { name: "บัญชีผู้ใช้" }));
+    fireEvent.click(await screen.findByRole("tab", { name: "สมาชิกและเทรนเนอร์" }));
     fireEvent.click(screen.getByRole("button", { name: "ลบบัญชี สมาชิกหนึ่ง" }));
     fireEvent.click(screen.getByRole("button", { name: "ยืนยันลบบัญชีถาวร" }));
 
@@ -351,7 +351,7 @@ describe("AdminOperations", () => {
     const csv = decodeURIComponent(links[0].href.replace(/^data:text\/csv;charset=utf-8,/, ""));
     expect(csv.startsWith("\uFEFF")).toBe(true);
     expect(csv).toContain("การจองแยกตามสถานะ");
-    expect(csv).toContain("เดือน,รอเทรนเนอร์ตอบรับ,ยืนยันแล้ว,เสร็จสิ้น,รวม");
+    expect(csv).toContain("เดือน,รอเทรนเนอร์ตอบรับ,ชำระแล้ว,เสร็จสิ้น,รวม");
     expect(csv).toContain("รายได้ที่อนุมัติแล้ว");
     expect(csv).toContain("เดือน,ส่งตรวจ,อนุมัติ,ปฏิเสธ");
     expect(csv).toContain("ผู้ใช้แยกตามประเภท");
@@ -369,7 +369,7 @@ describe("AdminOperations", () => {
     };
     vi.mocked(authenticatedRequest).mockResolvedValue(withSalaries);
     render(<AdminOperations />);
-    fireEvent.click(await screen.findByRole("tab", { name: "การเงิน" }));
+    fireEvent.click(await screen.findByRole("tab", { name: "การชำระเงิน" }));
 
     const table = await screen.findByRole("table", { name: "เงินเดือนเทรนเนอร์ประจำยิมแยกตามเดือน" });
     for (const header of ["เทรนเนอร์", "เดือน", "จำนวนครั้ง", "จำนวนเงิน"]) {

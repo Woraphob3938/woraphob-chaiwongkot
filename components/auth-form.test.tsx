@@ -100,6 +100,16 @@ describe("AuthForm trainer onboarding and enhanced UX", () => {
     expect(localStorage.getItem("fitconnect_token")).toBe("trainer-token");
   });
 
+  it("sends a newly registered member to the welcome profile steps", async () => {
+    const navigate = vi.fn();
+    vi.mocked(apiRequest).mockResolvedValue({ token: "member-token", user: { ...trainerUser, role: "member" } });
+
+    render(<AuthForm mode="register" navigate={navigate} redirectTo="/booking?trainer=a" />);
+    completeForm("register", "member");
+
+    await waitFor(() => expect(navigate).toHaveBeenCalledWith("/member/welcome?next=%2Fbooking%3Ftrainer%3Da"));
+  });
+
   it("takes a returning trainer with a saved application to the workspace", async () => {
     const navigate = vi.fn();
     vi.mocked(apiRequest).mockResolvedValue({ token: "trainer-token", user: trainerUser });

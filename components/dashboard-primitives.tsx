@@ -2,7 +2,7 @@ import Link from "next/link";
 import { useId, type ReactNode } from "react";
 import type { DashboardAction } from "@/lib/dashboard-actions";
 
-export function NextActionCard({ action, onFollow }: { action: DashboardAction; onFollow?: () => void }) {
+export function NextActionCard({ action, onFollow, detail }: { action: DashboardAction; onFollow?: () => void; detail?: ReactNode }) {
   const titleId = useId();
 
   return (
@@ -10,6 +10,7 @@ export function NextActionCard({ action, onFollow }: { action: DashboardAction; 
       <div>
         <h2 id={titleId}>{action.title}</h2>
         <p className="next-action-card__description">{action.description}</p>
+        {detail}
       </div>
       {/* `onFollow` lets the surface finish the promise the card makes — moving
           focus onto the record it just named. Next's client-side navigation

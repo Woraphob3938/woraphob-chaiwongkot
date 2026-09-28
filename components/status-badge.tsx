@@ -1,4 +1,4 @@
-import { CheckCircle2, Clock3, CircleX, type LucideIcon } from "lucide-react";
+import { CheckCircle2, Clock3, CircleX, Wallet, type LucideIcon } from "lucide-react";
 import { bookingStatusCopy, bookingStatusLabel, paymentStatusLabel } from "@/lib/payment-copy";
 import type { Booking, BookingStatus, VerificationStatus } from "@/lib/types";
 
@@ -15,7 +15,7 @@ import type { Booking, BookingStatus, VerificationStatus } from "@/lib/types";
  * a payment status says so with `source="payment"`; otherwise the status is
  * read as verification wording.
  */
-export type StatusSource = "booking" | "payment" | "verification";
+export type StatusSource = "booking" | "payment" | "verification" | "approval";
 
 type Status = VerificationStatus | BookingStatus | Booking["paymentStatus"];
 
@@ -28,6 +28,17 @@ const verificationLabels: Record<VerificationStatus, string> = {
 /** A trainer application is approved; only a slip is "ตรวจสลิปแล้ว". */
 const applicationLabels = { approved: "อนุมัติแล้ว" } as const;
 
+/**
+ * A trainer's approval status, worded exactly as the administrator scope names
+ * it. A rejected application is shown as suspended: the profile stays off the
+ * marketplace until it is resubmitted and approved.
+ */
+const approvalLabels: Record<string, string> = {
+  pending: "รออนุมัติ",
+  approved: "อนุมัติแล้ว",
+  rejected: "ถูกระงับ",
+};
+
 const bookingStatuses: ReadonlySet<string> = new Set(Object.keys(bookingStatusCopy));
 
 function isBookingStatus(status: Status): status is BookingStatus {
@@ -36,6 +47,7 @@ function isBookingStatus(status: Status): status is BookingStatus {
 
 function labelFor(status: Status, source?: StatusSource): string {
   if (source === "payment") return paymentStatusLabel(status);
+  if (source === "approval" && approvalLabels[status]) return approvalLabels[status];
   if (isBookingStatus(status)) return bookingStatusLabel(status);
   if (status === "approved") return applicationLabels.approved;
   if (status === "verified" || status === "pending" || status === "rejected") return verificationLabels[status];
@@ -50,7 +62,7 @@ const iconByStatus: Record<Status, LucideIcon> = {
   completed: CheckCircle2,
   pending: Clock3,
   pending_trainer: Clock3,
-  awaiting_payment: Clock3,
+  awaiting_payment: Wallet,
   payment_review: Clock3,
   reviewing: Clock3,
   not_submitted: Clock3,
@@ -61,7 +73,11 @@ const iconByStatus: Record<Status, LucideIcon> = {
 
 export function StatusBadge({ status, source }: { status: Status; source?: StatusSource }) {
   const Icon = iconByStatus[status] ?? Clock3;
-  const tone = ["verified", "approved", "confirmed", "completed"].includes(status)
+  // Owing money is the one state the member must act on now, so it does not
+  // share the passive-waiting tone.
+  const tone = status === "awaiting_payment"
+    ? "action"
+    : ["verified", "approved", "confirmed", "completed"].includes(status)
     ? "success"
     : ["rejected", "cancelled", "expired"].includes(status)
       ? "error"

@@ -32,7 +32,7 @@ export function TrainerProfileSummary({ profile, onEdit }: { profile: TrainerAcc
       </div>
 
       <div className="profile-readiness" aria-label="ความพร้อมของหน้าร้าน">
-        <div><span>สถานะการตรวจ</span><StatusBadge status={trainer.approvalStatus} /></div>
+        <div><span>สถานะการตรวจ</span><StatusBadge status={trainer.approvalStatus} source="approval" /></div>
         <div><span>ข้อมูลหน้าร้าน</span><strong>{storefrontComplete ? "ข้อมูลครบ" : "ควรกรอกเพิ่ม"}</strong></div>
         <div><span>ใบรับรอง</span><strong>{trainer.certificates.length} รายการ</strong></div>
       </div>

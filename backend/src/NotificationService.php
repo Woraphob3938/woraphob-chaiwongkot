@@ -164,7 +164,7 @@ final class NotificationService
         return ['reminders' => count($reminderIds), 'sent' => $sent, 'failed' => $failed];
     }
 
-    public function listForUser(int $userId, int $page, string $category, bool $unread): array
+    public function listForUser(int $userId, int $page, string $category, bool $unread, string $query = ''): array
     {
         $where = ['n.recipient_user_id = ?'];
         $params = [$userId];
@@ -175,14 +175,24 @@ final class NotificationService
         if ($unread) {
             $where[] = 'n.read_at IS NULL';
         }
+        // Search runs here, not in the browser, so it covers every page and not
+        // only the ten rows on screen.
+        if ($query !== '') {
+            $like = '%' . addcslashes($query, '\\%_') . '%';
+            $where[] = '(n.title LIKE ? OR n.message LIKE ? OR b.public_id LIKE ?)';
+            array_push($params, $like, $like, $like);
+        }
         $whereSql = implode(' AND ', $where);
-        $countStatement = $this->database->pdo()->prepare("SELECT COUNT(*) FROM notifications n WHERE {$whereSql}");
+        $countStatement = $this->database->pdo()->prepare(
+            "SELECT COUNT(*) FROM notifications n LEFT JOIN bookings b ON b.id = n.booking_id WHERE {$whereSql}"
+        );
         $countStatement->execute($params);
         $total = (int) $countStatement->fetchColumn();
         $offset = $page * 10;
         $statement = $this->database->pdo()->prepare(
             "SELECT n.id, n.type, n.category, n.title, n.message, n.action_path, n.read_at,
-                    n.created_at, b.public_id AS booking_public_id
+                    n.created_at, b.public_id AS booking_public_id,
+                    b.status AS booking_status, b.payment_status AS booking_payment_status
              FROM notifications n
              LEFT JOIN bookings b ON b.id = n.booking_id
              WHERE {$whereSql}
@@ -302,6 +312,13 @@ final class NotificationService
         return (string) $value;
     }
 
+    /** Free-text search, trimmed and capped; anything but a string means no search. */
+    public static function parseQuery(mixed $value): string
+    {
+        if (!is_string($value)) return '';
+        return mb_substr(trim($value), 0, 100);
+    }
+
     public static function parseUnread(mixed $value): bool
     {
         if ($value === true || $value === 'true' || $value === '1' || $value === 1) return true;
@@ -388,6 +405,10 @@ final class NotificationService
             'message' => (string) $row['message'],
             // Booking-less events (application decisions) carry no booking id.
             'bookingId' => $row['booking_public_id'] ?? null,
+            // The booking as it is now, so the list can tell whether the
+            // notification still asks for something.
+            'bookingStatus' => $row['booking_status'] ?? $row['status'] ?? null,
+            'paymentStatus' => $row['booking_payment_status'] ?? $row['payment_status'] ?? null,
             'actionPath' => (string) $row['action_path'],
             'readAt' => $row['read_at'] === null ? null : self::iso((string) $row['read_at']),
             'createdAt' => self::iso((string) $row['created_at']),

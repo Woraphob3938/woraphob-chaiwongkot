@@ -10,7 +10,7 @@ export type DashboardAction = {
 };
 
 function memberBookingDescription(booking: Booking): string {
-  return `${booking.trainer.displayName} · ${formatDateTime(booking.startsAt)} · คำขอ ${booking.id}`;
+  return `${booking.trainer.displayName} · ${formatDateTime(booking.confirmedStartsAt ?? booking.startsAt)} · คำขอ ${booking.id}`;
 }
 
 export function hasValidBookingPeriod(booking: Pick<Booking, "startsAt" | "endsAt">): boolean {
@@ -32,7 +32,7 @@ export function getMemberNextAction(bookings: Booking[]): DashboardAction {
   if (pendingTrainer) return { title: "รอเทรนเนอร์ตอบรับคำขอ", description: memberBookingDescription(pendingTrainer), href: `/member#booking-${pendingTrainer.id}`, cta: "ดูสถานะ", state: "waiting" };
 
   const paymentReview = bookings.find((booking) => booking.status === "payment_review");
-  if (paymentReview) return { title: "รอตรวจหลักฐาน", description: memberBookingDescription(paymentReview), href: `/member#booking-${paymentReview.id}`, cta: "ดูสถานะ", state: "waiting" };
+  if (paymentReview) return { title: "รอเทรนเนอร์ตรวจสลิป", description: memberBookingDescription(paymentReview), href: `/member#booking-${paymentReview.id}`, cta: "ดูสถานะ", state: "waiting" };
 
   const confirmed = bookings.find((booking) => booking.status === "confirmed");
   if (confirmed) return { title: "เตรียมตัวสำหรับการฝึก", description: memberBookingDescription(confirmed), href: `/member#booking-${confirmed.id}`, cta: "ดูนัดหมาย", state: "waiting" };

@@ -59,6 +59,11 @@ function mockApi(profile: TrainerAccountProfile | null) {
   });
 }
 
+/** A first application sends from the last step, so tests walk there first. */
+function goToLastStep() {
+  fireEvent.click(screen.getByRole("button", { name: /ใบรับรองและส่ง/ }));
+}
+
 function certificateFile() {
   return new File(["certificate"], "certificate.pdf", { type: "application/pdf" });
 }
@@ -86,9 +91,10 @@ describe("TrainerApplyForm", () => {
     mockApi(null);
     render(<TrainerApplyForm />);
     await fillRequiredFields();
-    fireEvent.change(screen.getByLabelText("วันเกิด"), { target: { value: "1990-05-20" } });
-    fireEvent.change(screen.getByLabelText("ข้อมูลการศึกษา"), { target: { value: "ปริญญาตรี วิทยาศาสตร์การกีฬา" } });
+    fireEvent.change(screen.getByLabelText(/^วันเกิด/), { target: { value: "1990-05-20" } });
+    fireEvent.change(screen.getByLabelText(/^ข้อมูลการศึกษา/), { target: { value: "ปริญญาตรี วิทยาศาสตร์การกีฬา" } });
     fireEvent.change(screen.getByLabelText(/ไฟล์ใบรับรอง/), { target: { files: [certificateFile()] } });
+    goToLastStep();
     fireEvent.click(screen.getByRole("button", { name: /ส่งใบสมัครให้ผู้ดูแลระบบตรวจ/ }));
 
     await waitFor(() => expect(vi.mocked(authenticatedRequest)).toHaveBeenCalledWith(
@@ -114,14 +120,16 @@ describe("TrainerApplyForm", () => {
     mockApi(null);
     render(<TrainerApplyForm />);
     await fillRequiredFields();
-    fireEvent.change(screen.getByLabelText("วันเกิด"), { target: { value: "2100-01-01" } });
+    fireEvent.change(screen.getByLabelText(/^วันเกิด/), { target: { value: "2100-01-01" } });
+    goToLastStep();
     fireEvent.click(screen.getByRole("button", { name: /ส่งใบสมัครให้ผู้ดูแลระบบตรวจ/ }));
 
     expect(await screen.findByText("วันเกิดต้องเป็นวันที่ผ่านมาแล้ว")).toBeInTheDocument();
     expect(vi.mocked(authenticatedRequest).mock.calls.some(([path]) => path === "/v1/trainer-applications")).toBe(false);
 
-    fireEvent.change(screen.getByLabelText("วันเกิด"), { target: { value: "1990-05-20" } });
-    fireEvent.change(screen.getByLabelText("ข้อมูลการศึกษา"), { target: { value: "ว".repeat(256) } });
+    fireEvent.change(screen.getByLabelText(/^วันเกิด/), { target: { value: "1990-05-20" } });
+    fireEvent.change(screen.getByLabelText(/^ข้อมูลการศึกษา/), { target: { value: "ว".repeat(256) } });
+    goToLastStep();
     fireEvent.click(screen.getByRole("button", { name: /ส่งใบสมัครให้ผู้ดูแลระบบตรวจ/ }));
 
     expect(await screen.findByText("ข้อมูลการศึกษาต้องไม่เกิน 255 ตัวอักษร")).toBeInTheDocument();
@@ -134,8 +142,8 @@ describe("TrainerApplyForm", () => {
     mockApi(stored);
     render(<TrainerApplyForm />);
 
-    await waitFor(() => expect(screen.getByLabelText("วันเกิด")).toHaveValue("1990-05-20"));
-    expect(screen.getByLabelText("ข้อมูลการศึกษา")).toHaveValue("ปริญญาตรี วิทยาศาสตร์การกีฬา");
+    await waitFor(() => expect(screen.getByLabelText(/^วันเกิด/)).toHaveValue("1990-05-20"));
+    expect(screen.getByLabelText(/^ข้อมูลการศึกษา/)).toHaveValue("ปริญญาตรี วิทยาศาสตร์การกีฬา");
   });
 
   it("keeps the service mode to two choices and collects no gym name", async () => {
@@ -200,6 +208,7 @@ describe("TrainerApplyForm", () => {
     mockApi(null);
     render(<TrainerApplyForm />);
     await fillRequiredFields();
+    goToLastStep();
     fireEvent.click(screen.getByRole("button", { name: /ส่งใบสมัครให้ผู้ดูแลระบบตรวจ/ }));
 
     expect(await screen.findByText("แนบไฟล์ PDF ใบรับรองเพื่อให้ผู้ดูแลระบบตรวจ")).toBeInTheDocument();
@@ -256,8 +265,55 @@ describe("TrainerApplyForm", () => {
     render(<TrainerApplyForm />);
     await fillRequiredFields();
     fireEvent.change(screen.getByLabelText(/ไฟล์ใบรับรอง/), { target: { files: [certificateFile()] } });
+    goToLastStep();
     fireEvent.click(screen.getByRole("button", { name: /ส่งใบสมัครให้ผู้ดูแลระบบตรวจ/ }));
 
     expect(await screen.findByText("ข้อมูลไม่ถูกต้อง")).toBeInTheDocument();
+  });
+  it("walks a new applicant through four steps and checks only the step being left", async () => {
+    mockApi(null);
+    render(<TrainerApplyForm />);
+    await screen.findByLabelText("เวทเทรนนิง");
+
+    const steps = screen.getByRole("navigation", { name: "ขั้นตอนการกรอกข้อมูล" });
+    expect(within(steps).getAllByRole("button")).toHaveLength(4);
+    expect(within(steps).getByRole("button", { name: /หน้าร้าน/ })).toHaveAttribute("aria-current", "step");
+    // A first application cannot be sent before the last step.
+    expect(screen.queryByRole("button", { name: /ส่งใบสมัครให้ผู้ดูแลระบบตรวจ/ })).not.toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole("button", { name: /^ถัดไป/ }));
+    expect(await screen.findByText("กรุณากรอกชื่อที่แสดง")).toBeInTheDocument();
+    // Fields of later steps are not flagged yet.
+    expect(screen.queryByText("กรอกชื่อบัญชีผู้รับเงิน")).not.toBeInTheDocument();
+    expect(within(steps).getByRole("button", { name: /หน้าร้าน/ })).toHaveAttribute("aria-current", "step");
+
+    await fillRequiredFields();
+    fireEvent.click(screen.getByRole("button", { name: /^ถัดไป/ }));
+    expect(within(steps).getByRole("button", { name: /บริการและราคา/ })).toHaveAttribute("aria-current", "step");
+  });
+
+  it("jumps to the earliest step that still owes something on send", async () => {
+    mockApi(null);
+    render(<TrainerApplyForm />);
+    await screen.findByLabelText("เวทเทรนนิง");
+    goToLastStep();
+    fireEvent.click(screen.getByRole("button", { name: /ส่งใบสมัครให้ผู้ดูแลระบบตรวจ/ }));
+    const steps = screen.getByRole("navigation", { name: "ขั้นตอนการกรอกข้อมูล" });
+    await waitFor(() => expect(within(steps).getByRole("button", { name: /หน้าร้าน/ })).toHaveAttribute("aria-current", "step"));
+    expect(within(steps).getByRole("button", { name: /ข้อมูลส่วนตัว/ })).toHaveTextContent(/ต้องแก้/);
+  });
+
+  it("opens the 30-day package fields only when the package switch is on", async () => {
+    mockApi(null);
+    render(<TrainerApplyForm />);
+    await screen.findByLabelText("เวทเทรนนิง");
+    expect(screen.queryByLabelText("ราคาแพ็กเกจ 30 วัน")).not.toBeInTheDocument();
+    fireEvent.click(screen.getByRole("switch", { name: /เปิดแพ็กเกจ 30 วัน/ }));
+    fireEvent.change(screen.getByLabelText("ราคาแพ็กเกจ 30 วัน"), { target: { value: "5000" } });
+    fireEvent.change(screen.getByLabelText("จำนวนครั้งในแพ็กเกจ"), { target: { value: "8" } });
+    fireEvent.click(screen.getByRole("switch", { name: /เปิดแพ็กเกจ 30 วัน/ }));
+    fireEvent.click(screen.getByRole("switch", { name: /เปิดแพ็กเกจ 30 วัน/ }));
+    // Turning the package off cleared it, so it comes back empty.
+    expect(screen.getByLabelText("ราคาแพ็กเกจ 30 วัน")).toHaveValue(null);
   });
 });

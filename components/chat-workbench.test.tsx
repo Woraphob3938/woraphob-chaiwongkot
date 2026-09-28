@@ -379,8 +379,8 @@ describe("ChatWorkbench", () => {
 
   it.each([
     ["awaiting_payment", "รอชำระเงิน"],
-    ["payment_review", "รอตรวจหลักฐาน"],
-    ["confirmed", "ยืนยันแล้ว"],
+    ["payment_review", "รอตรวจสลิป"],
+    ["confirmed", "ชำระแล้ว"],
     ["completed", "เสร็จสิ้น"],
   ] as const)("shows the exact %s workflow label in the active chat", async (status, label) => {
     const booking = bookingFixture({ status });

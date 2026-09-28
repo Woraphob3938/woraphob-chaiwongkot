@@ -174,8 +174,11 @@ describe("AdminReviewQueue", () => {
     expect(within(row).getByText("เสาร์ 1 ส.ค. 2569 · 10:00 น. ถึง เสาร์ 1 ส.ค. 2569 · 11:00 น.")).toBeInTheDocument();
     expect(within(row).queryByText("สถานที่")).not.toBeInTheDocument();
     expect(within(row).getByText("฿1,200.00")).toBeInTheDocument();
-    expect(within(row).getByText("฿1,000.00")).toBeInTheDocument();
-    expect(within(row).getByText("-฿200.00")).toBeInTheDocument();
+    // The amount to find is the one the system asked for, exact to the satang.
+    expect(within(row).getByText("฿1,000.00 ตรงถึงสตางค์")).toBeInTheDocument();
+    // No QR was read and no window is known for this fixture, so both say so.
+    expect(within(row).getByText("อ่านไม่ได้ ตรวจยอดและเวลาในแอปธนาคารอย่างละเอียด")).toBeInTheDocument();
+    expect(within(row).getByText("ไม่มีข้อมูลช่วงเวลาของสลิปนี้")).toBeInTheDocument();
     expect(within(row).getByText("เสาร์ 1 ส.ค. 2569 · 09:00 น.")).toBeInTheDocument();
     expect(within(row).getByText("ตรวจหลักฐานการชำระเงินของคุณ")).toBeInTheDocument();
   });
@@ -558,7 +561,22 @@ describe("AdminReviewQueue", () => {
     await openQueueDisclosure("หลักฐานการชำระเงิน");
     const row = await screen.findByRole("article", { name: "ตรวจสลิป PAY-000021" });
     expect(within(row).getAllByText("ไม่มียอดที่บันทึก")).toHaveLength(2);
-    expect(within(row).getByText("คำนวณส่วนต่างไม่ได้")).toBeInTheDocument();
     expect(within(row).queryByText("฿0.00")).not.toBeInTheDocument();
+  });
+  it("shows a readable slip QR and the window the transfer had to fall in", async () => {
+    vi.mocked(authenticatedRequest).mockResolvedValueOnce(paymentQueue([{
+      ...payment,
+      amount: 1_200.37,
+      slipReference: "004:2026092712345678901",
+      windowEndsAt: "2026-08-01T05:10:00.000Z",
+    }]));
+
+    render(<AdminReviewQueue reviewer="trainer" />);
+    await openQueueDisclosure("หลักฐานการชำระเงิน");
+    const row = await screen.findByRole("article", { name: "ตรวจสลิป PAY-000021" });
+    const checks = within(row).getByRole("region", { name: /สิ่งที่ต้องตรวจในแอปธนาคาร/ });
+    expect(within(checks).getByText("อ่านได้และไม่ซ้ำกับสลิปอื่น · อ้างอิง 2026092712345678901")).toBeInTheDocument();
+    expect(within(checks).getByText("฿1,200.37 ตรงถึงสตางค์")).toBeInTheDocument();
+    expect(within(checks).getByText("เสาร์ 1 ส.ค. 2569 · 12:00 น. – 12:10 น.")).toBeInTheDocument();
   });
 });

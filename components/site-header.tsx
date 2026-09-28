@@ -8,7 +8,6 @@ import {
   Bell,
   CalendarCheck2,
   ChevronDown,
-  Dumbbell,
   Home,
   LayoutDashboard,
   LogOut,
@@ -20,6 +19,7 @@ import {
   X,
   type LucideIcon,
 } from "lucide-react";
+import { BrandMark } from "@/components/brand-mark";
 import { MobileRoleNav } from "@/components/mobile-role-nav";
 import { ApiError, apiAssetUrl, apiRequest, authenticatedRequest } from "@/lib/api";
 import { initials } from "@/lib/format";
@@ -260,7 +260,7 @@ export function SiteHeader() {
     <header className={`site-header${sessionReady ? "" : " site-header--pending"}`}>
       <div className="header-inner">
         <Link className="brand" href="/" aria-label="FitConnect หน้าหลัก">
-          <span className="brand-mark" aria-hidden="true"><Dumbbell size={19} strokeWidth={2.2} /></span>
+          <span className="brand-mark" aria-hidden="true"><BrandMark size={22} /></span>
           <span>FITCONNECT</span>
         </Link>
         <div className="header-actions">
@@ -283,7 +283,7 @@ export function SiteHeader() {
         <aside className="session-sidebar-placeholder" aria-hidden="true">
           <div className="app-sidebar__top">
             <span className="brand">
-              <span className="brand-mark"><Dumbbell size={19} strokeWidth={2.2} /></span>
+              <span className="brand-mark"><BrandMark size={22} /></span>
               <span className="brand__label">FITCONNECT</span>
             </span>
           </div>
@@ -300,7 +300,7 @@ export function SiteHeader() {
         <aside className="app-sidebar" aria-label="แถบนำทาง FitConnect" data-collapsed={sidebarCollapsed}>
           <div className="app-sidebar__top">
             <Link className="brand" href="/" aria-label="FitConnect หน้าหลัก">
-              <span className="brand-mark" aria-hidden="true"><Dumbbell size={19} strokeWidth={2.2} /></span>
+              <span className="brand-mark" aria-hidden="true"><BrandMark size={22} /></span>
               <span className="brand__label">FITCONNECT</span>
             </Link>
             <button

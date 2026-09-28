@@ -30,7 +30,7 @@ describe("TrainerPreviewCard", () => {
 
     const { rerender } = render(<TrainerPreviewCard trainer={demoTrainer} />);
     expect(screen.getByRole("img", { name: `รูปโปรไฟล์ของ${demoTrainer.displayName}` })).toBeInTheDocument();
-    expect(screen.getByText("ภาพสาธิต")).toBeInTheDocument();
+    expect(screen.queryByText("ภาพสาธิต")).not.toBeInTheDocument();
 
     rerender(<TrainerPreviewCard trainer={liveTrainer} />);
     expect(screen.getByRole("img", { name: `รูปโปรไฟล์ของ${liveTrainer.displayName}` })).toBeInTheDocument();

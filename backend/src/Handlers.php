@@ -800,7 +800,8 @@ final class Handlers
             }
 
             // Keep booking and payment history for system records, but revoke every session.
-            $pdo->prepare('UPDATE users SET status = "deleted", updated_at = UTC_TIMESTAMP() WHERE id = ?')
+            // The address is released so the person can register with it again.
+            $pdo->prepare('UPDATE users SET status = "deleted", email = CONCAT("deleted-", id, "@deleted.invalid"), updated_at = UTC_TIMESTAMP() WHERE id = ?')
                 ->execute([$user['id']]);
             $pdo->prepare('UPDATE auth_tokens SET revoked_at = UTC_TIMESTAMP() WHERE user_id = ? AND revoked_at IS NULL')
                 ->execute([$user['id']]);
@@ -990,7 +991,8 @@ final class Handlers
         $page = NotificationService::parsePage($_GET['page'] ?? '0');
         $category = NotificationService::parseCategory($_GET['category'] ?? 'all');
         $unread = NotificationService::parseUnread($_GET['unread'] ?? 'false');
-        Http::json($this->notifications->listForUser((int) $user['id'], $page, $category, $unread));
+        $query = NotificationService::parseQuery($_GET['q'] ?? '');
+        Http::json($this->notifications->listForUser((int) $user['id'], $page, $category, $unread, $query));
     }
 
     public function notification(string $notificationId): never
@@ -1256,7 +1258,7 @@ final class Handlers
             'SELECT b.id AS booking_db_id, b.public_id, b.starts_at, b.ends_at, b.member_note,
                     b.confirmed_starts_at, b.confirmed_ends_at, b.cancellation_reason,
                     b.booking_type, b.session_count, b.period_start, b.period_end, b.payment_service_mode,
-                    b.status, b.payment_status, b.payment_deadline_at, b.quoted_price, b.created_at, b.is_demo,
+                    b.status, b.payment_status, b.payment_deadline_at, b.quoted_price, b.transfer_amount, b.created_at, b.is_demo,
                     tp.id AS trainer_id, tp.slug, tp.user_id AS trainer_user_id, tp.image_path AS trainer_image_path,
                     tp.payment_account_name, tp.promptpay_id, tp.payment_qr_path,
                     bank.bank_name AS bank_name, bank.account_name AS bank_account_name,
@@ -1399,17 +1401,36 @@ final class Handlers
                 $periodStart = null;
                 $periodEnd = null;
             }
+            // Every open booking paid into the same account gets its own satang,
+            // so one credit in the banking app matches exactly one booking. A
+            // freelance trainer's account is theirs alone; gym bookings share the
+            // gym's account, so they are kept apart across every gym trainer.
+            $openPlaceholders = implode(',', array_fill(0, count(SlipRules::OPEN_STATUSES), '?'));
+            $takenQuery = $paymentMode === 'gym'
+                ? 'SELECT transfer_amount FROM bookings WHERE payment_service_mode = "gym"
+                   AND status IN (' . $openPlaceholders . ') AND transfer_amount IS NOT NULL FOR UPDATE'
+                : 'SELECT transfer_amount FROM bookings WHERE trainer_profile_id = ? AND payment_service_mode = "freelance"
+                   AND status IN (' . $openPlaceholders . ') AND transfer_amount IS NOT NULL FOR UPDATE';
+            $takenStatement = $pdo->prepare($takenQuery);
+            $takenStatement->execute($paymentMode === 'gym'
+                ? SlipRules::OPEN_STATUSES
+                : [(int) $input['trainerId'], ...SlipRules::OPEN_STATUSES]);
+            $takenSatang = array_map(
+                static fn(array $row): int => ((int) round(((float) $row['transfer_amount']) * 100)) % 100,
+                $takenStatement->fetchAll()
+            );
+            $transferAmount = SlipRules::transferAmount((string) $quotedPrice, $takenSatang);
             $insert = $pdo->prepare(
                 'INSERT INTO bookings
                  (public_id, member_user_id, trainer_profile_id, availability_slot_id,
                   starts_at, ends_at, member_note, booking_type, session_count, period_start,
-                  period_end, quoted_price, payment_service_mode, status, payment_status, payment_deadline_at)
-                 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, "pending_trainer", "not_submitted", NULL)'
+                  period_end, quoted_price, transfer_amount, payment_service_mode, status, payment_status, payment_deadline_at)
+                 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, "pending_trainer", "not_submitted", NULL)'
             );
             $insert->execute([
                 $publicId, $user['id'], (int) $input['trainerId'], (int) $firstSlot['id'],
                 $firstSlot['starts_at'], $lastSlot['ends_at'], trim(Http::stringField($input, 'note')),
-                $bookingType, $sessionCount, $periodStart, $periodEnd, $quotedPrice, $paymentMode,
+                $bookingType, $sessionCount, $periodStart, $periodEnd, $quotedPrice, $transferAmount, $paymentMode,
             ]);
             $bookingId = (int) $pdo->lastInsertId();
             $insertSession = $pdo->prepare(
@@ -1437,6 +1458,7 @@ final class Handlers
                 'bookingType' => $bookingType,
                 'sessionCount' => $sessionCount,
                 'quotedPrice' => (float) $quotedPrice,
+                'transferAmount' => (float) $transferAmount,
                 // The ten minute payment clock starts when the trainer accepts.
                 'paymentDeadlineAt' => null,
             ];
@@ -1769,6 +1791,10 @@ final class Handlers
         $input = Http::body();
         Http::requireFields($input, ['bookingId']);
         $this->rateLimiter->hit(RateLimiter::PAYMENT_SLIP, 'user:' . $user['id']);
+        // The browser reads the slip's QR and sends its raw text. Only a payload
+        // with a valid CRC counts; anything else is stored as "not read" and the
+        // trainer checks that slip with extra care.
+        $slipQr = isset($input['slipQr']) && is_string($input['slipQr']) ? SlipRules::parseSlipQr($input['slipQr']) : null;
         $file = $this->saveUpload(
             'slip',
             ['image/jpeg', 'image/png', 'image/webp', 'application/pdf'],
@@ -1778,10 +1804,10 @@ final class Handlers
         $notificationIds = [];
 
         try {
-            $result = $this->database->transaction(function (PDO $pdo) use ($input, $user, $file, &$notificationIds): array {
+            $result = $this->database->transaction(function (PDO $pdo) use ($input, $user, $file, $slipQr, &$notificationIds): array {
                 $this->releaseScheduledAcceptancesInTransaction($pdo, $notificationIds);
                 $statement = $pdo->prepare(
-                    'SELECT id, status, availability_slot_id, payment_deadline_at, quoted_price,
+                    'SELECT id, status, availability_slot_id, payment_deadline_at, quoted_price, transfer_amount,
                             UTC_TIMESTAMP() AS database_now
                      FROM bookings
                      WHERE public_id = ? AND member_user_id = ? FOR UPDATE'
@@ -1808,11 +1834,29 @@ final class Handlers
                 if ($booking['quoted_price'] === null) {
                     throw new HttpException(409, 'การจองนี้ยังไม่มียอดชำระ', 'PAYMENT_AMOUNT_UNAVAILABLE');
                 }
-                $amount = WorkflowRules::normalizeMoney($booking['quoted_price'], 'amount');
-                $pdo->prepare(
-                    'INSERT INTO payments (booking_id, submitted_by_user_id, amount, slip_path, mime_type, status, submitted_at)
-                     VALUES (?, ?, ?, ?, ?, "reviewing", UTC_TIMESTAMP())'
-                )->execute([$booking['id'], $user['id'], $amount, $file['path'], $file['mime']]);
+                // The amount the trainer must find is the exact transfer amount,
+                // satang included; bookings from before it existed use the price.
+                $amount = WorkflowRules::normalizeMoney($booking['transfer_amount'] ?? $booking['quoted_price'], 'amount');
+                if ($slipQr !== null) {
+                    $reused = $pdo->prepare('SELECT id FROM payments WHERE transaction_ref = ? LIMIT 1');
+                    $reused->execute([$slipQr['key']]);
+                    if ($reused->fetch()) {
+                        throw new HttpException(409, 'สลิปนี้เคยส่งเป็นหลักฐานแล้ว กรุณาโอนและใช้สลิปของรายการนี้', 'SLIP_ALREADY_USED');
+                    }
+                }
+                try {
+                    $pdo->prepare(
+                        'INSERT INTO payments (booking_id, submitted_by_user_id, amount, transaction_ref, window_ends_at, slip_path, mime_type, status, submitted_at)
+                         VALUES (?, ?, ?, ?, ?, ?, ?, "reviewing", UTC_TIMESTAMP())'
+                    )->execute([$booking['id'], $user['id'], $amount, $slipQr['key'] ?? null, $booking['payment_deadline_at'], $file['path'], $file['mime']]);
+                } catch (PDOException $insertError) {
+                    // Two uploads of one slip at the same moment: the unique
+                    // index is the last word.
+                    if ($insertError->getCode() === '23000') {
+                        throw new HttpException(409, 'สลิปนี้เคยส่งเป็นหลักฐานแล้ว กรุณาโอนและใช้สลิปของรายการนี้', 'SLIP_ALREADY_USED');
+                    }
+                    throw $insertError;
+                }
                 $paymentId = (int) $pdo->lastInsertId();
                 $pdo->prepare('UPDATE bookings SET status = "payment_review", payment_status = "reviewing", payment_deadline_at = NULL, updated_at = UTC_TIMESTAMP() WHERE id = ?')
                     ->execute([$booking['id']]);
@@ -1834,7 +1878,7 @@ final class Handlers
             $this->removeUpload($file['path']);
             throw new HttpException(409, 'หมดเวลาส่งหลักฐาน กรุณาเลือกเวลาใหม่', 'PAYMENT_DEADLINE_EXPIRED');
         }
-        Http::json(['paymentId' => $result['paymentId'], 'bookingId' => $input['bookingId'], 'status' => 'reviewing', 'message' => 'ส่งสลิปให้ผู้รับผิดชอบตรวจแล้ว'], 201);
+        Http::json(['paymentId' => $result['paymentId'], 'bookingId' => $input['bookingId'], 'status' => 'reviewing', 'slipQrRead' => $slipQr !== null, 'message' => 'ส่งสลิปให้เทรนเนอร์ตรวจแล้ว'], 201);
     }
 
     public function messages(string $roomId): never
@@ -2897,7 +2941,8 @@ final class Handlers
                 $remainingActiveManagers
             );
 
-            $pdo->prepare('UPDATE users SET status = "deleted", updated_at = UTC_TIMESTAMP() WHERE id = ?')
+            // The address is released so the person can register with it again.
+            $pdo->prepare('UPDATE users SET status = "deleted", email = CONCAT("deleted-", id, "@deleted.invalid"), updated_at = UTC_TIMESTAMP() WHERE id = ?')
                 ->execute([(int) $target['id']]);
             $pdo->prepare('UPDATE auth_tokens SET revoked_at = UTC_TIMESTAMP() WHERE user_id = ? AND revoked_at IS NULL')
                 ->execute([(int) $target['id']]);
@@ -2985,7 +3030,7 @@ final class Handlers
              GROUP BY tp.id ORDER BY tp.created_at ASC LIMIT 100'
         ) : [];
         $payments = $permissions['reviewPayments'] ? $this->database->fetchAll(
-            'SELECT pay.id, pay.submitted_at, pay.amount,
+            'SELECT pay.id, pay.submitted_at, pay.amount, pay.transaction_ref, pay.window_ends_at,
                     b.public_id AS booking_public_id,
                     COALESCE(b.confirmed_starts_at, b.starts_at) AS starts_at,
                     COALESCE(b.confirmed_ends_at, b.ends_at) AS ends_at,
@@ -3047,6 +3092,10 @@ final class Handlers
                     ? null
                     : (float) $row['amount'] - (float) $row['quoted_price'],
                 'submittedAt' => $this->iso($row['submitted_at']),
+                // First-line slip checks: the QR reference (null when it could not be
+                // read) and the window the transfer had to fall in.
+                'slipReference' => $row['transaction_ref'] ?? null,
+                'windowEndsAt' => empty($row['window_ends_at']) ? null : $this->iso($row['window_ends_at']),
                 'fileUrl' => '/v1/admin/files/payment/' . $row['id'],
                 'demo' => (bool) $row['is_demo'],
             ], $payments),
@@ -3675,6 +3724,8 @@ final class Handlers
                 ],
             ] : null,
             'quotedPrice' => $row['quoted_price'] === null ? null : (float) $row['quoted_price'],
+            // The exact amount to transfer, satang included.
+            'transferAmount' => ($row['transfer_amount'] ?? null) === null ? null : (float) $row['transfer_amount'],
             'chatRoomId' => $role === 'admin' || $row['chat_room_id'] === null ? null : (int) $row['chat_room_id'],
             'payment' => $row['payment_id'] === null ? null : [
                 'id' => (int) $row['payment_id'],
@@ -3706,11 +3757,16 @@ final class Handlers
                     && $status === 'confirmed' && $row['payment_status'] === 'approved'
                     && count($sessions) < (int) ($row['session_count'] ?? 1)
                     && ($row['period_end'] ?? null) !== null && strtotime($row['period_end'] . ' UTC') > time(),
-                'canCancel' => $isMember
-                    && $status === 'awaiting_payment'
-                    && in_array($row['payment_status'], ['not_submitted', 'rejected'], true)
-                    && $row['payment_deadline_at'] !== null
-                    && strtotime($row['payment_deadline_at'] . ' UTC') > time(),
+                // Mirrors WorkflowRules::assertMemberCancellation: a request may
+                // be withdrawn while it waits for the trainer, and an accepted
+                // one until a slip is submitted and while its window is open.
+                'canCancel' => $isMember && (
+                    $status === 'pending_trainer'
+                    || ($status === 'awaiting_payment'
+                        && in_array($row['payment_status'], ['not_submitted', 'rejected'], true)
+                        && $row['payment_deadline_at'] !== null
+                        && strtotime($row['payment_deadline_at'] . ' UTC') > time())
+                ),
                 'canAccept' => $isTrainer && $status === 'pending_trainer' && !$acceptedAwaitingRound,
                 'canReject' => $isTrainer && $status === 'pending_trainer',
                 'canCancelBooking' => $isTrainer && in_array($status, $cancellableByTrainer, true),

@@ -6,6 +6,7 @@ import { Filter, Search } from "lucide-react";
 import { TrainerMarketplaceCard } from "@/components/trainer-marketplace-card";
 import {
   TrainerMarketplaceFilters,
+  countByAvailabilityDay,
   countByExperience,
   countByPriceRange,
   countByRating,
@@ -14,7 +15,13 @@ import {
   priceRangeOptions,
   ratingFilterOptions,
   experienceFilterOptions,
+  availabilityDayOptions,
+  priceRangeOptionsByBasis,
+  timeOfDayOptions,
+  type TrainerAvailabilityDay,
   type TrainerExperienceFilter,
+  type TrainerPriceBasis,
+  type TrainerTimeOfDay,
   type TrainerFilterState,
   type TrainerPriceRange,
   type TrainerRatingFilter,
@@ -50,6 +57,12 @@ const sortModes: SortMode[] = ["availability", "price_asc", "price_desc", "ratin
 const priceRanges: TrainerPriceRange[] = priceRangeOptions.map((option) => option.value);
 const ratingFilters: TrainerRatingFilter[] = ratingFilterOptions.map((option) => option.value);
 const experienceFilters: TrainerExperienceFilter[] = experienceFilterOptions.map((option) => option.value);
+const availabilityDays: TrainerAvailabilityDay[] = availabilityDayOptions.map((option) => option.value);
+const timesOfDay: TrainerTimeOfDay[] = timeOfDayOptions.map((option) => option.value);
+
+function readParam<T extends string>(value: string | string[] | undefined, allowed: T[], fallback: T): T {
+  return typeof value === "string" && allowed.includes(value as T) ? value as T : fallback;
+}
 
 export function TrainerDiscovery({
   initialTrainers,
@@ -60,11 +73,19 @@ export function TrainerDiscovery({
 }: Props) {
   const [query, setQuery] = useState(initialQuery);
   const [trainingType, setTrainingType] = useState(initialType);
-  const [priceRange, setPriceRange] = useState<TrainerPriceRange>(
-    typeof initialFilters.price === "string" && priceRanges.includes(initialFilters.price as TrainerPriceRange)
-      ? initialFilters.price as TrainerPriceRange
-      : "all",
+  const initialPrice = readParam(initialFilters.price, priceRanges, "all");
+  // A monthly range in the URL implies the monthly basis even without `basis`.
+  const [priceBasis, setPriceBasis] = useState<TrainerPriceBasis>(
+    initialFilters.basis === "monthly" || initialPrice.startsWith("m_") ? "monthly" : "session",
   );
+  const [priceRange, setPriceRange] = useState<TrainerPriceRange>(initialPrice);
+  const [availabilityDay, setAvailabilityDay] = useState<TrainerAvailabilityDay>(
+    initialFilters.available === "1" && !initialFilters.day ? "any" : readParam(initialFilters.day, availabilityDays, "all"),
+  );
+  const [availabilityDate, setAvailabilityDate] = useState(
+    typeof initialFilters.date === "string" && /^\d{4}-\d{2}-\d{2}$/.test(initialFilters.date) ? initialFilters.date : "",
+  );
+  const [timeOfDay, setTimeOfDay] = useState<TrainerTimeOfDay>(readParam(initialFilters.time, timesOfDay, "all"));
   const [ratingFilter, setRatingFilter] = useState<TrainerRatingFilter>(
     typeof initialFilters.rating === "string" && ratingFilters.includes(initialFilters.rating as TrainerRatingFilter)
       ? initialFilters.rating as TrainerRatingFilter
@@ -76,7 +97,6 @@ export function TrainerDiscovery({
       : "all",
   );
   const [verifiedOnly, setVerifiedOnly] = useState(initialFilters.verified === "1");
-  const [availableOnly, setAvailableOnly] = useState(initialFilters.available === "1");
   const [sortMode, setSortMode] = useState<SortMode>(
     typeof initialFilters.sort === "string" && sortModes.includes(initialFilters.sort as SortMode)
       ? initialFilters.sort as SortMode
@@ -85,11 +105,14 @@ export function TrainerDiscovery({
   const search = new URLSearchParams();
   if (query) search.set("q", query);
   if (trainingType) search.set("type", trainingType);
+  if (priceBasis === "monthly") search.set("basis", "monthly");
   if (priceRange !== "all") search.set("price", priceRange);
   if (ratingFilter !== "all") search.set("rating", ratingFilter);
   if (experience !== "all") search.set("experience", experience);
   if (verifiedOnly) search.set("verified", "1");
-  if (availableOnly) search.set("available", "1");
+  if (availabilityDay !== "all") search.set("day", availabilityDay);
+  if (availabilityDay === "date" && availabilityDate) search.set("date", availabilityDate);
+  if (timeOfDay !== "all") search.set("time", timeOfDay);
   if (sortMode !== "availability") search.set("sort", sortMode);
   const returnTo = `/trainers${search.size ? `?${search}` : ""}`;
 
@@ -99,7 +122,7 @@ export function TrainerDiscovery({
     ratingFilter !== "all",
     experience !== "all",
     verifiedOnly,
-    availableOnly,
+    availabilityDay !== "all" || timeOfDay !== "all",
   ].filter(Boolean).length;
   const hasActiveFilters = Boolean(query.trim()) || activeFilterCount > 0;
 
@@ -110,14 +133,26 @@ export function TrainerDiscovery({
     setRatingFilter("all");
     setExperience("all");
     setVerifiedOnly(false);
-    setAvailableOnly(false);
+    setPriceBasis("session");
+    setAvailabilityDay("all");
+    setAvailabilityDate("");
+    setTimeOfDay("all");
   };
+
+  function changePriceBasis(next: TrainerPriceBasis) {
+    setPriceBasis(next);
+    // A range belongs to one basis; keep it only if it still applies.
+    if (!priceRangeOptionsByBasis[next].some((option) => option.value === priceRange)) setPriceRange("all");
+  }
 
   // Memoised so the counts below can depend on the object instead of listing the
   // same six values three more times.
   const filters: TrainerFilterState = useMemo(
-    () => ({ query, trainingType, priceRange, ratingFilter, experience, verifiedOnly, availableOnly }),
-    [availableOnly, experience, priceRange, query, ratingFilter, trainingType, verifiedOnly],
+    () => ({
+      query, trainingType, priceRange, ratingFilter, experience, verifiedOnly,
+      availableOnly: false, priceBasis, availabilityDay, availabilityDate, timeOfDay,
+    }),
+    [availabilityDate, availabilityDay, experience, priceBasis, priceRange, query, ratingFilter, timeOfDay, trainingType, verifiedOnly],
   );
 
   // Each option reports how many trainers it would leave, holding every other
@@ -135,6 +170,10 @@ export function TrainerDiscovery({
     () => countByRating(initialTrainers, filters),
     [filters, initialTrainers],
   );
+  const availabilityCounts = useMemo(
+    () => countByAvailabilityDay(initialTrainers, filters),
+    [filters, initialTrainers],
+  );
   const experienceCounts = useMemo(
     () => countByExperience(initialTrainers, filters),
     [filters, initialTrainers],
@@ -143,12 +182,14 @@ export function TrainerDiscovery({
   const visibleTrainers = useMemo(() => {
     const matches = filterTrainers(initialTrainers, filters);
 
+    // Price sorting follows the basis the member is comparing on.
+    const price = (trainer: Trainer) => (priceBasis === "monthly" ? trainer.monthlyPrice : trainer.priceFrom) ?? null;
     return [...matches].sort((left, right) => {
       if (sortMode === "price_asc") {
-        return (left.priceFrom ?? Number.POSITIVE_INFINITY) - (right.priceFrom ?? Number.POSITIVE_INFINITY);
+        return (price(left) ?? Number.POSITIVE_INFINITY) - (price(right) ?? Number.POSITIVE_INFINITY);
       }
       if (sortMode === "price_desc") {
-        return (right.priceFrom ?? -1) - (left.priceFrom ?? -1);
+        return (price(right) ?? -1) - (price(left) ?? -1);
       }
       if (sortMode === "rating_desc") {
         return (right.rating ?? 0) - (left.rating ?? 0);
@@ -156,7 +197,7 @@ export function TrainerDiscovery({
       return Date.parse(left.slots[0]?.startsAt ?? "9999-12-31")
         - Date.parse(right.slots[0]?.startsAt ?? "9999-12-31");
     });
-  }, [filters, initialTrainers, sortMode]);
+  }, [filters, initialTrainers, priceBasis, sortMode]);
 
   const filterProps = {
     trainingTypes,
@@ -164,7 +205,15 @@ export function TrainerDiscovery({
     priceRange,
     ratingFilter,
     verifiedOnly,
-    availableOnly,
+    priceBasis,
+    onPriceBasisChange: changePriceBasis,
+    availabilityDay,
+    availabilityDate,
+    timeOfDay,
+    availabilityCounts,
+    onAvailabilityDayChange: setAvailabilityDay,
+    onAvailabilityDateChange: setAvailabilityDate,
+    onTimeOfDayChange: setTimeOfDay,
     trainingTypeCounts,
     priceCounts,
     ratingCounts,
@@ -176,7 +225,6 @@ export function TrainerDiscovery({
     onPriceRangeChange: setPriceRange,
     onRatingFilterChange: setRatingFilter,
     onVerifiedOnlyChange: setVerifiedOnly,
-    onAvailableOnlyChange: setAvailableOnly,
   };
 
   return (

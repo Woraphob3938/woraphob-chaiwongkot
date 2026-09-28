@@ -35,14 +35,16 @@ Run these before calling work done, and report failures with their output:
 ```bash
 npm run typecheck
 npm run lint
-npx vitest run --exclude ".kilo/**" --exclude "node_modules/**"
+npm test
 npm run test:php
 npm run test:payment-routing
+npm run test:e2e
 ```
 
-- Bare `npm test` also collects `.kilo/worktrees/**` and reports about 100 false failures; use the command above.
+- `npm run test:e2e` runs the Playwright suite in `e2e/` at 1440px and 375px against the real stack. Start Apache and MySQL in XAMPP first; it starts `next dev` itself or reuses a running one. The suite is read-only and signs in with the demo accounts. Reports and traces go to `output/`.
+- Vitest excludes `.kilo/**`, `e2e/**` and `output/**` in `vitest.config.ts`; keep Playwright specs out of Vitest and vice versa.
 - `components/trainer-apply-form.test.tsx` can time out under a full parallel run and passes on its own. Rerun it alone before treating it as a regression.
-- For UI work, also open the page in the browser at 1440px and 375px and confirm there is no horizontal overflow.
+- For UI work, add or extend a spec in `e2e/` for the surface you changed; `expectNoHorizontalOverflow` in `e2e/helpers.ts` covers the no-sideways-scroll rule.
 
 ## Conventions
 

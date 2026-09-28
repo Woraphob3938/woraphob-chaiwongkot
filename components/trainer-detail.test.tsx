@@ -81,7 +81,7 @@ describe("TrainerDetail", () => {
 
     rerender(<TrainerDetail trainer={trainers[0]} />);
     expect(screen.getByRole("img", { name: `รูปโปรไฟล์ของ${trainers[0].displayName}` })).toBeInTheDocument();
-    expect(screen.getByText("ภาพสาธิต")).toBeInTheDocument();
+    expect(screen.queryByText("ภาพสาธิต")).not.toBeInTheDocument();
   });
 
   it("shows completed-booking review evidence without exposing internal profile IDs", () => {
@@ -105,15 +105,17 @@ describe("TrainerDetail", () => {
 
     const reviews = screen.getByRole("region", { name: "รีวิวจากสมาชิก" });
     expect(within(reviews).getByText("เฉพาะรีวิวจากการจองที่ฝึกเสร็จแล้ว")).toBeInTheDocument();
-    expect(within(reviews).getAllByRole("article")).toHaveLength(3);
+    expect(within(reviews).getAllByRole("article")).toHaveLength(4);
     expect(within(reviews).getByText("แนะนำท่าชัดเจนและดูแลตลอดการฝึก")).toBeInTheDocument();
     expect(within(reviews).getByText("แนะนำท่าชัดเจนและดูแลตลอดการฝึก").closest("article")?.querySelector("time"))
       .toHaveAttribute("datetime", "2026-08-11T11:14:23Z");
-    expect(within(reviews).queryByText("ติดตามผลหลังฝึกดี")).not.toBeInTheDocument();
+    expect(within(reviews).queryByText("บรรยากาศการฝึกเป็นกันเอง")).not.toBeInTheDocument();
+    expect(within(reviews).getByText("แสดง 1–4 จาก 5")).toBeInTheDocument();
     expect(within(reviews).getByRole("navigation", { name: "หน้ารายการรีวิว" })).toBeInTheDocument();
     fireEvent.click(within(reviews).getByRole("button", { name: "หน้ารีวิว 2" }));
-    expect(within(reviews).getAllByRole("article")).toHaveLength(2);
-    expect(within(reviews).getByText("ติดตามผลหลังฝึกดี")).toBeInTheDocument();
+    expect(within(reviews).getAllByRole("article")).toHaveLength(1);
+    expect(within(reviews).getByText("บรรยากาศการฝึกเป็นกันเอง")).toBeInTheDocument();
+    expect(within(reviews).getByRole("button", { name: "หน้ารีวิวถัดไป" })).toBeDisabled();
     expect(within(reviews).getByText("กลับไปเลือกเวลา")).toHaveAttribute("href", "#booking-panel");
 
     const commerceLayout = container.querySelector(".trainer-commerce-layout");
@@ -189,5 +191,35 @@ describe("TrainerDetail", () => {
     fireEvent.click(thumbs[2]);
     expect(thumbs[2]).toHaveAttribute("aria-pressed", "true");
     expect(screen.getByText("3 / 3")).toBeInTheDocument();
+  });
+  it("enlarges the profile photo and steps through the gallery", () => {
+    const trainer = {
+      ...trainers[0],
+      demo: false,
+      image: "/images/trainer-a.jpg",
+      photos: [{ id: 1, url: "/images/trainer-b.jpg" }, { id: 2, url: "/images/trainer-c.jpg" }],
+    } as typeof trainers[0];
+    render(<TrainerDetail trainer={trainer} />);
+
+    fireEvent.click(screen.getByRole("button", { name: "ขยายรูป" }));
+    const lightbox = screen.getByRole("dialog", { name: `รูปของ${trainer.displayName}` });
+    expect(within(lightbox).getByRole("img", { name: `รูปขยาย 1 จาก 3 ของ${trainer.displayName}` })).toBeInTheDocument();
+    fireEvent.click(within(lightbox).getByRole("button", { name: "รูปถัดไป" }));
+    expect(within(lightbox).getByRole("img", { name: `รูปขยาย 2 จาก 3 ของ${trainer.displayName}` })).toBeInTheDocument();
+    fireEvent.keyDown(lightbox, { key: "ArrowLeft" });
+    expect(within(lightbox).getByRole("img", { name: `รูปขยาย 1 จาก 3 ของ${trainer.displayName}` })).toBeInTheDocument();
+  });
+
+  it("keeps the credentials disclosure to the evidence not shown above it", () => {
+    const trainer = { ...trainers[0], demo: false };
+    render(<TrainerDetail trainer={trainer} />);
+    const credentials = screen.getByText("ใบรับรองและคุณสมบัติ").closest("details") as HTMLElement;
+    expect(within(credentials).getAllByRole("listitem")).toHaveLength(trainer.certificates.length);
+    expect(within(credentials).queryByText(trainer.headline)).not.toBeInTheDocument();
+  });
+  it("names both service modes for a trainer who offers both", () => {
+    render(<TrainerDetail trainer={{ ...trainers[0], demo: false, serviceMode: "both" }} />);
+    const credentials = screen.getByText("ใบรับรองและคุณสมบัติ").closest("details") as HTMLElement;
+    expect(within(credentials).getByText("ฟรีแลนซ์และฟิตเนสประจำยิม")).toBeInTheDocument();
   });
 });

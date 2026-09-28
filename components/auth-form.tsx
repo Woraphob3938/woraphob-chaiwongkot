@@ -87,7 +87,7 @@ export function AuthForm({
     if (initialEmail !== "" && emailRef.current) emailRef.current.focus();
   }, [initialEmail]);
 
-  const continueToWorkspace = useCallback(async (user: AuthenticatedUser) => {
+  const continueToWorkspace = useCallback(async (user: AuthenticatedUser, registered = false) => {
     setPending(true);
     setMessage({ tone: "success", text: "เชื่อมต่อบัญชีสำเร็จ กำลังตรวจพื้นที่ใช้งานของคุณ" });
     try {
@@ -95,6 +95,11 @@ export function AuthForm({
         user,
         () => authenticatedRequest<TrainerWorkspace>("/v1/trainer/me"),
       );
+      // A new member fills a short profile first, then goes where they were headed.
+      if (registered && user.role === "member") {
+        navigate(redirectTo ? `/member/welcome?next=${encodeURIComponent(redirectTo)}` : "/member/welcome");
+        return;
+      }
       navigate(resolveAuthRedirect(redirectTo, destination));
     } catch (error) {
       setMessage({
@@ -162,7 +167,7 @@ export function AuthForm({
       // check runs even though the effect above stands down.
       justAuthenticated.current = true;
       setAuthenticatedUser(result.user);
-      await continueToWorkspace(result.user);
+      await continueToWorkspace(result.user, mode === "register");
     } catch (error) {
       setMessage({
         tone: "error",

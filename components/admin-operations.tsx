@@ -264,7 +264,7 @@ function UserEditor({ user, busy, onSave, onToggle, onDelete }: {
     <details className="admin-record-disclosure admin-user-editor">
       <summary>
         <span><strong>{user.displayName}</strong><small>{user.email} · {roleCopy[user.role]}</small></span>
-        <span className="admin-account-row__status"><AccountStatus status={user.status} />{user.approvalStatus && <StatusBadge status={user.approvalStatus} source="verification" />}</span>
+        <span className="admin-account-row__status"><AccountStatus status={user.status} />{user.approvalStatus && <StatusBadge status={user.approvalStatus} source="approval" />}</span>
       </summary>
       <form className="admin-editor" onSubmit={(event) => { event.preventDefault(); void onSave(user.id, { displayName, email }); }}>
         <div className="admin-editor__fields">
@@ -369,10 +369,10 @@ export function AdminOperations() {
   const tabs = useMemo(() => {
     if (!data) return [];
     const result: Array<{ id: AdminTab; label: string; icon: typeof ShieldCheck }> = [];
-    if (data.permissions.reviewTrainers || data.permissions.reviewPayments) result.push({ id: "review", label: "คิวตรวจสอบ", icon: ShieldCheck });
-    if (data.permissions.manageUsers) result.push({ id: "users", label: "บัญชีผู้ใช้", icon: UsersRound });
-    if (data.permissions.manageBookings) result.push({ id: "bookings", label: "การจองทั้งหมด", icon: BookOpen });
-    if (data.permissions.reviewPayments) result.push({ id: "finance", label: "การเงิน", icon: CircleDollarSign });
+    if (data.permissions.reviewTrainers || data.permissions.reviewPayments) result.push({ id: "review", label: "อนุมัติเทรนเนอร์", icon: ShieldCheck });
+    if (data.permissions.manageUsers) result.push({ id: "users", label: "สมาชิกและเทรนเนอร์", icon: UsersRound });
+    if (data.permissions.manageBookings) result.push({ id: "bookings", label: "การจอง", icon: BookOpen });
+    if (data.permissions.reviewPayments) result.push({ id: "finance", label: "การชำระเงิน", icon: CircleDollarSign });
     if (data.permissions.manageBookings || data.permissions.reviewPayments) result.push({ id: "reports", label: "รายงาน", icon: ChartColumn });
     if (data.permissions.manageUsers) result.push({ id: "administrators", label: "ผู้ดูแลระบบ", icon: UserCog });
     result.push({ id: "account", label: "บัญชีของฉัน", icon: UserCog });
@@ -520,7 +520,7 @@ export function AdminOperations() {
         {activeTab === "users" && (
           <div className="admin-operation-panel">
             <header>
-              <div><h2>บัญชีสมาชิกและเทรนเนอร์</h2><p>กดชื่อบัญชีเมื่อต้องการแก้ข้อมูลหรือระงับการใช้งาน</p></div>
+              <div><h2>จัดการข้อมูล สมาชิก เทรนเนอร์</h2><p>กดชื่อบัญชีเมื่อต้องการแก้ข้อมูลหรือระงับการใช้งาน</p></div>
               <label className="admin-search"><span>ค้นหาบัญชี</span><Input type="search" value={query} onChange={(event) => { setQuery(event.target.value); setUserPage(0); }} placeholder="ค้นหาด้วยชื่อ อีเมล หรือเบอร์โทรศัพท์" /></label>
             </header>
             <div className="admin-record-list">{visibleUsers.map((user) => <UserEditor key={user.id} user={user} busy={busy === `user-${user.id}`} onSave={saveAccount} onToggle={(target) => setAccountAction({ user: target, status: target.status === "active" ? "suspended" : "active" })} onDelete={(target) => { setDeleteError(""); setUserToDelete(target); }} />)}</div>
@@ -531,7 +531,7 @@ export function AdminOperations() {
         {activeTab === "bookings" && (
           <div className="admin-operation-panel">
             <header>
-              <div><h2>การจองและประวัติสถานะ</h2><p>กดรายการเพื่อดูเวลานัด การชำระเงิน และประวัติย้อนหลัง</p></div>
+              <div><h2>ตรวจสอบระบบการจอง</h2><p>กดรายการเพื่อดูเวลานัด การชำระเงิน และประวัติย้อนหลัง</p></div>
               <label><span>สถานะการจอง</span><select value={bookingStatus} onChange={(event) => { setBookingStatus(event.target.value); setBookingPage(0); }}><option value="all">ทุกสถานะ</option>{Object.entries(bookingStatusCopy).map(([value, label]) => <option key={value} value={value}>{label}</option>)}</select></label>
             </header>
             <div className="admin-booking-list">
@@ -565,14 +565,14 @@ export function AdminOperations() {
 
         {activeTab === "finance" && (
           <div className="admin-operation-panel admin-finance">
-            <header><div><h2>รายได้เทรนเนอร์และธุรกรรม</h2><p>แสดงเฉพาะหลักฐานการชำระเงินที่บันทึกในระบบ</p></div></header>
+            <header><div><h2>ตรวจสอบการชำระเงิน</h2><p>แสดงเฉพาะหลักฐานการชำระเงินที่บันทึกในระบบ</p></div></header>
             <section aria-labelledby="trainer-income-title">
-              <h3 id="trainer-income-title">รายได้แยกตามเทรนเนอร์</h3>
+              <h3 id="trainer-income-title">ตรวจสอบรายได้ของเทรนเนอร์</h3>
               <div className="admin-income-list">{visibleIncome.map((item) => <div key={item.trainerId}><span>{item.trainerName}</span><small>{item.paidSessions} นัดที่ชำระแล้ว</small><strong>{formatMoney(item.revenue)}</strong></div>)}</div>
               {data.trainerIncome.length === 0 ? <p className="admin-inline-note">ยังไม่มีรายได้ที่อนุมัติ</p> : <Pager label="รายได้เทรนเนอร์" page={incomePage} total={data.pagination.trainerIncome.total} onChange={setIncomePage} />}
             </section>
             <section aria-labelledby="transaction-history-title">
-              <h3 id="transaction-history-title">ประวัติธุรกรรมย้อนหลัง</h3>
+              <h3 id="transaction-history-title">ตรวจสอบประวัติการทำรายการทางการเงินย้อนหลัง</h3>
               <div className="admin-transaction-list">{visiblePayments.map((payment) => <article key={payment.id}><div><strong>PAY-{String(payment.id).padStart(6, "0")}</strong><span>{payment.bookingId} · {payment.memberName} → {payment.trainerName}</span></div><div><strong>{formatMoney(payment.amount)}</strong><StatusBadge status={payment.status} source="payment" /></div><small>ส่ง {formatDateTime(payment.submittedAt)}{payment.reviewedAt ? ` · ตรวจ ${formatDateTime(payment.reviewedAt)} โดย ${payment.reviewedBy ?? "ผู้ดูแลระบบ"}` : ""}</small></article>)}</div>
               {data.payments.length === 0 ? <p className="admin-inline-note">ยังไม่มีธุรกรรม</p> : <Pager label="ธุรกรรม" page={paymentPage} total={data.pagination.payments.total} onChange={setPaymentPage} />}
             </section>
@@ -664,7 +664,7 @@ export function AdminOperations() {
             </div>
           </div>
         )}
-        {activeTab === "administrators" && <div className="admin-operation-panel admin-administrators"><header><div><h2>บัญชีและสิทธิ์ผู้ดูแลระบบ</h2><p>กำหนดได้เฉพาะสิทธิ์ที่บัญชีของคุณมีอยู่</p></div></header><form aria-label="เพิ่มผู้ดูแลระบบ" className="admin-create-form" onSubmit={createAdministrator}><h3>เพิ่มผู้ดูแลระบบ</h3><div className="admin-editor__fields"><label><span>ชื่อที่แสดง</span><Input required autoComplete="name" value={newAdmin.displayName} onChange={(event) => setNewAdmin({ ...newAdmin, displayName: event.target.value })} /></label><label><span>อีเมล</span><Input required type="email" autoComplete="email" value={newAdmin.email} onChange={(event) => setNewAdmin({ ...newAdmin, email: event.target.value })} /></label><label><span>รหัสผ่านเริ่มต้น อย่างน้อย 8 ตัวอักษร</span><Input required minLength={8} type="password" autoComplete="new-password" value={newAdmin.password} onChange={(event) => setNewAdmin({ ...newAdmin, password: event.target.value })} /></label></div><PermissionFields value={newAdmin.permissions} allowed={data.permissions} onChange={(permissions) => setNewAdmin({ ...newAdmin, permissions })} />{!canCreateAdministrator && <p className="admin-inline-note">เลือกสิทธิ์อย่างน้อย 1 รายการก่อนเพิ่มบัญชี</p>}<Button type="submit" disabled={busy === "create-admin" || !canCreateAdministrator}>{busy === "create-admin" ? "กำลังเพิ่ม…" : "เพิ่มผู้ดูแลระบบ"}</Button></form><section aria-labelledby="administrator-list-title"><h3 id="administrator-list-title">ผู้ดูแลระบบที่มีอยู่</h3>{data.administrators.map((user) => <AdministratorEditor key={user.id} user={user} currentUserId={data.currentUserId} assignablePermissions={data.permissions} busy={busy === `user-${user.id}`} onSave={saveAccount} onToggle={(target) => setAccountAction({ user: target, status: target.status === "active" ? "suspended" : "active" })} onDelete={(target) => { setDeleteError(""); setUserToDelete(target); }} />)}<Pager label="ผู้ดูแลระบบ" page={administratorPage} total={data.pagination.administrators.total} onChange={setAdministratorPage} /></section></div>}
+        {activeTab === "administrators" && <div className="admin-operation-panel admin-administrators"><header><div><h2>จัดการข้อมูลของผู้ดูแลระบบ</h2><p>กำหนดได้เฉพาะสิทธิ์ที่บัญชีของคุณมีอยู่</p></div></header><form aria-label="เพิ่มผู้ดูแลระบบ" className="admin-create-form" onSubmit={createAdministrator}><h3>เพิ่มผู้ดูแลระบบ</h3><div className="admin-editor__fields"><label><span>ชื่อที่แสดง</span><Input required autoComplete="name" value={newAdmin.displayName} onChange={(event) => setNewAdmin({ ...newAdmin, displayName: event.target.value })} /></label><label><span>อีเมล</span><Input required type="email" autoComplete="email" value={newAdmin.email} onChange={(event) => setNewAdmin({ ...newAdmin, email: event.target.value })} /></label><label><span>รหัสผ่านเริ่มต้น อย่างน้อย 8 ตัวอักษร</span><Input required minLength={8} type="password" autoComplete="new-password" value={newAdmin.password} onChange={(event) => setNewAdmin({ ...newAdmin, password: event.target.value })} /></label></div><PermissionFields value={newAdmin.permissions} allowed={data.permissions} onChange={(permissions) => setNewAdmin({ ...newAdmin, permissions })} />{!canCreateAdministrator && <p className="admin-inline-note">เลือกสิทธิ์อย่างน้อย 1 รายการก่อนเพิ่มบัญชี</p>}<Button type="submit" disabled={busy === "create-admin" || !canCreateAdministrator}>{busy === "create-admin" ? "กำลังเพิ่ม…" : "เพิ่มผู้ดูแลระบบ"}</Button></form><section aria-labelledby="administrator-list-title"><h3 id="administrator-list-title">ผู้ดูแลระบบที่มีอยู่</h3>{data.administrators.map((user) => <AdministratorEditor key={user.id} user={user} currentUserId={data.currentUserId} assignablePermissions={data.permissions} busy={busy === `user-${user.id}`} onSave={saveAccount} onToggle={(target) => setAccountAction({ user: target, status: target.status === "active" ? "suspended" : "active" })} onDelete={(target) => { setDeleteError(""); setUserToDelete(target); }} />)}<Pager label="ผู้ดูแลระบบ" page={administratorPage} total={data.pagination.administrators.total} onChange={setAdministratorPage} /></section></div>}
         {activeTab === "administrators" && data.permissions.manageUsers && data.permissions.reviewPayments && <div className="admin-operation-panel admin-legacy-routing"><PaymentRoutingSettings /></div>}
         {activeTab === "account" && <div className="admin-operation-panel"><header><div><h2>บัญชีของฉัน</h2><p>เปลี่ยนรหัสผ่านเริ่มต้นและดูแลความปลอดภัยของบัญชีนี้</p></div></header><AdministratorPasswordForm /></div>}
       </section>

@@ -54,4 +54,17 @@ describe("StatusBadge", () => {
     render(<StatusBadge status="rejected" source="payment" />);
     expect(screen.getByText(paymentStatusCopy.rejected)).toBeInTheDocument();
   });
+  it("words a trainer's approval exactly as the administrator scope names it", () => {
+    const { rerender } = render(<StatusBadge status="pending" source="approval" />);
+    expect(screen.getByText("รออนุมัติ")).toBeInTheDocument();
+    rerender(<StatusBadge status="approved" source="approval" />);
+    expect(screen.getByText("อนุมัติแล้ว")).toBeInTheDocument();
+    rerender(<StatusBadge status="rejected" source="approval" />);
+    expect(screen.getByText("ถูกระงับ")).toBeInTheDocument();
+  });
+
+  it("calls a confirmed booking paid", () => {
+    render(<StatusBadge status="confirmed" />);
+    expect(screen.getByText("ชำระแล้ว")).toBeInTheDocument();
+  });
 });

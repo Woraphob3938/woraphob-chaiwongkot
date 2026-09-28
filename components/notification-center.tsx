@@ -21,7 +21,7 @@ import {
   TriangleAlert,
 } from "lucide-react";
 import { ApiError, authenticatedRequest } from "@/lib/api";
-import { formatDateTime, formatDay, formatTime } from "@/lib/format";
+import { formatDateTime, formatDay, formatMoney, formatTime } from "@/lib/format";
 import { bookingStatusLabel } from "@/lib/payment-copy";
 import type {
   NotificationCategory,
@@ -88,7 +88,14 @@ function getCategoryIcon(category: NotificationItem["category"]) {
   }
 }
 
-function isUrgentNotification(item: NotificationItem) {
+/** Booking states that can still ask someone to act. */
+const OPEN_BOOKING_STATUSES = new Set(["pending_trainer", "awaiting_payment", "payment_review"]);
+
+export function isUrgentNotification(item: NotificationItem) {
+  // The wording is written when the event happens. Once the booking has moved
+  // on (paid, confirmed, closed), the old "รอชำระเงิน" row no longer asks for
+  // anything, so the booking's state now decides first.
+  if (item.bookingStatus && !OPEN_BOOKING_STATUSES.has(item.bookingStatus)) return false;
   const text = `${item.title} ${item.message}`.toLowerCase();
   // A booking that already expired or was cancelled leaves nothing to do.
   if (text.includes("หมดเวลา") || text.includes("ถูกยกเลิก")) return false;
@@ -137,7 +144,9 @@ function isTrainerWorkspacePath(path: string) {
  * all been approved the day before. Live data cannot be changed, so the wording
  * has to tell the truth about it.
  */
-export function isSettledReview(detail: NotificationDetail) {
+export function isSettledReview(
+  detail: NotificationDetail,
+): detail is NotificationDetail & { booking: NonNullable<NotificationDetail["booking"]> } {
   if (!detail.type.startsWith("payment_review_")) return false;
   // แจ้งเตือนที่ไม่ผูกกับการจอง (เช่น ผลอนุมัติใบสมัคร) ไม่มีสถานะการชำระเงินให้เทียบ
   if (!detail.booking) return false;
@@ -207,7 +216,7 @@ function LoadError({ kind, onRetry }: { kind: LoadErrorKind; onRetry: () => void
       <AlertTitle>{kind === "connection" ? "เชื่อมต่อ FitConnect ไม่ได้" : "โหลดการแจ้งเตือนไม่สำเร็จ"}</AlertTitle>
       <AlertDescription>
         {kind === "connection"
-          ? "บริการยังไม่พร้อมใช้งานในขณะนี้ กรุณาลองใหม่อีกครั้ง อีเมลและการแจ้งเตือนทางอื่นยังทำงานตามปกติ"
+          ? "บริการยังไม่พร้อมใช้งานในขณะนี้ กรุณาลองใหม่อีกครั้ง"
           : "ระบบมีปัญหาชั่วคราว กรุณาลองโหลดรายการอีกครั้ง"}
       </AlertDescription>
       <Button type="button" variant="outline" onClick={onRetry}>ลองใหม่</Button>
@@ -222,6 +231,10 @@ export function NotificationCenter() {
   const [unreadOnly, setUnreadOnly] = useState(false);
   const [page, setPage] = useState(0);
   const [searchQuery, setSearchQuery] = useState("");
+  // What the server was last asked for; typing waits a moment before searching.
+  const [appliedQuery, setAppliedQuery] = useState("");
+  // Re-renders the relative times ("5 นาทีที่แล้ว") while the page stays open.
+  const [, setClock] = useState(0);
   const [reloadVersion, setReloadVersion] = useState(0);
   const [selectedId, setSelectedId] = useState<number | null>(null);
   const [detail, setDetail] = useState<NotificationDetail | null>(null);
@@ -245,7 +258,8 @@ export function NotificationCenter() {
     else setLoadState("loading");
     try {
       const nextResponse = await authenticatedRequest<NotificationListResponse>(
-        `/v1/notifications?page=${page}&category=${category}&unread=${unreadOnly}`,
+        `/v1/notifications?page=${page}&category=${category}&unread=${unreadOnly}`
+          + (appliedQuery ? `&q=${encodeURIComponent(appliedQuery)}` : ""),
       );
       if (listRequestRef.current !== requestId) return;
       setResponse(nextResponse);
@@ -258,7 +272,7 @@ export function NotificationCenter() {
     } finally {
       if (listRequestRef.current === requestId) setListRefreshing(false);
     }
-  }, [category, page, unreadOnly]);
+  }, [appliedQuery, category, page, unreadOnly]);
 
   useEffect(() => {
     let active = true;
@@ -269,6 +283,24 @@ export function NotificationCenter() {
     void run();
     return () => { active = false; };
   }, [loadNotifications, reloadVersion]);
+
+  useEffect(() => {
+    const next = searchQuery.trim();
+    if (next === appliedQuery) return;
+    const timer = window.setTimeout(() => {
+      selectionRequestRef.current += 1;
+      setAppliedQuery(next);
+      setPage(0);
+      setSelectedId(null);
+      setDetail(null);
+    }, 300);
+    return () => window.clearTimeout(timer);
+  }, [appliedQuery, searchQuery]);
+
+  useEffect(() => {
+    const timer = window.setInterval(() => setClock((tick) => tick + 1), 60_000);
+    return () => window.clearInterval(timer);
+  }, []);
 
   function updateCategory(nextCategory: NotificationCategory) {
     selectionRequestRef.current += 1;
@@ -293,6 +325,7 @@ export function NotificationCenter() {
     setCategory("all");
     setUnreadOnly(false);
     setSearchQuery("");
+    setAppliedQuery("");
     setPage(0);
     setSelectedId(null);
     setDetail(null);
@@ -310,7 +343,19 @@ export function NotificationCenter() {
       const nextDetail = await authenticatedRequest<NotificationDetail>(`/v1/notifications/${item.id}`);
       if (selectionRequestRef.current !== requestId) return;
       setDetail(nextDetail);
-      if (!item.readAt) {
+      setDetailLoading(false);
+    } catch {
+      if (selectionRequestRef.current === requestId) {
+        setDetailError("เปิดรายละเอียดการแจ้งเตือนไม่สำเร็จ ลองอีกครั้ง");
+        setDetailLoading(false);
+      }
+      return;
+    }
+
+    if (item.readAt) return;
+    // The detail is already on screen; failing to mark it read is a smaller
+    // problem and must not be reported as a failed open.
+    try {
         await authenticatedRequest(`/v1/notifications/${item.id}/read`, { method: "PATCH" });
         const readAt = new Date().toISOString();
         const unreadTotal = Math.max(0, response.unread.all - 1);
@@ -341,13 +386,10 @@ export function NotificationCenter() {
         window.dispatchEvent(new CustomEvent("fitconnect:notifications-changed", {
           detail: { unreadTotal },
         }));
-      }
     } catch {
       if (selectionRequestRef.current === requestId) {
-        setDetailError("เปิดรายละเอียดการแจ้งเตือนไม่สำเร็จ ลองอีกครั้ง");
+        setAnnouncement("ยังทำเครื่องหมายว่าอ่านแล้วไม่ได้ รายการนี้จะยังนับเป็นยังไม่ได้อ่าน");
       }
-    } finally {
-      if (selectionRequestRef.current === requestId) setDetailLoading(false);
     }
   }
 
@@ -379,20 +421,14 @@ export function NotificationCenter() {
     }
   }
 
-  const filteredItems = response.items.filter((item) => {
-    if (!searchQuery.trim()) return true;
-    const q = searchQuery.toLowerCase().trim();
-    return (
-      item.title.toLowerCase().includes(q) ||
-      item.message.toLowerCase().includes(q) ||
-      (item.bookingId ?? "").toLowerCase().includes(q)
-    );
-  });
+  const filteredItems = response.items;
+  // Nothing has ever arrived: one plain message instead of an empty inbox with
+  // a search box, disabled buttons and a detail pane with nothing to show.
+  const inboxEmpty = loadState === "ready" && !loadError && !listRefreshing
+    && response.pagination.total === 0 && category === "all" && !unreadOnly && !appliedQuery && !searchQuery;
 
   return (
     <section className="notification-center" data-detail-open={selectedId !== null}>
-      <h1 className="sr-only">การแจ้งเตือน</h1>
-
       <p className="sr-only" aria-live="polite">{announcement}</p>
 
       {actionError && (
@@ -419,7 +455,7 @@ export function NotificationCenter() {
       {loadState === "ready" && (
         <header className="notification-center__header">
           <div>
-            <p className="notification-center__title">กล่องแจ้งเตือน</p>
+            <h1 className="notification-center__title">การแจ้งเตือน</h1>
             <p className="notification-center__summary">
               {response.unread.all > 0 ? <>ยังไม่ได้อ่าน <strong>{response.unread.all}</strong> รายการ</> : "อ่านครบทุกรายการแล้ว"}
             </p>
@@ -427,7 +463,15 @@ export function NotificationCenter() {
         </header>
       )}
 
-      {loadState === "ready" && (
+      {inboxEmpty && (
+        <div className="notification-empty notification-empty--inbox">
+          <Bell aria-hidden="true" />
+          <strong>ยังไม่มีการแจ้งเตือน</strong>
+          <p>เมื่อมีคำขอจอง การชำระเงิน หรือนัดหมายเปลี่ยนสถานะ รายการจะขึ้นที่นี่</p>
+        </div>
+      )}
+
+      {loadState === "ready" && !inboxEmpty && (
         <div className="notification-center__grid">
           <label className="notification-category-select">
             <span>หมวดการแจ้งเตือน</span>
@@ -514,15 +558,15 @@ export function NotificationCenter() {
             ) : filteredItems.length === 0 ? (
               <div className="notification-empty">
                 <Bell aria-hidden="true" />
-                <strong>{searchQuery ? "ไม่พบการแจ้งเตือนที่ตรงกับการค้นหา" : "ยังไม่มีการแจ้งเตือนในหมวดนี้"}</strong>
-                <p>{searchQuery ? "ลองเปลี่ยนคำค้นหาหรือล้างตัวกรอง" : "เมื่อสถานะการจองหรือการชำระเงินเปลี่ยน รายการจะปรากฏที่นี่"}</p>
+                <strong>{appliedQuery ? "ไม่พบการแจ้งเตือนที่ตรงกับการค้นหา" : "ยังไม่มีการแจ้งเตือนในหมวดนี้"}</strong>
+                <p>{appliedQuery ? "ลองเปลี่ยนคำค้นหาหรือล้างตัวกรอง" : "เมื่อสถานะการจองหรือการชำระเงินเปลี่ยน รายการจะปรากฏที่นี่"}</p>
                 {(category !== "all" || unreadOnly || searchQuery) && (
                   <Button type="button" variant="outline" onClick={resetFilters}>ดูทั้งหมด</Button>
                 )}
               </div>
             ) : (
               <ul className="notification-list" aria-label="รายการแจ้งเตือน">
-                {filteredItems.slice(0, 10).map((item) => {
+                {filteredItems.map((item) => {
                   const Icon = getCategoryIcon(item.category);
                   const urgent = isUrgentNotification(item);
                   return (
@@ -652,6 +696,7 @@ export function NotificationCenter() {
                   )}
                 </header>
 
+                {detail.booking && (
                 <dl className="notification-booking-facts">
                   <div><dt>รหัสการจอง</dt><dd>{detail.booking.id}</dd></div>
                   <div><dt>สมาชิก</dt><dd>{detail.booking.memberName}</dd></div>
@@ -659,10 +704,11 @@ export function NotificationCenter() {
                   <div><dt>วันและเวลา</dt><dd>{formatDateTime(detail.booking.startsAt)}–{formatTime(detail.booking.endsAt)} น.</dd></div>
                   <div><dt>สถานะการจอง</dt><dd><StatusBadge status={detail.booking.status} /></dd></div>
                   <div><dt>การชำระเงิน</dt><dd><StatusBadge status={detail.booking.paymentStatus} source="payment" /></dd></div>
-                  <div><dt>ยอดชำระ</dt><dd>{detail.booking.quotedPrice === null ? "—" : new Intl.NumberFormat("th-TH", { style: "currency", currency: "THB", maximumFractionDigits: 0 }).format(detail.booking.quotedPrice)}</dd></div>
+                  <div><dt>ยอดชำระ</dt><dd>{detail.booking.quotedPrice === null ? "—" : formatMoney(detail.booking.quotedPrice)}</dd></div>
                 </dl>
+                )}
 
-                {detail.booking.history.length > 0 && (
+                {detail.booking && detail.booking.history.length > 0 && (
                   <details className="notification-history">
                     <summary>ดูประวัติสถานะ {detail.booking.history.length} รายการ</summary>
                     <ol>

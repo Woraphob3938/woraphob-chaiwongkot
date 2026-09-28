@@ -15,8 +15,8 @@ export const paymentStatusCopy: Record<Booking["paymentStatus"], string> = {
 export const bookingStatusCopy: Record<BookingStatus, string> = {
   pending_trainer: "รอเทรนเนอร์ตอบรับ",
   awaiting_payment: "รอชำระเงิน",
-  payment_review: "รอตรวจหลักฐาน",
-  confirmed: "ยืนยันแล้ว",
+  payment_review: "รอตรวจสลิป",
+  confirmed: "ชำระแล้ว",
   completed: "เสร็จสิ้น",
   cancelled: "ยกเลิก",
   expired: "หมดเวลา",

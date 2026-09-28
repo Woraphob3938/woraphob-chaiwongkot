@@ -3,6 +3,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 import { PaymentPanel } from "@/components/payment-panel";
 import { RoleDashboard } from "@/components/role-dashboard";
 import { authenticatedRequest } from "@/lib/api";
+import { readSlipQr } from "@/lib/slip-qr";
 import type { Booking } from "@/lib/types";
 
 vi.mock("next/navigation", () => ({ useRouter: () => ({ push: vi.fn() }) }));
@@ -15,6 +16,7 @@ vi.mock("@/lib/api", () => ({
   },
 }));
 vi.mock("@/components/admin-review-queue", () => ({ AdminReviewQueue: () => null }));
+vi.mock("@/lib/slip-qr", () => ({ readSlipQr: vi.fn(() => Promise.resolve(null)) }));
 vi.mock("@/components/trainer-workbench", () => ({ TrainerWorkbench: () => null }));
 
 function openBooking(summary: HTMLElement) {
@@ -63,6 +65,8 @@ function chooseValidSlip() {
 describe("PaymentPanel", () => {
   beforeEach(() => {
     vi.mocked(authenticatedRequest).mockReset();
+    vi.mocked(readSlipQr).mockReset();
+    vi.mocked(readSlipQr).mockImplementation(() => Promise.resolve(null));
   });
 
   it("shows status and the administrator note before an open payment action and closed evidence", () => {
@@ -89,7 +93,7 @@ describe("PaymentPanel", () => {
     expect(evidence).not.toHaveAttribute("open");
     expect(within(evidence as HTMLElement).getByText("ยอดที่เคยส่ง")).toBeInTheDocument();
     expect(status).not.toBeNull();
-    expect(screen.getByText("สลิปไม่ผ่าน กรุณาส่งใหม่ภายใน 10 นาที")).toBeInTheDocument();
+    expect(screen.getByText("สลิปไม่ผ่าน ส่งใหม่ได้อีกหนึ่งครั้งภายในเวลาที่เหลือ")).toBeInTheDocument();
     expect((status as Node).compareDocumentPosition(submit) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
     expect(submit.compareDocumentPosition(evidence as Node) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
   });
@@ -127,7 +131,7 @@ describe("PaymentPanel", () => {
     expect(body.get("transactionRef")).toBeNull();
     expect(body.get("slip")).toBe(slip);
     await waitFor(() => expect(onUpdated).toHaveBeenCalledTimes(1));
-    expect(screen.getByRole("status")).toHaveTextContent("ส่งสลิปให้ผู้รับผิดชอบตรวจแล้ว");
+    expect(screen.getByRole("status")).toHaveTextContent("ส่งสลิปให้เทรนเนอร์ตรวจแล้ว");
   });
 
   it("offers the trainer's default bank account beside PromptPay", async () => {
@@ -330,5 +334,31 @@ describe("member booking ledger", () => {
     const chatLinks = screen.getAllByRole("link", { name: "เปิดการสนทนา" });
     expect(chatLinks).toHaveLength(1);
     expect(chatLinks[0]).toHaveAttribute("href", "/chat?booking=BK-FIRST");
+  });
+  it("asks for the exact transfer amount and sends the slip's QR text", async () => {
+    vi.mocked(readSlipQr).mockResolvedValueOnce("00410006000001010300402192026092712345678901");
+    vi.mocked(authenticatedRequest).mockResolvedValue({});
+    render(<PaymentPanel booking={bookingFixture({ transferAmount: 1_200.37 })} onUpdated={vi.fn()} />);
+
+    expect(screen.getAllByText("1,200.37 บาท").length).toBeGreaterThan(0);
+    expect(screen.getByText(/โอนให้ตรงถึงสตางค์/)).toBeInTheDocument();
+    chooseValidSlip();
+    expect(await screen.findByText("อ่าน QR ในสลิปได้ ระบบจะตรวจว่าสลิปนี้ไม่เคยใช้มาก่อน")).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "ส่งสลิปให้ตรวจ" }));
+
+    await waitFor(() => expect(authenticatedRequest).toHaveBeenCalled());
+    const body = vi.mocked(authenticatedRequest).mock.calls[0][1]?.body as FormData;
+    expect(body.get("slipQr")).toBe("00410006000001010300402192026092712345678901");
+  });
+
+  it("still sends a slip whose QR cannot be read, and says so", async () => {
+    vi.mocked(authenticatedRequest).mockResolvedValue({});
+    render(<PaymentPanel booking={bookingFixture()} onUpdated={vi.fn()} />);
+    chooseValidSlip();
+    expect(await screen.findByText(/อ่าน QR ในสลิปไม่ได้ ส่งได้ตามปกติ/)).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "ส่งสลิปให้ตรวจ" }));
+    await waitFor(() => expect(authenticatedRequest).toHaveBeenCalled());
+    const body = vi.mocked(authenticatedRequest).mock.calls[0][1]?.body as FormData;
+    expect(body.has("slipQr")).toBe(false);
   });
 });

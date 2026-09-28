@@ -210,6 +210,10 @@ export type AdminQueue = {
     amount: number | null;
     difference: number | null;
     submittedAt: string;
+    /** `bank:reference` from the slip QR, or null when it could not be read. */
+    slipReference?: string | null;
+    /** End of the ten-minute window the transfer had to fall in. */
+    windowEndsAt?: string | null;
     fileUrl: string;
     demo?: boolean;
   }>;
@@ -366,6 +370,8 @@ export type Booking = {
   paymentStatus: "not_submitted" | "reviewing" | "approved" | "rejected";
   paymentDeadlineAt: string | null;
   quotedPrice: number | null;
+  /** The exact amount to transfer, satang included; null on older bookings. */
+  transferAmount?: number | null;
   chatRoomId: number | null;
   payment: PaymentSummary | null;
   review: ReviewSummary | null;
@@ -399,7 +405,11 @@ export type NotificationItem = {
   category: Exclude<NotificationCategory, "all">;
   title: string;
   message: string;
-  bookingId: string;
+  /** Null for events without a booking, such as an application decision. */
+  bookingId: string | null;
+  /** The booking's state now, not when the notification was written. */
+  bookingStatus?: BookingStatus | null;
+  paymentStatus?: Booking["paymentStatus"] | null;
   actionPath: string;
   readAt: string | null;
   createdAt: string;
@@ -417,6 +427,7 @@ export type NotificationListResponse = {
 };
 
 export type NotificationDetail = NotificationItem & {
+  /** Null for events without a booking, such as an application decision. */
   booking: {
     id: string;
     memberName: string;
@@ -432,7 +443,7 @@ export type NotificationDetail = NotificationItem & {
       note: string | null;
       createdAt: string;
     }>;
-  };
+  } | null;
 };
 
 export type ApiEnvelope<T> = {

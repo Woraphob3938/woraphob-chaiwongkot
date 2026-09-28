@@ -11,6 +11,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { maskPromptPayId, promptPayPayload } from "@/lib/promptpay";
+import { readSlipQr } from "@/lib/slip-qr";
 import { formatAmount, formatBankAccountNumber, paymentStatusCopy } from "@/lib/payment-copy";
 
 const MAX_SLIP_SIZE = 5 * 1024 * 1024;
@@ -43,6 +44,13 @@ export function PaymentPanel({ booking, onUpdated }: PaymentPanelProps) {
   const busyRef = useRef(false);
   const feedbackRef = useRef<HTMLDivElement | HTMLParagraphElement>(null);
   const [previewUrl, setPreviewUrl] = useState<string | null>(null);
+  // The raw text of the slip's QR, read in the browser. The server decides
+  // whether it counts; "unreadable" still uploads.
+  const [slipQr, setSlipQr] = useState<string | null>(null);
+  const [slipQrState, setSlipQrState] = useState<"idle" | "reading" | "read" | "unreadable">("idle");
+  const readTokenRef = useRef(0);
+  // Sending waits for an unfinished read instead of blocking the button.
+  const readPromiseRef = useRef<Promise<string | null> | null>(null);
 
   useEffect(() => {
     return () => {
@@ -77,6 +85,10 @@ export function PaymentPanel({ booking, onUpdated }: PaymentPanelProps) {
       URL.revokeObjectURL(previewUrl);
       setPreviewUrl(null);
     }
+    setSlipQr(null);
+    setSlipQrState("idle");
+    readPromiseRef.current = null;
+    const readToken = ++readTokenRef.current;
     if (!file) {
       setSlip(null);
       setFieldErrors((current) => ({ ...current, slip: "กรุณาเลือกไฟล์หลักฐานการโอน" }));
@@ -97,6 +109,18 @@ export function PaymentPanel({ booking, onUpdated }: PaymentPanelProps) {
       setPreviewUrl(URL.createObjectURL(file));
     }
     setFieldErrors((current) => ({ ...current, slip: undefined }));
+    if (file.type.startsWith("image/")) {
+      setSlipQrState("reading");
+      const reading = readSlipQr(file).catch(() => null);
+      readPromiseRef.current = reading;
+      void reading.then((payload) => {
+        // A newer pick wins over a slower read of an older one.
+        if (readToken !== readTokenRef.current) return;
+        setSlipQr(payload);
+        setSlipQrState(payload ? "read" : "unreadable");
+      });
+    }
+    // A PDF slip is not scanned; the trainer checks it as before.
   }
 
   async function submit(event: FormEvent<HTMLFormElement>) {
@@ -112,11 +136,13 @@ export function PaymentPanel({ booking, onUpdated }: PaymentPanelProps) {
     const body = new FormData();
     body.set("bookingId", booking.id);
     body.set("slip", slip);
+    const qrPayload = slipQr ?? (readPromiseRef.current ? await readPromiseRef.current : null);
+    if (qrPayload) body.set("slipQr", qrPayload);
 
     try {
       await authenticatedRequest("/v1/payments", { method: "POST", body });
       setUploaded(true);
-      setNotice("ส่งสลิปให้ผู้รับผิดชอบตรวจแล้ว การชำระเงินจะยืนยันหลังตรวจหลักฐานผ่าน");
+      setNotice("ส่งสลิปให้เทรนเนอร์ตรวจแล้ว การจองจะยืนยันเมื่อเทรนเนอร์พบยอดเงินในบัญชี");
     } catch (error) {
       setRequestError("upload");
       setRequestMessage(error instanceof Error ? error.message : "อัปโหลดสลิปไม่สำเร็จ กรุณาลองอีกครั้ง");
@@ -158,9 +184,14 @@ export function PaymentPanel({ booking, onUpdated }: PaymentPanelProps) {
 
   const slipErrorId = `${slipId}-error`;
   const slipGuideId = `${slipId}-guide`;
-  const canUpload = booking.actions.canPay && !uploaded && booking.paymentRecipient !== null && booking.paymentRecipient !== undefined && booking.quotedPrice !== null;
+  // The exact amount to transfer: the price plus this booking's own satang,
+  // so the trainer can match the credit to this booking. Older bookings fall
+  // back to the price.
+  const payAmount = booking.transferAmount ?? booking.quotedPrice;
+  const hasSatang = booking.transferAmount != null && Math.round(booking.transferAmount * 100) % 100 !== 0;
+  const canUpload = booking.actions.canPay && !uploaded && booking.paymentRecipient !== null && booking.paymentRecipient !== undefined && payAmount !== null;
   const visiblePaymentStatus = uploaded ? paymentStatusCopy.reviewing : paymentStatusCopy[booking.paymentStatus];
-  const qrPayload = canUpload ? promptPayPayload(booking.paymentRecipient!.promptPayId, booking.quotedPrice!) : null;
+  const qrPayload = canUpload ? promptPayPayload(booking.paymentRecipient!.promptPayId, payAmount!) : null;
   const recipientQrUrl = canUpload ? booking.paymentRecipient!.paymentQrUrl ?? null : null;
 
   // While the request still waits for the trainer's answer there is nothing to
@@ -173,15 +204,15 @@ export function PaymentPanel({ booking, onUpdated }: PaymentPanelProps) {
         <span>สถานะหลักฐาน</span>
         <strong id={`${amountId}-title`}>{visiblePaymentStatus}</strong>
         {booking.payment?.reviewNote && (
-          <p><span>หมายเหตุจากผู้ตรวจสลิป</span>{booking.payment.reviewNote}</p>
+          <p><span>หมายเหตุจากเทรนเนอร์</span>{booking.payment.reviewNote}</p>
         )}
       </div>
 
       {canUpload && (
         <form className="booking-fields payment-panel__form transaction-primary-action" onSubmit={submit} aria-busy={busy} noValidate>
           <div className="transaction-primary-action__heading">
-            <strong>{booking.paymentStatus === "rejected" ? "สลิปไม่ผ่าน กรุณาส่งใหม่ภายใน 10 นาที" : "อัปโหลดสลิปภายใน 10 นาที"}</strong>
-            <span>{booking.paymentServiceMode === "freelance" ? "เทรนเนอร์ตรวจหลักฐานด้วยตนเอง" : booking.paymentServiceMode === "gym" ? "หลักฐานส่งถึงยิม และเทรนเนอร์ประจำยิมเป็นผู้ยืนยัน" : "ผู้รับผิดชอบจะตรวจหลักฐานด้วยตนเอง"}</span>
+            <strong>{booking.paymentStatus === "rejected" ? "สลิปไม่ผ่าน ส่งใหม่ได้อีกหนึ่งครั้งภายในเวลาที่เหลือ" : "อัปโหลดสลิปภายในเวลาที่เหลือ"}</strong>
+            <span>{booking.paymentServiceMode === "freelance" ? "เทรนเนอร์ตรวจหลักฐานด้วยตนเอง" : booking.paymentServiceMode === "gym" ? "ยอดเงินเข้าบัญชียิม และเทรนเนอร์ที่คุณจองเป็นผู้ตรวจสลิป" : "เทรนเนอร์ที่คุณจองเป็นผู้ตรวจสลิป"}</span>
           </div>
           <div className="payment-qr-card">
             <div className="payment-qr-card__code">
@@ -204,10 +235,13 @@ export function PaymentPanel({ booking, onUpdated }: PaymentPanelProps) {
               <span>สแกนด้วยแอปธนาคาร</span>
               <strong>{booking.paymentRecipient!.accountName}</strong>
               <p>พร้อมเพย์ {maskPromptPayId(booking.paymentRecipient!.promptPayId)}</p>
-              <p className="payment-qr-card__amount">{formatAmount(booking.quotedPrice)}</p>
+              <p className="payment-qr-card__amount">{formatAmount(payAmount)}</p>
+              {hasSatang && (
+                <small className="payment-qr-card__exact">โอนให้ตรงถึงสตางค์ เศษสตางค์นี้ใช้ระบุว่าเป็นการจองของคุณ</small>
+              )}
               {recipientQrUrl && (
                 <small className="payment-qr-card__note">
-                  QR นี้เป็นภาพที่เทรนเนอร์อัปโหลด ตรวจชื่อผู้รับในแอปให้ตรงก่อนโอน แล้วกรอกยอด {formatAmount(booking.quotedPrice)} เอง
+                  QR นี้เป็นภาพที่เทรนเนอร์อัปโหลด ตรวจชื่อผู้รับในแอปให้ตรงก่อนโอน แล้วกรอกยอด {formatAmount(payAmount)} ให้ตรงถึงสตางค์
                 </small>
               )}
               <Button className="button" type="button" disabled={busy} onClick={() => {
@@ -237,7 +271,7 @@ export function PaymentPanel({ booking, onUpdated }: PaymentPanelProps) {
             <details className="trainer-disclosure payment-qr-generated">
               <summary>
                 <span><strong>หรือใช้ QR พร้อมยอดเงิน</strong></span>
-                <small>{formatAmount(booking.quotedPrice)}</small>
+                <small>{formatAmount(payAmount)}</small>
                 <ChevronDown className="trainer-disclosure__chevron" aria-hidden="true" size={18} />
               </summary>
               <div className="payment-qr-card__code">
@@ -263,6 +297,13 @@ export function PaymentPanel({ booking, onUpdated }: PaymentPanelProps) {
               <output className="payment-selected-file" htmlFor={slipId}>
                 {slip ? <>ไฟล์ที่เลือก: <strong>{slip.name}</strong></> : "ยังไม่ได้เลือกไฟล์"}
               </output>
+              {slipQrState !== "idle" && (
+                <small className={`payment-slip-qr is-${slipQrState}`} role="status">
+                  {slipQrState === "reading" && "กำลังอ่าน QR ในสลิป…"}
+                  {slipQrState === "read" && "อ่าน QR ในสลิปได้ ระบบจะตรวจว่าสลิปนี้ไม่เคยใช้มาก่อน"}
+                  {slipQrState === "unreadable" && "อ่าน QR ในสลิปไม่ได้ ส่งได้ตามปกติ แต่ควรใช้ภาพสลิปจากแอปธนาคารโดยตรงที่เห็น QR ชัด"}
+                </small>
+              )}
               {previewUrl && (
                 <div className="payment-slip-preview">
                   {/* eslint-disable-next-line @next/next/no-img-element */}
@@ -272,7 +313,7 @@ export function PaymentPanel({ booking, onUpdated }: PaymentPanelProps) {
               {fieldErrors.slip && <small className="field-error" id={slipErrorId}>{fieldErrors.slip}</small>}
             </div>
           </div>
-          <p className="payment-bank-check-note"><ShieldCheck aria-hidden="true" size={18} /> ผู้ตรวจจะยืนยันหลังพบยอดนี้ในรายการเงินจริงของแอปธนาคาร</p>
+          <p className="payment-bank-check-note"><ShieldCheck aria-hidden="true" size={18} /> เทรนเนอร์จะยืนยันหลังพบยอดนี้ในรายการเงินจริงของแอปธนาคาร</p>
           <Button className="button button--accent" type="submit" disabled={busy}>
             {busy ? "กำลังส่งสลิป…" : requestError === "upload" ? "ลองส่งอีกครั้ง" : "ส่งสลิปให้ตรวจ"}
           </Button>
@@ -301,6 +342,7 @@ export function PaymentPanel({ booking, onUpdated }: PaymentPanelProps) {
         <div className="ledger-row"><span>รหัสคำขอ</span><strong>{booking.id}</strong></div>
         <div className="ledger-row"><span>เทรนเนอร์</span><strong>{booking.trainer.displayName}</strong></div>
         <div className="ledger-row"><span>{booking.bookingType === "monthly" ? "ราคาแพ็กเกจ" : "ค่าฝึกต่อครั้ง"}</span><strong>{formatAmount(booking.quotedPrice)}</strong></div>
+        {booking.transferAmount != null && <div className="ledger-row"><span>ยอดที่ต้องโอน</span><strong>{formatAmount(booking.transferAmount)}</strong></div>}
         <div className="ledger-row"><span>ยอดที่เคยส่ง</span><strong>{formatAmount(booking.payment?.amount ?? null)}</strong></div>
       </DisclosureSection>
     </section>

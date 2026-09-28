@@ -2,12 +2,12 @@
 
 import { useRouter } from "next/navigation";
 import { useCallback, useEffect, useRef, useState } from "react";
-import { FileText, RefreshCw, ShieldCheck } from "lucide-react";
+import { CircleAlert, FileText, QrCode, RefreshCw, ShieldCheck } from "lucide-react";
 import { NextActionCard } from "@/components/dashboard-primitives";
 import { StatusBadge } from "@/components/status-badge";
 import { ApiError, authenticatedRequest, openProtectedFile } from "@/lib/api";
 import { getAdminNextAction } from "@/lib/dashboard-actions";
-import { formatDateTime } from "@/lib/format";
+import { formatDateTime, formatTime } from "@/lib/format";
 import { leaveExpiredSession } from "@/lib/session";
 import type { AdminQueue } from "@/lib/types";
 
@@ -25,11 +25,6 @@ const wrapAnywhereStyle = {
 
 function formatPaymentAmount(value: number | null) {
   return value === null ? "ไม่มียอดที่บันทึก" : paymentCurrency.format(value);
-}
-
-function formatPaymentDifference(value: number | null) {
-  if (value === null) return "คำนวณส่วนต่างไม่ได้";
-  return value > 0 ? `+${paymentCurrency.format(value)}` : paymentCurrency.format(value);
 }
 
 type PaymentDecisionResponse = {
@@ -336,7 +331,7 @@ export function AdminReviewQueue({ reviewer = "admin", onQueueLoaded }: {
       <section id="review-queue" className="admin-review-workbench" aria-labelledby="review-queue-title">
         <header className="admin-review-workbench__heading">
           <div>
-            <h2 id="review-queue-title">โต๊ะตรวจสอบ</h2>
+            <h2 id="review-queue-title">{reviewer === "admin" ? "ตรวจสอบและอนุมัติข้อมูลเทรนเนอร์" : "โต๊ะตรวจสอบ"}</h2>
             <p>{reviewer === "admin" ? "ตรวจใบสมัครเทรนเนอร์และติดตามสลิปที่รอเทรนเนอร์ยืนยัน" : "เลือกหนึ่งรายการ ตรวจหลักฐาน แล้วบันทึกคำตัดสิน"}</p>
           </div>
           <span>{loading ? "กำลังอัปเดต" : "ข้อมูลจากระบบ"}</span>
@@ -427,10 +422,35 @@ export function AdminReviewQueue({ reviewer = "admin", onQueueLoaded }: {
                 ["เทรนเนอร์", selectedPayment.trainerName],
                 ["วันและเวลานัด", `${formatDateTime(selectedPayment.startsAt)} ถึง ${formatDateTime(selectedPayment.endsAt)}`],
                 [selectedPayment.bookingType === "monthly" ? "ราคาแพ็กเกจ" : "ค่าฝึกต่อครั้ง", formatPaymentAmount(selectedPayment.quotedPrice)],
-                ["ยอดที่โอน", formatPaymentAmount(selectedPayment.amount)],
-                ["ส่วนต่าง", formatPaymentDifference(selectedPayment.difference)],
                 ["ส่งหลักฐานเมื่อ", formatDateTime(selectedPayment.submittedAt)],
-                ["สถานะ", "รอตรวจหลักฐาน"],
+                ["สถานะ", "รอตรวจสลิป"],
+              ];
+              // Three things the trainer compares in their banking app. None of
+              // them replaces finding the credit there; they narrow what to look for.
+              const windowEnds = selectedPayment.windowEndsAt ? new Date(selectedPayment.windowEndsAt) : null;
+              const windowStarts = windowEnds ? new Date(windowEnds.getTime() - 10 * 60 * 1000) : null;
+              const slipChecks = [
+                {
+                  label: "QR ในสลิป",
+                  value: selectedPayment.slipReference
+                    ? `อ่านได้และไม่ซ้ำกับสลิปอื่น · อ้างอิง ${selectedPayment.slipReference.split(":").pop()}`
+                    : "อ่านไม่ได้ ตรวจยอดและเวลาในแอปธนาคารอย่างละเอียด",
+                  ok: Boolean(selectedPayment.slipReference),
+                },
+                {
+                  label: "ยอดที่ต้องพบในบัญชี",
+                  value: selectedPayment.amount === null
+                    ? formatPaymentAmount(null)
+                    : `${formatPaymentAmount(selectedPayment.amount)} ตรงถึงสตางค์`,
+                  ok: selectedPayment.amount !== null,
+                },
+                {
+                  label: "เวลาโอนในสลิปต้องอยู่ระหว่าง",
+                  value: windowStarts && windowEnds
+                    ? `${formatDateTime(windowStarts.toISOString())} – ${formatTime(windowEnds.toISOString())} น.`
+                    : "ไม่มีข้อมูลช่วงเวลาของสลิปนี้",
+                  ok: Boolean(windowEnds),
+                },
               ];
               return (
                 <>
@@ -446,6 +466,17 @@ export function AdminReviewQueue({ reviewer = "admin", onQueueLoaded }: {
                           <div key={label}><dt>{label}</dt><dd style={wrapAnywhereStyle}>{value}</dd></div>
                         ))}
                       </dl>
+                      <section className="slip-checks" aria-label={`สิ่งที่ต้องตรวจในแอปธนาคารสำหรับ ${paymentCode}`}>
+                        <h4><QrCode aria-hidden="true" size={16} /> ตรวจกับแอปธนาคาร</h4>
+                        <ul>
+                          {slipChecks.map((check) => (
+                            <li key={check.label} className={check.ok ? undefined : "is-warning"}>
+                              {check.ok ? <ShieldCheck aria-hidden="true" size={16} /> : <CircleAlert aria-hidden="true" size={16} />}
+                              <span><small>{check.label}</small><strong style={wrapAnywhereStyle}>{check.value}</strong></span>
+                            </li>
+                          ))}
+                        </ul>
+                      </section>
                       <button className="certificate-action admin-slip-action" type="button" aria-label={`เปิดสลิป ${paymentCode}`} disabled={isBusy || isResolved} onClick={() => void openFile(selectedPayment.fileUrl, rowKey)}>
                         {busyAction === "file" ? "กำลังเปิด…" : "เปิดสลิป"}
                       </button>

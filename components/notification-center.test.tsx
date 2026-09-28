@@ -51,12 +51,12 @@ function list(items: NotificationItem[] = [item(1)], overrides: Partial<Notifica
 
 function detail(
   entry = item(1),
-  bookingOverrides: Partial<NotificationDetail["booking"]> = {},
+  bookingOverrides: Partial<NonNullable<NotificationDetail["booking"]>> = {},
 ): NotificationDetail {
   return {
     ...entry,
     booking: {
-      id: entry.bookingId,
+      id: entry.bookingId ?? "BK-00000000",
       memberName: "สมาชิกหนึ่ง",
       trainerName: "เทรนเนอร์หนึ่ง",
       startsAt: "2026-08-13T03:00:00.000Z",
@@ -91,14 +91,53 @@ describe("NotificationCenter", () => {
     expect(await screen.findByRole("link", { name: "ตรวจสอบการชำระเงิน" })).toHaveAttribute("href", "/admin");
   });
 
-  it("keeps the repeated page heading available only to assistive technology", async () => {
+  it("names the page with the same words as the menu, visibly", async () => {
+    mockedRequest.mockResolvedValue(list([item(1)]));
+    render(<NotificationCenter />);
+
+    const heading = await screen.findByRole("heading", { level: 1, name: "การแจ้งเตือน" });
+    expect(heading).not.toHaveClass("sr-only");
+    expect(screen.queryByText("กล่องแจ้งเตือน")).not.toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "ทำเครื่องหมายว่าอ่านแล้วทั้งหมด" })).toBeInTheDocument();
+  });
+
+  it("shows one plain message when nothing has arrived yet", async () => {
     mockedRequest.mockResolvedValue(list([]));
     render(<NotificationCenter />);
 
-    expect(screen.getByRole("heading", { name: "การแจ้งเตือน" })).toHaveClass("sr-only");
-    expect(screen.queryByText("ติดตามการจอง การชำระเงิน และนัดหมายล่าสุด")).not.toBeInTheDocument();
-    await screen.findByText("ยังไม่มีการแจ้งเตือนในหมวดนี้");
-    expect(screen.getByRole("button", { name: "ทำเครื่องหมายว่าอ่านแล้วทั้งหมด" })).toBeInTheDocument();
+    expect(await screen.findByText("ยังไม่มีการแจ้งเตือน")).toBeInTheDocument();
+    expect(screen.queryByLabelText("ค้นหาการแจ้งเตือน")).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "ทำเครื่องหมายว่าอ่านแล้วทั้งหมด" })).not.toBeInTheDocument();
+    expect(screen.queryByText("เลือกรายการเพื่อดูรายละเอียด")).not.toBeInTheDocument();
+  });
+
+  it("opens a notification that has no booking without breaking", async () => {
+    const entry = item(1, { type: "trainer_application_approved", bookingId: null, title: "ใบสมัครผ่านการอนุมัติ", actionPath: "/trainer" });
+    mockedRequest.mockImplementation(async (path: string) => {
+      if (path === "/v1/notifications/1") return { ...entry, booking: null };
+      if (String(path).endsWith("/read")) return { id: 1, read: true };
+      return list([entry]);
+    });
+    render(<NotificationCenter />);
+    fireEvent.click(await screen.findByText("ใบสมัครผ่านการอนุมัติ"));
+
+    expect(await screen.findByRole("heading", { level: 2, name: "ใบสมัครผ่านการอนุมัติ" })).toBeInTheDocument();
+    expect(screen.queryByText("รหัสการจอง")).not.toBeInTheDocument();
+    expect(screen.getByRole("link", { name: "ดูพื้นที่เทรนเนอร์" })).toHaveAttribute("href", "/trainer");
+  });
+
+  it("keeps the detail open when only marking it read fails", async () => {
+    const entry = item(1);
+    mockedRequest.mockImplementation(async (path: string) => {
+      if (path === "/v1/notifications/1") return detail(entry);
+      if (String(path).endsWith("/read")) throw new ApiError("offline", 503);
+      return list([entry]);
+    });
+    render(<NotificationCenter />);
+    fireEvent.click(await screen.findByText(entry.title));
+
+    expect(await screen.findByRole("heading", { level: 2, name: entry.title })).toBeInTheDocument();
+    expect(screen.queryByText("เปิดรายละเอียดไม่สำเร็จ")).not.toBeInTheDocument();
   });
 
   it("shows a polite skeleton while loading", async () => {
@@ -110,7 +149,7 @@ describe("NotificationCenter", () => {
 
     expect(screen.getByRole("status", { name: "กำลังโหลดการแจ้งเตือน" })).toHaveAttribute("aria-live", "polite");
     expect(document.querySelectorAll('[data-slot="skeleton"]').length).toBeGreaterThan(0);
-    await screen.findByText("ยังไม่มีการแจ้งเตือนในหมวดนี้");
+    await screen.findByText("ยังไม่มีการแจ้งเตือน");
   });
 
   it("shows a useful error and retries the exact list request", async () => {
@@ -294,11 +333,14 @@ describe("NotificationCenter", () => {
   });
 
   it("clears both category and unread filters from a filtered empty state", async () => {
-    mockedRequest.mockResolvedValue(list([]));
+    // The inbox has something, so the filters show; every filtered view is empty.
+    mockedRequest.mockImplementation(async (path: string) =>
+      path === "/v1/notifications?page=0&category=all&unread=false" ? list([item(1, { readAt: "2026-08-12T00:00:00.000Z" })], { unread: { all: 0, booking: 0, payment: 0, appointment: 0 } }) : list([]));
     render(<NotificationCenter />);
 
-    expect(await screen.findByText("ยังไม่มีการแจ้งเตือนในหมวดนี้")).toBeInTheDocument();
+    expect(await screen.findByText(item(1).title)).toBeInTheDocument();
     fireEvent.click(screen.getByRole("button", { name: "เฉพาะที่ยังไม่ได้อ่าน" }));
+    expect(await screen.findByText("ยังไม่มีการแจ้งเตือนในหมวดนี้")).toBeInTheDocument();
     await waitFor(() => expect(mockedRequest).toHaveBeenCalledWith("/v1/notifications?page=0&category=all&unread=true"));
     fireEvent.click(screen.getByRole("button", { name: /การชำระเงิน/ }));
     await waitFor(() => expect(mockedRequest).toHaveBeenCalledWith("/v1/notifications?page=0&category=payment&unread=true"));
@@ -387,20 +429,33 @@ describe("NotificationCenter", () => {
     expect(mockedRequest.mock.calls.map(([path]) => path)).not.toContain(undefined);
   });
 
-  it("filters notifications by search query in the toolbar", async () => {
+  it("searches on the server so every page is covered, not only the rows on screen", async () => {
     const first = item(1, { title: "การจองคอร์สฟิตเนส", bookingId: "BK-00000001" });
     const second = item(2, { title: "แจ้งเตือนการชำระเงิน", bookingId: "BK-00000002" });
-    mockedRequest.mockResolvedValue(list([first, second]));
+    mockedRequest.mockImplementation(async (path: string) =>
+      String(path).includes("&q=") ? list([second]) : list([first]));
     render(<NotificationCenter />);
 
     await screen.findByText("การจองคอร์สฟิตเนส");
-    expect(screen.getByText("แจ้งเตือนการชำระเงิน")).toBeInTheDocument();
+    fireEvent.change(screen.getByLabelText("ค้นหาการแจ้งเตือน"), { target: { value: "BK-00000002" } });
 
-    const searchInput = screen.getByLabelText("ค้นหาการแจ้งเตือน");
-    fireEvent.change(searchInput, { target: { value: "BK-00000002" } });
-
+    await waitFor(() => expect(mockedRequest).toHaveBeenCalledWith("/v1/notifications?page=0&category=all&unread=false&q=BK-00000002"));
+    expect(await screen.findByText("แจ้งเตือนการชำระเงิน")).toBeInTheDocument();
     expect(screen.queryByText("การจองคอร์สฟิตเนส")).not.toBeInTheDocument();
-    expect(screen.getByText("แจ้งเตือนการชำระเงิน")).toBeInTheDocument();
+  });
+
+  it("drops the urgency badge once the booking has moved on", async () => {
+    const paid = item(1, {
+      title: "รอการชำระเงิน",
+      message: "กรุณาแนบหลักฐานการชำระเงินภายใน 10 นาที",
+      bookingStatus: "confirmed",
+      paymentStatus: "approved",
+    });
+    mockedRequest.mockResolvedValue(list([paid]));
+    render(<NotificationCenter />);
+
+    await screen.findByText("กรุณาแนบหลักฐานการชำระเงินภายใน 10 นาที");
+    expect(screen.queryByText("ต้องดำเนินการ")).not.toBeInTheDocument();
   });
 
   it("displays urgency badge for payment notifications needing action", async () => {

@@ -15,6 +15,7 @@ require_once __DIR__ . '/src/RateLimiter.php';
 require_once __DIR__ . '/src/PasswordResetRules.php';
 require_once __DIR__ . '/src/WorkflowRules.php';
 require_once __DIR__ . '/src/PaymentRouting.php';
+require_once __DIR__ . '/src/SlipRules.php';
 require_once __DIR__ . '/src/ProfileRules.php';
 require_once __DIR__ . '/src/BankAccountRules.php';
 require_once __DIR__ . '/src/UserAdminRules.php';

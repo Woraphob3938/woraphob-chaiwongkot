@@ -20,13 +20,13 @@ import {
 } from "@/components/ui/dialog";
 import { ApiError, authenticatedRequest } from "@/lib/api";
 import { getTrainerNextAction, hasValidBookingPeriod } from "@/lib/dashboard-actions";
-import { CONFIRMATION_TIMES, confirmationRelease, formatDateTime, formatMoney, formatTime, formatTimeRange, initials, type ConfirmationTime } from "@/lib/format";
+import { CONFIRMATION_TIMES, confirmationRelease, formatDateTime, formatMoney, formatTime, initials, type ConfirmationTime } from "@/lib/format";
 import { leaveExpiredSession } from "@/lib/session";
 import type { AdminQueue, Booking, SlotState, TrainerAvailabilitySlot, TrainerWorkspace } from "@/lib/types";
 
 const slotStateCopy: Record<SlotState, string> = {
   available: "พร้อมจอง",
-  held: "ล็อกชั่วคราว",
+  held: "มีคำขอจอง",
   booked: "ยืนยันแล้ว",
   blocked: "ปิดช่วงเวลา",
 };
@@ -51,8 +51,29 @@ function decisionView(booking: Booking): BookingDecisionView {
   return booking as unknown as BookingDecisionView;
 }
 
+/** reject: an unanswered request · withdraw: a request already accepted but
+ *  not yet released to the member · cancel: a booking past the request. */
+type DecisionKind = "reject" | "withdraw" | "cancel";
+
+const decisionCopy: Record<DecisionKind, { title: string; verb: string; confirm: string; done: string }> = {
+  reject: { title: "ปฏิเสธคำขอจอง", verb: "ปฏิเสธ", confirm: "ยืนยันปฏิเสธ", done: "ปฏิเสธคำขอ" },
+  withdraw: { title: "ยกเลิกการตอบรับ", verb: "ยกเลิกการตอบรับ", confirm: "ยืนยันยกเลิกการตอบรับ", done: "ยกเลิกการตอบรับคำขอ" },
+  cancel: { title: "ยกเลิกการจอง", verb: "ยกเลิก", confirm: "ยืนยันยกเลิกการจอง", done: "ยกเลิกการจอง" },
+};
+
 function isPendingTrainer(booking: { status: string }) {
   return booking.status === "pending_trainer";
+}
+
+/** A request the trainer has not answered yet. An accepted one waits for its
+ *  release round and asks nothing more of the trainer. */
+function isUnanswered(booking: Booking) {
+  return isPendingTrainer(booking) && !booking.confirmationReleaseAt;
+}
+
+/** Whether the trainer is the one who has to act next on this booking. */
+function needsTrainer(booking: Booking) {
+  return isUnanswered(booking) || booking.status === "payment_review";
 }
 
 /** A trainer may cancel any booking that is not closed yet, per the workflow. */
@@ -199,10 +220,11 @@ const dayNameFormatter = new Intl.DateTimeFormat("th-TH", { weekday: "short", ti
 const dayDateFormatter = new Intl.DateTimeFormat("th-TH", { day: "numeric", month: "short", timeZone: BANGKOK });
 const weekDateFormatter = new Intl.DateTimeFormat("th-TH", { day: "numeric", month: "short", year: "numeric", timeZone: BANGKOK });
 
-function startOfWeek(value: Date) {
+/** Midnight at the start of the given day. The calendar runs seven days from
+ *  today rather than Monday to Sunday: on a Sunday a calendar week was six days
+ *  of past and hid tomorrow's session. */
+function startOfDay(value: Date) {
   const date = new Date(value);
-  const day = date.getDay();
-  date.setDate(date.getDate() - (day === 0 ? 6 : day - 1));
   date.setHours(0, 0, 0, 0);
   return date;
 }
@@ -252,12 +274,6 @@ function overlapsHour(slot: TrainerAvailabilitySlot, start: Date) {
 /** The hour grid always spans at least this working day. */
 const DEFAULT_START_HOUR = 7;
 const DEFAULT_END_HOUR = 21;
-
-/** 0 = Monday … 6 = Sunday, matching startOfWeek. */
-function todayIndexInWeek(value: Date) {
-  const day = value.getDay();
-  return day === 0 ? 6 : day - 1;
-}
 
 /**
  * Side-by-side lanes for a day's overlapping items: each item takes the first
@@ -334,7 +350,7 @@ export function TrainerWorkbench({ onIncompleteProfile }: { onIncompleteProfile?
   const [selectedBooking, setSelectedBooking] = useState<Booking | null>(null);
   const [weekOffset, setWeekOffset] = useState(0);
   // On a phone the week collapses to one day column; this is the day shown.
-  const [phoneDay, setPhoneDay] = useState(() => todayIndexInWeek(new Date()));
+  const [phoneDay, setPhoneDay] = useState(0);
   const calendarScrollRef = useRef<HTMLDivElement>(null);
   // A minute clock for the calendar only: the red "now" line and which hours
   // may still take a new slot move with real time while the page stays open.
@@ -353,7 +369,7 @@ export function TrainerWorkbench({ onIncompleteProfile }: { onIncompleteProfile?
   const [bookingToAccept, setBookingToAccept] = useState<Booking | null>(null);
   const [confirmationTime, setConfirmationTime] = useState<ConfirmationTime>("12:00");
   const [bookingToDecide, setBookingToDecide] = useState<Booking | null>(null);
-  const [decisionKind, setDecisionKind] = useState<"reject" | "cancel">("reject");
+  const [decisionKind, setDecisionKind] = useState<DecisionKind>("reject");
   const [decisionReason, setDecisionReason] = useState("");
   const [decisionReasonError, setDecisionReasonError] = useState("");
   const [decisionError, setDecisionError] = useState("");
@@ -531,8 +547,12 @@ export function TrainerWorkbench({ onIncompleteProfile }: { onIncompleteProfile?
   // Bookings that still carry a trainer decision: a new request to answer, or a
   // booking whose payment step is running and can still be called off.
   const decisionBookings = bookingsReady
-    ? bookings.filter((booking) => isPendingTrainer(booking) || booking.status === "awaiting_payment" || booking.status === "payment_review")
+    ? bookings
+      .filter((booking) => isPendingTrainer(booking) || booking.status === "awaiting_payment" || booking.status === "payment_review")
+      .sort((left, right) => Number(needsTrainer(right)) - Number(needsTrainer(left)))
     : [];
+  const requestsForTrainer = decisionBookings.filter(needsTrainer).length;
+  const requestsForMember = decisionBookings.length - requestsForTrainer;
   const visibleRequests = decisionBookings.slice(0, requestLimit);
   const completedBookings = bookingsReady ? bookings.filter((booking) => booking.status === "completed") : [];
   // Money is only claimed where the review that makes it real has happened, so
@@ -557,7 +577,7 @@ export function TrainerWorkbench({ onIncompleteProfile }: { onIncompleteProfile?
   const upcomingBookings = orderedConfirmedBookings.filter((booking) => nextSession(booking))
     .sort((a, b) => new Date(nextSession(a)!.startsAt).getTime() - new Date(nextSession(b)!.startsAt).getTime());
   const pendingBookings = orderedConfirmedBookings.filter((booking) => !nextSession(booking));
-  const pendingRequestCount = bookingsReady ? bookings.filter((booking) => isPendingTrainer(booking)).length : 0;
+  const pendingRequestCount = bookingsReady ? bookings.filter(isUnanswered).length : 0;
   const openSlotCount = (workspace?.slots ?? []).filter((slot) => slot.state === "available" && new Date(slot.startsAt).getTime() > now.getTime()).length;
 
   // The next-action card names one record, so following its link has to land on
@@ -585,6 +605,9 @@ export function TrainerWorkbench({ onIncompleteProfile }: { onIncompleteProfile?
   // The calendar answers "when"; the list only has to answer "who is next", so
   // the search and date filters it used to carry are gone.
   const filteredAppointments = appointments;
+  // The tab badge counts what asks the trainer to act, not every record.
+  const workAttention = requestsForTrainer
+    + appointments.filter((booking) => booking.actions.canComplete && hasValidBookingPeriod(booking)).length;
   // "Show more" appends the next page; the row named by the next-action card is
   // always on screen, even when it sits deeper in the list.
   const actionIndex = filteredAppointments.findIndex((booking) => booking.id === actionBookingId);
@@ -598,7 +621,7 @@ export function TrainerWorkbench({ onIncompleteProfile }: { onIncompleteProfile?
   const slotsOnSelectedDay = slotDate
     ? slots.filter((slot) => localDateKey(new Date(slot.startsAt)) === slotDate)
     : [];
-  const weekStart = addDays(startOfWeek(now), weekOffset * 7);
+  const weekStart = addDays(startOfDay(now), weekOffset * 7);
   const weekDays = Array.from({ length: 7 }, (_, index) => addDays(weekStart, index));
   const weekEnd = addDays(weekStart, 7);
   const confirmedSessions = confirmedBookings.flatMap((booking) => (
@@ -607,6 +630,14 @@ export function TrainerWorkbench({ onIncompleteProfile }: { onIncompleteProfile?
       : [{ booking, session: { id: 0, startsAt: booking.startsAt, endsAt: booking.endsAt }, index: 0 }]
   ));
   const confirmedPeriods = new Set(confirmedSessions.map(({ session }) => `${session.startsAt}|${session.endsAt}`));
+  /** The open request a held slot is kept for, matched on its period. */
+  function heldBooking(slot: TrainerAvailabilitySlot) {
+    const start = new Date(slot.startsAt).getTime();
+    const end = new Date(slot.endsAt).getTime();
+    return decisionBookings.find((booking) => (
+      new Date(booking.startsAt).getTime() === start && new Date(booking.endsAt).getTime() === end
+    ));
+  }
   const weeklySchedule: WeeklyScheduleItem[] = [
     ...slots
       .filter((slot) => {
@@ -614,16 +645,20 @@ export function TrainerWorkbench({ onIncompleteProfile }: { onIncompleteProfile?
         const duplicatesConfirmedBooking = slot.state === "booked" && confirmedPeriods.has(`${slot.startsAt}|${slot.endsAt}`);
         return !duplicatesConfirmedBooking && startsAt >= weekStart && startsAt < weekEnd;
       })
-      .map((slot) => ({
-        key: `slot-${slot.id}`,
-        startsAt: slot.startsAt,
-        endsAt: slot.endsAt,
-        kind: "slot" as const,
-        state: slot.state,
-        title: slotStateCopy[slot.state],
-        detail: slot.state === "held" ? "ล็อกไว้ให้คำขอจองที่รอดำเนินการ" : slot.state === "booked" ? "ถูกจองแล้ว" : slot.state === "blocked" ? "ปิดช่วงเวลา" : "ช่วงเวลาว่าง",
-        slot,
-      })),
+      .map((slot) => {
+        const heldFor = slot.state === "held" ? heldBooking(slot) : undefined;
+        return {
+          key: `slot-${slot.id}`,
+          startsAt: slot.startsAt,
+          endsAt: slot.endsAt,
+          kind: "slot" as const,
+          state: slot.state,
+          title: heldFor ? heldFor.member?.displayName ?? "สมาชิก FitConnect" : slotStateCopy[slot.state],
+          detail: slot.state === "held" ? "มีคำขอจองในช่วงนี้" : slot.state === "booked" ? "ถูกจองแล้ว" : slot.state === "blocked" ? "ปิดช่วงเวลา" : "ช่วงเวลาว่าง",
+          slot,
+          booking: heldFor,
+        };
+      }),
     ...confirmedSessions
       .filter(({ session }) => {
         const startsAt = new Date(session.startsAt);
@@ -655,7 +690,7 @@ export function TrainerWorkbench({ onIncompleteProfile }: { onIncompleteProfile?
 
   function changeWeek(offset: number) {
     setWeekOffset(offset);
-    setPhoneDay(offset === 0 ? todayIndexInWeek(now) : 0);
+    setPhoneDay(0);
   }
 
   // Each new week scrolls the hour grid to its first item (or to "now" on the
@@ -727,7 +762,7 @@ export function TrainerWorkbench({ onIncompleteProfile }: { onIncompleteProfile?
     const className = `trainer-cal__event trainer-week-event trainer-week-event--${item.kind} trainer-week-event--${item.state}`;
     const body = (
       <>
-        <time dateTime={item.startsAt}>{formatTimeRange(item.startsAt, item.endsAt)}</time>
+        <time dateTime={item.startsAt}>{formatTime(item.startsAt)}–{formatTime(item.endsAt)}</time>
         <strong>{item.title}</strong>
         {validBookingPeriod
           ? <span className="sr-only">{item.detail}</span>
@@ -798,7 +833,7 @@ export function TrainerWorkbench({ onIncompleteProfile }: { onIncompleteProfile?
     const pending = isPendingTrainer(booking);
     const confirmedLabel = confirmedPeriodLabel(booking);
     return (
-      <article className="trainer-booking-card" id={`request-${booking.id}`} key={`request-${booking.id}`} aria-busy={isBusy}>
+      <article className={`trainer-booking-card${needsTrainer(booking) ? "" : " is-waiting"}`} id={`request-${booking.id}`} key={`request-${booking.id}`} aria-busy={isBusy}>
         <div className="trainer-booking-card__identity">
           <span className="trainer-avatar" aria-hidden="true">{initials(booking.member?.displayName ?? "สมาชิก")}</span>
           <div>
@@ -842,14 +877,25 @@ export function TrainerWorkbench({ onIncompleteProfile }: { onIncompleteProfile?
             </button>
           )}
           {pending && canRejectBooking(booking) && (
-            <button
-              type="button"
-              disabled={isBusy}
-              aria-label={`ปฏิเสธ ${booking.id}`}
-              onClick={(event) => { openDecisionDialog(booking, "reject", event); }}
-            >
-              ปฏิเสธ
-            </button>
+            booking.confirmationReleaseAt ? (
+              <button
+                type="button"
+                disabled={isBusy}
+                aria-label={`ยกเลิกการตอบรับ ${booking.id}`}
+                onClick={(event) => { openDecisionDialog(booking, "withdraw", event); }}
+              >
+                ยกเลิกการตอบรับ
+              </button>
+            ) : (
+              <button
+                type="button"
+                disabled={isBusy}
+                aria-label={`ปฏิเสธ ${booking.id}`}
+                onClick={(event) => { openDecisionDialog(booking, "reject", event); }}
+              >
+                ปฏิเสธ
+              </button>
+            )
           )}
           {!pending && canTrainerCancel(booking) && (
             <button
@@ -983,13 +1029,11 @@ export function TrainerWorkbench({ onIncompleteProfile }: { onIncompleteProfile?
     void patchBookingDecision(
       booking,
       { status: "cancelled", note: reason },
-      decisionKind === "reject"
-        ? `ปฏิเสธคำขอ ${booking.id} แล้ว และคืนช่วงเวลาให้สมาชิกอื่น`
-        : `ยกเลิกการจอง ${booking.id} แล้ว และคืนช่วงเวลาให้สมาชิกอื่น`,
+      `${decisionCopy[decisionKind].done} ${booking.id} แล้ว และคืนช่วงเวลาให้สมาชิกอื่น`,
     );
   }
 
-  function openDecisionDialog(booking: Booking, kind: "reject" | "cancel", event?: { currentTarget: HTMLElement }) {
+  function openDecisionDialog(booking: Booking, kind: DecisionKind, event?: { currentTarget: HTMLElement }) {
     if (event) rememberDialogTrigger(event);
     setDecisionKind(kind);
     setDecisionReason("");
@@ -1262,7 +1306,7 @@ export function TrainerWorkbench({ onIncompleteProfile }: { onIncompleteProfile?
             <Link className="button button--outline" href={`/trainers/${encodeURIComponent(workspace.profile.slug)}`}>
               หน้าโปรไฟล์เทรนเนอร์
             </Link>
-            <StatusBadge status={workspace.profile.approvalStatus} />
+            <StatusBadge status={workspace.profile.approvalStatus} source="approval" />
             {!approved && <Button type="button" disabled title="รอผู้ดูแลระบบตรวจโปรไฟล์ก่อน">เพิ่มช่วงเวลาว่าง</Button>}
           </div>
         )}
@@ -1270,7 +1314,10 @@ export function TrainerWorkbench({ onIncompleteProfile }: { onIncompleteProfile?
       </section>
       )}
 
-      {nextAction && (
+      {/* The card speaks only when there is something to do or wait for. The
+          "all set" state repeated what the calendar below already shows and
+          pushed the work down a whole screen on a phone. */}
+      {nextAction && nextAction.state !== "complete" && (
         <NextActionCard
           action={nextAction}
           onFollow={() => {
@@ -1313,7 +1360,7 @@ export function TrainerWorkbench({ onIncompleteProfile }: { onIncompleteProfile?
           onClick={() => setActiveTab("work")}
           onKeyDown={onTrainerTabKeyDown}
         >
-          <ClipboardList aria-hidden="true" size={17} /> งานและตาราง <span>{decisionBookings.length + appointments.length}</span>
+          <ClipboardList aria-hidden="true" size={17} /> งานและตาราง {workAttention > 0 && <span>{workAttention}</span>}
         </button>
         {approved && (
           <button
@@ -1354,7 +1401,7 @@ export function TrainerWorkbench({ onIncompleteProfile }: { onIncompleteProfile?
             onClick={() => setActiveTab("finance")}
             onKeyDown={onTrainerTabKeyDown}
           >
-            <Wallet aria-hidden="true" size={17} /> สรุปการเงิน
+            <Wallet aria-hidden="true" size={17} /> การเงิน
           </button>
         )}
       </div>
@@ -1366,9 +1413,12 @@ export function TrainerWorkbench({ onIncompleteProfile }: { onIncompleteProfile?
         <section className="trainer-booking-list" id="trainer-requests" aria-labelledby="trainer-requests-title">
           <header className="section-line-heading trainer-booking-list__heading">
             <div>
-              <h2 id="trainer-requests-title">งานที่ต้องจัดการ</h2>
+              <h2 id="trainer-requests-title">คำขอจอง</h2>
             </div>
-            <span className="queue-count">{decisionBookings.length} รายการ</span>
+            <span className="trainer-booking-list__counts">
+              {requestsForTrainer > 0 && <span className="queue-count queue-count--attention">รอคุณ {requestsForTrainer}</span>}
+              {requestsForMember > 0 && <span className="queue-count">รอสมาชิก {requestsForMember}</span>}
+            </span>
           </header>
           {visibleRequests.map(renderRequestCard)}
           {decisionBookings.length > REQUESTS_PER_PAGE && (
@@ -1406,10 +1456,10 @@ export function TrainerWorkbench({ onIncompleteProfile }: { onIncompleteProfile?
                 <small>{weekBookingCount} นัด · {weekSlotCount} ช่วงเวลา</small>
               </p>
             </div>
-            <div className="trainer-week-strip__controls" aria-label="เปลี่ยนสัปดาห์">
-              <button type="button" aria-label="สัปดาห์ก่อนหน้า" onClick={() => changeWeek(weekOffset - 1)}><ChevronLeft aria-hidden="true" size={18} /></button>
-              <button type="button" onClick={() => changeWeek(0)} disabled={weekOffset === 0}>สัปดาห์นี้</button>
-              <button type="button" aria-label="สัปดาห์ถัดไป" onClick={() => changeWeek(weekOffset + 1)}><ChevronRight aria-hidden="true" size={18} /></button>
+            <div className="trainer-week-strip__controls" aria-label="เปลี่ยนช่วงวัน">
+              <button type="button" aria-label="7 วันก่อนหน้า" onClick={() => changeWeek(weekOffset - 1)}><ChevronLeft aria-hidden="true" size={18} /></button>
+              <button type="button" onClick={() => changeWeek(0)} disabled={weekOffset === 0}>วันนี้</button>
+              <button type="button" aria-label="7 วันถัดไป" onClick={() => changeWeek(weekOffset + 1)}><ChevronRight aria-hidden="true" size={18} /></button>
             </div>
             <span id="availability" className="trainer-cal__add">
               <Button type="button" onClick={(event) => { rememberDialogTrigger(event); openSlotDialog(); }}>
@@ -1474,7 +1524,7 @@ export function TrainerWorkbench({ onIncompleteProfile }: { onIncompleteProfile?
           </div>
           <footer className="trainer-week__legend" aria-label="คำอธิบายสถานะตาราง">
             <span><i className="is-available" aria-hidden="true" /> พร้อมจอง</span>
-            <span><i className="is-held" aria-hidden="true" /> ล็อกชั่วคราว</span>
+            <span><i className="is-held" aria-hidden="true" /> มีคำขอจอง</span>
             <span><i className="is-confirmed" aria-hidden="true" /> นัดยืนยันแล้ว</span>
             <span><i className="is-blocked" aria-hidden="true" /> ปิดช่วงเวลา</span>
           </footer>
@@ -1900,15 +1950,18 @@ export function TrainerWorkbench({ onIncompleteProfile }: { onIncompleteProfile?
       }}>
         <DialogContent onCloseAutoFocus={(event) => { event.preventDefault(); dialogTrigger?.focus(); }}>
           <DialogHeader>
-            <DialogTitle>{decisionKind === "reject" ? "ปฏิเสธคำขอจอง" : "ยกเลิกการจอง"}</DialogTitle>
+            <DialogTitle>{decisionCopy[decisionKind].title}</DialogTitle>
             <DialogDescription className="grid gap-1">
               <span>{bookingToDecide?.member?.displayName ?? "สมาชิก FitConnect"} · คำขอ {bookingToDecide?.id}</span>
+              {decisionKind === "withdraw" && bookingToDecide?.confirmationReleaseAt && (
+                <span>คำขอนี้คุณตอบรับไว้แล้ว และจะแจ้งสมาชิก {formatDateTime(bookingToDecide.confirmationReleaseAt)} ถ้ายกเลิกตอนนี้ คำขอจะปิดแทน</span>
+              )}
               <span>ช่วงเวลาจะถูกคืนให้สมาชิกทันที</span>
-              <span>สมาชิกจะเห็นเหตุผลที่คุณ{decisionKind === "reject" ? "ปฏิเสธ" : "ยกเลิก"}</span>
+              <span>สมาชิกจะเห็นเหตุผลที่คุณ{decisionCopy[decisionKind].verb}</span>
             </DialogDescription>
           </DialogHeader>
           <label className="field" htmlFor="decision-reason">
-            เหตุผลที่{decisionKind === "reject" ? "ปฏิเสธ" : "ยกเลิก"} (จำเป็น)
+            เหตุผลที่{decisionCopy[decisionKind].verb} (จำเป็น)
             <textarea
               id="decision-reason"
               value={decisionReason}
@@ -1932,7 +1985,7 @@ export function TrainerWorkbench({ onIncompleteProfile }: { onIncompleteProfile?
             >
               {busy === `booking-${bookingToDecide?.id}`
                 ? "กำลังบันทึก…"
-                : decisionKind === "reject" ? "ยืนยันปฏิเสธ" : "ยืนยันยกเลิกการจอง"}
+                : decisionCopy[decisionKind].confirm}
             </Button>
           </DialogFooter>
         </DialogContent>

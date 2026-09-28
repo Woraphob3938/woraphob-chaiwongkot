@@ -99,11 +99,11 @@ describe("member role dashboard", () => {
     localStorage.setItem("fitconnect_token", "member-token");
   });
 
-  it("does not repeat the member page title above the actionable content", async () => {
+  it("shows one visible page title that matches the navigation", async () => {
     vi.mocked(authenticatedRequest).mockResolvedValue([]);
     render(<RoleDashboard role="member" />);
 
-    expect(screen.getByRole("heading", { name: "การฝึกของฉัน" })).toHaveClass("sr-only");
+    expect(screen.getByRole("heading", { level: 1, name: "การจองของฉัน" })).not.toHaveClass("sr-only");
     expect(screen.queryByText("ติดตามคำขอ นัดหมาย การชำระ และการสนทนาได้จากสถานะเดียวกัน")).not.toBeInTheDocument();
     await screen.findByTestId("next-action");
   });
@@ -126,8 +126,10 @@ describe("member role dashboard", () => {
     const bookingHeading = screen.getByRole("heading", { name: "การจอง" });
     expect(nextAction.compareDocumentPosition(bookingHeading) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
     expect(screen.getByRole("heading", { name: "ส่งหลักฐานการชำระเงิน" })).toBeInTheDocument();
-    expect(screen.getAllByTestId("booking-summary")).toHaveLength(4);
-    expect(screen.getAllByText("ดูรายละเอียด")).toHaveLength(4);
+    // The default view is the work still in motion; the expired one waits
+    // under its own filter.
+    expect(screen.getAllByTestId("booking-summary")).toHaveLength(3);
+    expect(screen.getAllByText(/^ดูรายละเอียดคำขอ/)).toHaveLength(3);
     expect(screen.queryByText("การจองอื่น")).not.toBeInTheDocument();
     expect(screen.queryByText("ดูทั้งหมด")).not.toBeInTheDocument();
     expect(screen.queryByRole("link", { name: "ดูทั้งหมด: การจองล่าสุด" })).not.toBeInTheDocument();
@@ -146,8 +148,8 @@ describe("member role dashboard", () => {
     expect(within(paymentDialog).queryByText("สถานที่")).not.toBeInTheDocument();
     expect(within(paymentDialog).getAllByText("1,200.00 บาท").length).toBeGreaterThan(0);
     expect(within(paymentDialog).getByRole("button", { name: "ส่งสลิปให้ตรวจ" })).toBeInTheDocument();
-    expect(within(paymentDialog).getByText("อัปโหลดสลิปภายใน 10 นาที")).toBeInTheDocument();
-    expect(within(paymentDialog).getByLabelText("เวลาที่เหลือสำหรับส่งสลิป")).toBeInTheDocument();
+    expect(within(paymentDialog).getByText("อัปโหลดสลิปภายในเวลาที่เหลือ")).toBeInTheDocument();
+    expect(within(paymentDialog).getByRole("timer", { name: /^เวลาที่เหลือสำหรับส่งสลิป/ })).toBeInTheDocument();
     expect(within(paymentDialog).getByRole("link", { name: "เปิดการสนทนา" })).toHaveAttribute("href", "/chat?booking=BK-PAY");
     expect(within(paymentDialog).getAllByRole("link", { name: "เปิดการสนทนา" })).toHaveLength(1);
     fireEvent.click(within(paymentDialog).getByRole("button", { name: "ปิด" }));
@@ -176,7 +178,7 @@ describe("member role dashboard", () => {
 
     render(<RoleDashboard role="member" />);
     const summary = await screen.findByTestId("booking-summary");
-    expect(within(summary).getByText("ยืนยันแล้ว")).toBeInTheDocument();
+    expect(within(summary).getByText("ชำระแล้ว")).toBeInTheDocument();
 
     fireEvent.focus(window);
 
@@ -334,6 +336,8 @@ describe("member role dashboard", () => {
     const actionLink = await screen.findByRole("link", { name: "อัปโหลดสลิป" });
     expect(actionLink).toHaveAttribute("href", "/member#booking-BK-OLDER");
     expect(document.querySelector("#booking-BK-OLDER")).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "ทั้งหมด 12" }));
+    expect(screen.getAllByTestId("booking-summary")[0]).toHaveAttribute("id", "booking-BK-OLDER");
     expect(screen.getAllByTestId("booking-summary")).toHaveLength(10);
     expect(screen.getByText("รายการ 1–10 จาก 12")).toBeInTheDocument();
 
@@ -347,25 +351,24 @@ describe("member role dashboard", () => {
     vi.mocked(authenticatedRequest).mockResolvedValue(bookings);
     render(<RoleDashboard role="member" />);
 
-    expect(await screen.findByRole("button", { name: "ทั้งหมด 4" })).toHaveAttribute("aria-pressed", "true");
-    expect(screen.getByRole("button", { name: "รอชำระ 1" })).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: "ยืนยันนัดแล้ว 1" })).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: "ฝึกเสร็จ 1" })).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: "จบแล้ว 1" })).toBeInTheDocument();
-    expect(screen.queryByRole("button", { name: /รอตรวจการชำระ/ })).not.toBeInTheDocument();
+    // Four groups at most, with the work still in motion selected first.
+    expect(await screen.findByRole("button", { name: "กำลังดำเนินการ 3" })).toHaveAttribute("aria-pressed", "true");
+    expect(screen.getByRole("button", { name: "ยกเลิก/หมดเวลา 1" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "ทั้งหมด 4" })).toBeInTheDocument();
+    // A completed booking still owed a review counts as active, so the
+    // finished group has nothing to show and is not offered.
+    expect(screen.queryByRole("button", { name: /ฝึกเสร็จแล้ว/ })).not.toBeInTheDocument();
+    expect(screen.getByRole("group", { name: "กรองการจองตามสถานะ" }).querySelectorAll("button").length).toBeLessThanOrEqual(4);
 
     fireEvent.change(screen.getByRole("searchbox", { name: "ค้นหาการจอง" }), { target: { value: "BK-REVIEW" } });
     expect(screen.getAllByTestId("booking-summary").map((summary) => summary.id)).toEqual(["booking-BK-REVIEW"]);
 
     fireEvent.change(screen.getByRole("searchbox", { name: "ค้นหาการจอง" }), { target: { value: "" } });
-    fireEvent.click(screen.getByRole("button", { name: "ฝึกเสร็จ 1" }));
-
-    expect(screen.getByRole("button", { name: "ฝึกเสร็จ 1" })).toHaveAttribute("aria-pressed", "true");
-    expect(screen.getAllByTestId("booking-summary").map((summary) => summary.id)).toEqual(["booking-BK-REVIEW"]);
     expect(screen.queryByText("การจองอื่น")).not.toBeInTheDocument();
     expect(screen.getByRole("link", { name: "อัปโหลดสลิป" })).toBeInTheDocument();
 
-    fireEvent.click(screen.getByRole("button", { name: "จบแล้ว 1" }));
+    fireEvent.click(screen.getByRole("button", { name: "ยกเลิก/หมดเวลา 1" }));
+    expect(screen.getByRole("button", { name: "ยกเลิก/หมดเวลา 1" })).toHaveAttribute("aria-pressed", "true");
     expect(screen.getAllByTestId("booking-summary").map((summary) => summary.id)).toEqual(["booking-BK-OLDER"]);
   });
 
@@ -400,15 +403,56 @@ describe("member role dashboard", () => {
 
     render(<RoleDashboard role="member" />);
     const [summary] = await screen.findAllByTestId("booking-summary");
-    expect(screen.getByRole("button", { name: "รอเทรนเนอร์ตอบรับ 1" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "กำลังดำเนินการ 1" })).toBeInTheDocument();
     openBooking(summary);
     const dialog = screen.getByRole("dialog", { name: "เทรนเนอร์ ค." });
 
     expect(within(dialog).getByText("รอเทรนเนอร์ตอบรับ")).toBeInTheDocument();
     expect(within(dialog).getByText("รอเทรนเนอร์ตอบรับ ระบบจะแจ้งผลให้คุณในรอบ 12:00 หรือ 18:00 น. แล้วจึงชำระเงินได้ เวลาฝึกยังเป็นเวลาที่คุณขอ")).toBeInTheDocument();
     expect(within(dialog).queryByRole("button", { name: "ส่งสลิปให้ตรวจ" })).not.toBeInTheDocument();
-    expect(within(dialog).queryByText("อัปโหลดสลิปภายใน 10 นาที")).not.toBeInTheDocument();
-    expect(within(dialog).queryByLabelText("เวลาที่เหลือสำหรับส่งสลิป")).not.toBeInTheDocument();
+    expect(within(dialog).queryByText("อัปโหลดสลิปภายในเวลาที่เหลือ")).not.toBeInTheDocument();
+    expect(within(dialog).queryByRole("timer")).not.toBeInTheDocument();
+  });
+
+  it("lets the member withdraw a request the trainer has not answered", async () => {
+    vi.mocked(authenticatedRequest).mockResolvedValue([bookingFixture("BK-WITHDRAW", {
+      status: "pending_trainer",
+      actions: { ...bookingFixture("unused").actions, canCancel: true },
+    })]);
+
+    render(<RoleDashboard role="member" />);
+    const [summary] = await screen.findAllByTestId("booking-summary");
+    openBooking(summary);
+    const dialog = screen.getByRole("dialog", { name: "เทรนเนอร์ ค." });
+    expect(within(dialog).getByRole("button", { name: "ยกเลิกการจอง" })).toBeInTheDocument();
+  });
+
+  it("reloads once when the payment window closes, however many clocks show it", async () => {
+    vi.useFakeTimers({ shouldAdvanceTime: true });
+    try {
+      const deadline = new Date(Date.now() + 2_000).toISOString();
+      vi.mocked(authenticatedRequest).mockResolvedValue([bookingFixture("BK-CLOCK", { status: "awaiting_payment", paymentStatus: "not_submitted", paymentDeadlineAt: deadline, actions: { ...bookingFixture("unused").actions, canPay: true } })]);
+      render(<RoleDashboard role="member" />);
+      const [summary] = await screen.findAllByTestId("booking-summary");
+      openBooking(summary);
+      // Card, row and dialog all show the clock.
+      expect(screen.getAllByRole("timer", { hidden: true }).length).toBeGreaterThanOrEqual(3);
+      const before = vi.mocked(authenticatedRequest).mock.calls.length;
+      await vi.advanceTimersByTimeAsync(3_000);
+      await waitFor(() => expect(vi.mocked(authenticatedRequest).mock.calls.length).toBe(before + 1));
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("opens the booking the next-action card names and shows its clock", async () => {
+    vi.mocked(authenticatedRequest).mockResolvedValue(bookings);
+    render(<RoleDashboard role="member" />);
+
+    const card = await screen.findByTestId("next-action");
+    expect(within(card).getByRole("timer")).toBeInTheDocument();
+    fireEvent.click(within(card).getByRole("link", { name: "อัปโหลดสลิป" }));
+    expect(screen.getByRole("dialog", { name: "เทรนเนอร์ ค." })).toBeInTheDocument();
   });
 });
 

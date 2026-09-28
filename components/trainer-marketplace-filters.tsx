@@ -5,7 +5,13 @@ import { NativeSelect, NativeSelectOption } from "@/components/ui/native-select"
 import { formatTrainingTypeName } from "@/lib/format";
 import type { Trainer, TrainingType } from "@/lib/types";
 
-export type TrainerPriceRange = "all" | "under_700" | "701_1000" | "over_1000";
+export type TrainerPriceBasis = "session" | "monthly";
+export type TrainerPriceRange =
+  | "all"
+  | "under_700" | "701_1000" | "over_1000"
+  | "m_under_5000" | "m_5001_10000" | "m_over_10000";
+export type TrainerAvailabilityDay = "all" | "any" | "today" | "tomorrow" | "week" | "date";
+export type TrainerTimeOfDay = "all" | "morning" | "afternoon" | "evening";
 export type TrainerRatingFilter = "all" | "4_plus" | "4_5_plus";
 export type TrainerExperienceFilter = "all" | "under_2" | "2_5" | "over_5";
 
@@ -25,12 +31,97 @@ export function matchExperience(trainer: Trainer, experience: TrainerExperienceF
   return years > 5;
 }
 
-export const priceRangeOptions: { value: TrainerPriceRange; label: string }[] = [
-  { value: "all", label: "ทุกช่วงราคา" },
-  { value: "under_700", label: "ไม่เกิน ฿700" },
-  { value: "701_1000", label: "฿701–฿1,000" },
-  { value: "over_1000", label: "มากกว่า ฿1,000" },
+/** Per day is the per-session price (one session a day); per month is the 30-day package. */
+export const priceBasisOptions: { value: TrainerPriceBasis; label: string }[] = [
+  { value: "session", label: "ต่อวัน" },
+  { value: "monthly", label: "ต่อเดือน" },
 ];
+
+export const priceRangeOptionsByBasis: Record<TrainerPriceBasis, { value: TrainerPriceRange; label: string }[]> = {
+  session: [
+    { value: "all", label: "ทุกช่วงราคา" },
+    { value: "under_700", label: "ไม่เกิน ฿700 ต่อวัน" },
+    { value: "701_1000", label: "฿701–฿1,000 ต่อวัน" },
+    { value: "over_1000", label: "มากกว่า ฿1,000 ต่อวัน" },
+  ],
+  monthly: [
+    { value: "all", label: "ทุกช่วงราคา" },
+    { value: "m_under_5000", label: "ไม่เกิน ฿5,000 ต่อเดือน" },
+    { value: "m_5001_10000", label: "฿5,001–฿10,000 ต่อเดือน" },
+    { value: "m_over_10000", label: "มากกว่า ฿10,000 ต่อเดือน" },
+  ],
+};
+
+/** Every range value, for validating a value read back from the URL. */
+export const priceRangeOptions = [...priceRangeOptionsByBasis.session, ...priceRangeOptionsByBasis.monthly.slice(1)];
+
+export const availabilityDayOptions: { value: TrainerAvailabilityDay; label: string }[] = [
+  { value: "all", label: "ไม่กรองตามเวลาว่าง" },
+  { value: "any", label: "มีเวลาว่างวันใดก็ได้" },
+  { value: "today", label: "ว่างวันนี้" },
+  { value: "tomorrow", label: "ว่างพรุ่งนี้" },
+  { value: "week", label: "ว่างภายใน 7 วัน" },
+  { value: "date", label: "เลือกวันที่เอง" },
+];
+
+export const timeOfDayOptions: { value: TrainerTimeOfDay; label: string; hint: string }[] = [
+  { value: "all", label: "ทั้งวัน", hint: "" },
+  { value: "morning", label: "เช้า", hint: "ก่อน 12:00" },
+  { value: "afternoon", label: "บ่าย", hint: "12:00–17:00" },
+  { value: "evening", label: "เย็น", hint: "หลัง 17:00" },
+];
+
+const bangkokParts = new Intl.DateTimeFormat("en-CA", {
+  timeZone: "Asia/Bangkok",
+  year: "numeric",
+  month: "2-digit",
+  day: "2-digit",
+  hour: "2-digit",
+  hourCycle: "h23",
+});
+
+/** `YYYY-MM-DD` and the hour of an instant, read on the Bangkok clock. */
+function bangkokDateAndHour(value: Date): { date: string; hour: number } {
+  const parts = Object.fromEntries(bangkokParts.formatToParts(value).map((part) => [part.type, part.value]));
+  return { date: `${parts.year}-${parts.month}-${parts.day}`, hour: Number(parts.hour) };
+}
+
+function addDaysKey(key: string, days: number) {
+  const date = new Date(`${key}T12:00:00+07:00`);
+  date.setUTCDate(date.getUTCDate() + days);
+  return bangkokDateAndHour(date).date;
+}
+
+function matchesTimeOfDay(hour: number, timeOfDay: TrainerTimeOfDay) {
+  if (timeOfDay === "morning") return hour < 12;
+  if (timeOfDay === "afternoon") return hour >= 12 && hour < 17;
+  if (timeOfDay === "evening") return hour >= 17;
+  return true;
+}
+
+export function matchAvailability(
+  trainer: Trainer,
+  day: TrainerAvailabilityDay,
+  timeOfDay: TrainerTimeOfDay,
+  pickedDate: string,
+  now: Date = new Date(),
+) {
+  if (day === "all" && timeOfDay === "all") return true;
+  const today = bangkokDateAndHour(now).date;
+  const lastDay = addDaysKey(today, 6);
+  return trainer.slots.some((slot) => {
+    const start = new Date(slot.startsAt);
+    // The API only lists future open slots, so every slot counts as free.
+    if (Number.isNaN(start.getTime())) return false;
+    const { date, hour } = bangkokDateAndHour(start);
+    const dayMatches = day === "today" ? date === today
+      : day === "tomorrow" ? date === addDaysKey(today, 1)
+        : day === "week" ? date >= today && date <= lastDay
+          : day === "date" ? !pickedDate || date === pickedDate
+            : true;
+    return dayMatches && matchesTimeOfDay(hour, timeOfDay);
+  });
+}
 
 export const ratingFilterOptions: { value: TrainerRatingFilter; label: string }[] = [
   { value: "all", label: "ทุกคะแนน" },
@@ -40,9 +131,16 @@ export const ratingFilterOptions: { value: TrainerRatingFilter; label: string }[
 
 export function matchPrice(trainer: Trainer, priceRange: TrainerPriceRange) {
   if (priceRange === "all") return true;
+  if (priceRange.startsWith("m_")) {
+    const monthly = trainer.monthlyPrice;
+    if (monthly == null) return false;
+    if (priceRange === "m_under_5000") return monthly <= 5_000;
+    if (priceRange === "m_5001_10000") return monthly > 5_000 && monthly <= 10_000;
+    return monthly > 10_000;
+  }
   if (trainer.priceFrom == null) return false;
   if (priceRange === "under_700") return trainer.priceFrom <= 700;
-  if (priceRange === "701_1000") return trainer.priceFrom >= 701 && trainer.priceFrom <= 1_000;
+  if (priceRange === "701_1000") return trainer.priceFrom > 700 && trainer.priceFrom <= 1_000;
   return trainer.priceFrom > 1_000;
 }
 
@@ -70,7 +168,12 @@ export type TrainerFilterState = {
   /** Optional so older callers keep working; missing means every level. */
   experience?: TrainerExperienceFilter;
   verifiedOnly: boolean;
+  /** Legacy `?available=1`; treated as "free on any day". */
   availableOnly: boolean;
+  priceBasis?: TrainerPriceBasis;
+  availabilityDay?: TrainerAvailabilityDay;
+  availabilityDate?: string;
+  timeOfDay?: TrainerTimeOfDay;
 };
 
 function matchesAll(trainer: Trainer, filters: TrainerFilterState, overrides: Partial<TrainerFilterState> = {}) {
@@ -81,7 +184,12 @@ function matchesAll(trainer: Trainer, filters: TrainerFilterState, overrides: Pa
     && matchRating(trainer, state.ratingFilter)
     && matchExperience(trainer, state.experience ?? "all")
     && (!state.verifiedOnly || trainer.verification === "verified")
-    && (!state.availableOnly || trainer.slots.length > 0);
+    && matchAvailability(
+      trainer,
+      state.availableOnly && (state.availabilityDay ?? "all") === "all" ? "any" : state.availabilityDay ?? "all",
+      state.timeOfDay ?? "all",
+      state.availabilityDate ?? "",
+    );
 }
 
 export function filterTrainers(trainers: Trainer[], filters: TrainerFilterState) {
@@ -105,7 +213,7 @@ export function countByTrainingType(trainers: Trainer[], filters: TrainerFilterS
 
 export function countByPriceRange(trainers: Trainer[], filters: TrainerFilterState) {
   const counts = new Map<TrainerPriceRange, number>();
-  for (const option of priceRangeOptions) {
+  for (const option of priceRangeOptionsByBasis[filters.priceBasis ?? "session"]) {
     counts.set(option.value, filterTrainers(trainers, { ...filters, priceRange: option.value }).length);
   }
   return counts;
@@ -115,6 +223,14 @@ export function countByRating(trainers: Trainer[], filters: TrainerFilterState) 
   const counts = new Map<TrainerRatingFilter, number>();
   for (const option of ratingFilterOptions) {
     counts.set(option.value, filterTrainers(trainers, { ...filters, ratingFilter: option.value }).length);
+  }
+  return counts;
+}
+
+export function countByAvailabilityDay(trainers: Trainer[], filters: TrainerFilterState) {
+  const counts = new Map<TrainerAvailabilityDay, number>();
+  for (const option of availabilityDayOptions) {
+    counts.set(option.value, filterTrainers(trainers, { ...filters, availableOnly: false, availabilityDay: option.value }).length);
   }
   return counts;
 }
@@ -138,7 +254,15 @@ type TrainerMarketplaceFiltersProps = {
   trainingType: string;
   priceRange: TrainerPriceRange;
   verifiedOnly: boolean;
-  availableOnly: boolean;
+  priceBasis?: TrainerPriceBasis;
+  onPriceBasisChange?: (value: TrainerPriceBasis) => void;
+  availabilityDay?: TrainerAvailabilityDay;
+  availabilityDate?: string;
+  timeOfDay?: TrainerTimeOfDay;
+  availabilityCounts?: Map<TrainerAvailabilityDay, number>;
+  onAvailabilityDayChange?: (value: TrainerAvailabilityDay) => void;
+  onAvailabilityDateChange?: (value: string) => void;
+  onTimeOfDayChange?: (value: TrainerTimeOfDay) => void;
   trainingTypeCounts?: Map<string, number>;
   priceCounts?: Map<TrainerPriceRange, number>;
   ratingCounts?: Map<TrainerRatingFilter, number>;
@@ -146,7 +270,6 @@ type TrainerMarketplaceFiltersProps = {
   onTrainingTypeChange: (value: string) => void;
   onPriceRangeChange: (value: TrainerPriceRange) => void;
   onVerifiedOnlyChange: (value: boolean) => void;
-  onAvailableOnlyChange: (value: boolean) => void;
 };
 
 /** `ทั้งหมด (12)` reads as a fact; the bare label makes the reader guess. */
@@ -164,7 +287,15 @@ export function TrainerMarketplaceFilters({
   onExperienceChange,
   experienceCounts,
   verifiedOnly,
-  availableOnly,
+  priceBasis = "session",
+  onPriceBasisChange,
+  availabilityDay = "all",
+  availabilityDate = "",
+  timeOfDay = "all",
+  availabilityCounts,
+  onAvailabilityDayChange,
+  onAvailabilityDateChange,
+  onTimeOfDayChange,
   trainingTypeCounts,
   priceCounts,
   ratingCounts,
@@ -173,23 +304,24 @@ export function TrainerMarketplaceFilters({
   onTrainingTypeChange,
   onPriceRangeChange,
   onVerifiedOnlyChange,
-  onAvailableOnlyChange,
 }: TrainerMarketplaceFiltersProps) {
   const trainingTypeId = `${idPrefix}-training-type`;
   const priceRangeId = `${idPrefix}-price-range`;
   const verifiedId = `${idPrefix}-verified-only`;
-  const availableId = `${idPrefix}-available-only`;
+  const availabilityDayId = `${idPrefix}-availability-day`;
+  const availabilityDateId = `${idPrefix}-availability-date`;
+  const today = bangkokDateAndHour(new Date()).date;
 
   return (
     <div className="marketplace-filter-fields">
       <div className="field">
-        <Label htmlFor={trainingTypeId}>ประเภทการฝึก</Label>
+        <Label htmlFor={trainingTypeId}>หมวดหมู่ความเชี่ยวชาญ</Label>
         <NativeSelect
           id={trainingTypeId}
           value={trainingType}
           onChange={(event) => onTrainingTypeChange(event.target.value)}
         >
-          <NativeSelectOption value="">{withCount("ทุกประเภท", trainingTypeCounts?.get(""))}</NativeSelectOption>
+          <NativeSelectOption value="">{withCount("ทุกหมวดหมู่", trainingTypeCounts?.get(""))}</NativeSelectOption>
           {trainingTypes.map((type) => (
             <NativeSelectOption key={type.id} value={type.slug}>
               {withCount(formatTrainingTypeName(type.nameTh), trainingTypeCounts?.get(type.slug))}
@@ -199,13 +331,27 @@ export function TrainerMarketplaceFilters({
       </div>
 
       <div className="field">
-        <Label htmlFor={priceRangeId}>ค่าฝึกต่อครั้ง</Label>
+        <Label htmlFor={priceRangeId}>ราคาค่าจ้างต่อวัน/เดือน</Label>
+        {onPriceBasisChange && (
+          <div className="marketplace-segment" role="group" aria-label="คิดราคาค่าจ้าง">
+            {priceBasisOptions.map((option) => (
+              <button
+                key={option.value}
+                type="button"
+                aria-pressed={priceBasis === option.value}
+                onClick={() => onPriceBasisChange(option.value)}
+              >
+                {option.label}
+              </button>
+            ))}
+          </div>
+        )}
         <NativeSelect
           id={priceRangeId}
           value={priceRange}
           onChange={(event) => onPriceRangeChange(event.target.value as TrainerPriceRange)}
         >
-          {priceRangeOptions.map((option) => (
+          {priceRangeOptionsByBasis[priceBasis].map((option) => (
             <NativeSelectOption key={option.value} value={option.value}>
               {withCount(option.label, priceCounts?.get(option.value))}
             </NativeSelectOption>
@@ -257,15 +403,52 @@ export function TrainerMarketplaceFilters({
         <span>เฉพาะโปรไฟล์ที่ตรวจแล้ว</span>
       </label>
 
-      <label className="marketplace-check-row" htmlFor={availableId}>
-        <input
-          id={availableId}
-          type="checkbox"
-          checked={availableOnly}
-          onChange={(event) => onAvailableOnlyChange(event.target.checked)}
-        />
-        <span>เฉพาะเทรนเนอร์ที่มีเวลาว่าง</span>
-      </label>
+      {onAvailabilityDayChange && (
+        <fieldset className="field marketplace-availability">
+          <legend>ตารางเวลาที่ว่าง</legend>
+          <Label htmlFor={availabilityDayId} className="sr-only">วันที่ว่าง</Label>
+          <NativeSelect
+            id={availabilityDayId}
+            value={availabilityDay}
+            onChange={(event) => onAvailabilityDayChange(event.target.value as TrainerAvailabilityDay)}
+          >
+            {availabilityDayOptions.map((option) => (
+              <NativeSelectOption key={option.value} value={option.value}>
+                {option.value === "date" ? option.label : withCount(option.label, availabilityCounts?.get(option.value))}
+              </NativeSelectOption>
+            ))}
+          </NativeSelect>
+          {availabilityDay === "date" && onAvailabilityDateChange && (
+            <label className="marketplace-availability__date" htmlFor={availabilityDateId}>
+              <span>วันที่ต้องการฝึก</span>
+              <input
+                id={availabilityDateId}
+                type="date"
+                lang="th-TH"
+                min={today}
+                value={availabilityDate}
+                onChange={(event) => onAvailabilityDateChange(event.target.value)}
+              />
+            </label>
+          )}
+          {onTimeOfDayChange && (
+            <div className="marketplace-segment marketplace-segment--time" role="group" aria-label="ช่วงเวลาที่ว่าง">
+              {timeOfDayOptions.map((option) => (
+                <button
+                  key={option.value}
+                  type="button"
+                  aria-pressed={timeOfDay === option.value}
+                  title={option.hint || undefined}
+                  onClick={() => onTimeOfDayChange(option.value)}
+                >
+                  {option.label}
+                  {option.hint && <span className="sr-only"> {option.hint}</span>}
+                </button>
+              ))}
+            </div>
+          )}
+        </fieldset>
+      )}
 
       <p className="marketplace-filter-note" role="status" aria-live="polite">
         ตัวเลขในวงเล็บคือจำนวนเทรนเนอร์ที่ตัวเลือกนั้นจะเหลือ

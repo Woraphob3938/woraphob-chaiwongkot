@@ -1,29 +1,39 @@
 /* IMPECCABLE CONTRACT · THESIS: FitConnect turns verified trainer credentials and real availability into one continuous booking path. · OWN-WORLD: Thai athlete-accreditation desk; forest structural ink, lime action marks, ruled evidence rows, tabular times. · STORY: Search by specialty → inspect proof → choose availability → submit booking → trainer responds → admin manually verifies payment → chat and review. · FIRST VIEWPORT: A working three-zone discovery bench, not a detached marketing hero. · FORM: Athlete Credential from concept seed e330335f; approved composition #3 plus persistent booking strip from #2. · FINISH: unreviewed and undocumented is unfinished; this build ends with the finish review, the verdict, and DESIGN.md */
 import type { Metadata } from "next";
-import { Bai_Jamjuree, Chakra_Petch, JetBrains_Mono } from "next/font/google";
+import localFont from "next/font/local";
 import { PageFooter } from "@/components/page-footer";
 import { SiteHeader } from "@/components/site-header";
 import "./globals.css";
 
-const chakra = Chakra_Petch({
+// Font files live in app/fonts (SIL OFL, from github.com/google/fonts) so the
+// build and dev server never depend on reaching Google Fonts.
+const chakra = localFont({
   variable: "--font-chakra",
-  subsets: ["latin", "thai"],
-  weight: ["500", "600", "700"],
+  src: [
+    { path: "./fonts/chakra-petch/ChakraPetch-Medium.ttf", weight: "500", style: "normal" },
+    { path: "./fonts/chakra-petch/ChakraPetch-SemiBold.ttf", weight: "600", style: "normal" },
+    { path: "./fonts/chakra-petch/ChakraPetch-Bold.ttf", weight: "700", style: "normal" },
+  ],
   display: "swap",
 });
 
-const bai = Bai_Jamjuree({
+const bai = localFont({
   variable: "--font-bai",
-  subsets: ["latin", "thai"],
-  weight: ["400", "500", "600", "700"],
+  src: [
+    { path: "./fonts/bai-jamjuree/BaiJamjuree-Regular.ttf", weight: "400", style: "normal" },
+    { path: "./fonts/bai-jamjuree/BaiJamjuree-Medium.ttf", weight: "500", style: "normal" },
+    { path: "./fonts/bai-jamjuree/BaiJamjuree-SemiBold.ttf", weight: "600", style: "normal" },
+    { path: "./fonts/bai-jamjuree/BaiJamjuree-Bold.ttf", weight: "700", style: "normal" },
+  ],
   display: "swap",
 });
 
-const jetbrains = JetBrains_Mono({
+const jetbrains = localFont({
   variable: "--font-jetbrains",
-  subsets: ["latin"],
-  weight: ["500", "600"],
+  src: "./fonts/jetbrains-mono/JetBrainsMono-Variable.ttf",
+  weight: "100 800",
   display: "swap",
+  preload: false,
 });
 
 export const metadata: Metadata = {

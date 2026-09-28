@@ -42,7 +42,7 @@ import { formatAmount, paymentStatusCopy } from "@/lib/payment-copy";
 import type { Booking, UserRole } from "@/lib/types";
 
 const roleCopy = {
-  member: { index: "สมาชิก", title: "การฝึกของฉัน", lead: "ติดตามคำขอ นัดหมาย การชำระ และการสนทนาได้จากสถานะเดียวกัน" },
+  member: { index: "สมาชิก", title: "การจองของฉัน", lead: "ติดตามคำขอ นัดหมาย การชำระ และการสนทนาได้จากสถานะเดียวกัน" },
   trainer: { index: "เทรนเนอร์", title: "โต๊ะทำงานเทรนเนอร์", lead: "จัดการคุณสมบัติ ตารางว่าง และคำขอจองโดยไม่หลุดจากบริบท" },
   admin: { index: "ผู้ดูแลระบบ", title: "พื้นที่ผู้ดูแลระบบ", lead: "จัดการบัญชี ตรวจเทรนเนอร์ ติดตามการจอง การชำระเงิน และสิทธิ์ของผู้ดูแลระบบ" },
 };
@@ -77,7 +77,8 @@ function confirmedPeriodLabel(booking: Booking): string | null {
 function nextStepCopy(booking: Booking): string {
   if (booking.review) return "รีวิวนี้เผยแพร่แล้ว";
   if (isPendingTrainer(booking)) return "รอเทรนเนอร์ตอบรับ ระบบจะแจ้งผลให้คุณในรอบ 12:00 หรือ 18:00 น. แล้วจึงชำระเงินได้ เวลาฝึกยังเป็นเวลาที่คุณขอ";
-  if (booking.actions.canPay) return "เทรนเนอร์ยืนยันเวลาแล้ว โอนเงินและส่งสลิปภายในเวลาที่เหลือ";
+  if (booking.actions.canPay && booking.paymentStatus === "rejected") return "สลิปไม่ผ่านการตรวจ ส่งใหม่ได้อีกหนึ่งครั้งภายในเวลาที่เหลือ ถ้าไม่ผ่านอีกหรือหมดเวลา การจองจะหมดอายุ";
+  if (booking.actions.canPay) return "เทรนเนอร์ยืนยันเวลาแล้ว โอนเงินและส่งสลิปภายในเวลาที่เหลือ ถ้าสลิปไม่ผ่านจะส่งใหม่ได้อีกหนึ่งครั้ง";
   if (booking.actions.canReview) return "เขียนรีวิวหลังการฝึก";
   if (booking.status === "payment_review") return "ส่งสลิปแล้ว รอเทรนเนอร์ตรวจและยืนยันการชำระเงิน";
   if (booking.status === "confirmed") return "เตรียมตัวตามวันและเวลานัด";
@@ -86,18 +87,44 @@ function nextStepCopy(booking: Booking): string {
   return "ยังไม่มีขั้นตอนที่ต้องทำในขณะนี้";
 }
 
-type BookingFilter = "all" | "pending_trainer" | "awaiting_payment" | "payment_review" | "confirmed" | "completed" | "closed";
+type BookingFilter = "active" | "completed" | "closed" | "all";
 const bookingsPerPage = 10;
 
+/** Still moving: waiting on someone, paid and upcoming, or owed a review. */
+function isActiveBooking(booking: Booking) {
+  return ["pending_trainer", "awaiting_payment", "payment_review", "confirmed"].includes(booking.status)
+    || (booking.status === "completed" && booking.actions.canReview);
+}
+
+// Four groups instead of seven statuses: what still needs attention, what was
+// trained, what ended without training, and everything.
 const bookingFilters: { id: BookingFilter; label: string; match: (booking: Booking) => boolean }[] = [
+  { id: "active", label: "กำลังดำเนินการ", match: isActiveBooking },
+  { id: "completed", label: "ฝึกเสร็จแล้ว", match: (booking) => booking.status === "completed" && !booking.actions.canReview },
+  { id: "closed", label: "ยกเลิก/หมดเวลา", match: (booking) => booking.status === "cancelled" || booking.status === "expired" },
   { id: "all", label: "ทั้งหมด", match: () => true },
-  { id: "pending_trainer", label: "รอเทรนเนอร์ตอบรับ", match: (booking) => isPendingTrainer(booking) },
-  { id: "awaiting_payment", label: "รอชำระ", match: (booking) => booking.status === "awaiting_payment" },
-  { id: "payment_review", label: "รอตรวจการชำระ", match: (booking) => booking.status === "payment_review" },
-  { id: "confirmed", label: "ยืนยันนัดแล้ว", match: (booking) => booking.status === "confirmed" },
-  { id: "completed", label: "ฝึกเสร็จ", match: (booking) => booking.status === "completed" },
-  { id: "closed", label: "จบแล้ว", match: (booking) => booking.status === "cancelled" || booking.status === "expired" },
 ];
+
+function appointmentTime(booking: Booking) {
+  return new Date(booking.confirmedStartsAt ?? booking.startsAt).getTime();
+}
+
+/** One short line on the row: what happens next, without opening the booking. */
+function rowHint(booking: Booking): string {
+  if (isPendingTrainer(booking)) return "รอเทรนเนอร์ตอบรับ";
+  if (booking.actions.canPay) return booking.paymentStatus === "rejected" ? "ส่งสลิปใหม่" : "ส่งสลิปภายในเวลาที่เหลือ";
+  if (booking.status === "payment_review") return "รอเทรนเนอร์ตรวจสลิป";
+  if (booking.actions.canReview) return "เขียนรีวิวได้แล้ว";
+  if (booking.status === "confirmed") return "นัดยืนยันแล้ว";
+  return "";
+}
+
+/**
+ * The card, the row and the dialog show the same clock; a single page-level
+ * timeout reloads once when the window closes, so three countdowns reaching
+ * zero together do not send three requests.
+ */
+function ignoreExpiry() {}
 
 function bookingIdFromActionHref(href: string): string | null {
   const marker = "#booking-";
@@ -202,10 +229,12 @@ export function RoleDashboard({
   const [bookings, setBookings] = useState<Booking[]>([]);
   const [bookingError, setBookingError] = useState("");
   const [loadingBookings, setLoadingBookings] = useState(role === "member");
-  const [bookingFilter, setBookingFilter] = useState<BookingFilter>("all");
+  const [bookingFilter, setBookingFilter] = useState<BookingFilter>("active");
   const [bookingQuery, setBookingQuery] = useState("");
   const [bookingPage, setBookingPage] = useState(0);
   const [selectedBookingId, setSelectedBookingId] = useState<string | null>(null);
+  // Captured once so sorting stays pure across renders (react-hooks/purity).
+  const [listNow] = useState(() => Date.now());
 
   const loadMemberBookings = useCallback(async () => {
     if (role !== "member") return;
@@ -255,6 +284,19 @@ export function RoleDashboard({
     return () => window.removeEventListener("focus", refreshWhenMemberReturns);
   }, [loadMemberBookings, role]);
 
+  // One reload when the earliest open payment window closes, whatever is on
+  // screen. The visible countdowns only display; they never fetch.
+  const nextPaymentDeadline = bookings
+    .filter((booking) => booking.actions.canPay && booking.status !== "pending_trainer" && booking.paymentDeadlineAt)
+    .map((booking) => Date.parse(booking.paymentDeadlineAt as string))
+    .filter((time) => Number.isFinite(time))
+    .sort((left, right) => left - right)[0];
+  useEffect(() => {
+    if (role !== "member" || nextPaymentDeadline === undefined) return;
+    const timer = window.setTimeout(() => void loadMemberBookings(), Math.max(0, nextPaymentDeadline - Date.now()) + 500);
+    return () => window.clearTimeout(timer);
+  }, [loadMemberBookings, nextPaymentDeadline, role]);
+
   useEffect(() => {
     if (role !== "member") return;
     const revealTargetedBooking = () => {
@@ -280,6 +322,14 @@ export function RoleDashboard({
 
     return (
       <>
+        {/* The clock leads and stays pinned while the member scrolls to the
+            upload field: it is the one fact that decides the booking. */}
+        {booking.actions.canPay && !isPendingTrainer(booking) && booking.paymentDeadlineAt && (
+          <div className="payment-deadline-row">
+            <span>{booking.paymentStatus === "rejected" ? "ส่งสลิปใหม่ภายใน" : "เวลาที่เหลือสำหรับส่งสลิป"}</span>
+            <PaymentDeadline deadlineAt={booking.paymentDeadlineAt} onExpired={ignoreExpiry} />
+          </div>
+        )}
         {bookingStepIndex(booking) >= 0 && (
           <BookingProgress current={bookingStepIndex(booking)} className="booking-progress--compact" />
         )}
@@ -290,15 +340,7 @@ export function RoleDashboard({
           <div className="ledger-row booking-confirmed-time"><span>ช่วงเวลาที่ยืนยัน</span><strong>{confirmedLabel}</strong></div>
         )}
         {/* When money is owed the job leads: the QR and the slip upload come
-            first, and the facts a member already knows move below them. Reading
-            five ledger rows before the upload cost 830px of scrolling on a
-            desktop and 1210px on a phone while the ten-minute clock ran. */}
-        {booking.actions.canPay && !isPendingTrainer(booking) && booking.paymentDeadlineAt && (
-          <div className="payment-deadline-row">
-            <span>{booking.paymentStatus === "rejected" ? "ส่งสลิปใหม่ภายใน" : "เวลาที่เหลือสำหรับส่งสลิป"}</span>
-            <PaymentDeadline deadlineAt={booking.paymentDeadlineAt} onExpired={() => void loadMemberBookings()} />
-          </div>
-        )}
+            first, and the facts a member already knows move below them. */}
         {/* Nothing about money appears while the request still waits for the
             trainer: the payment clock does not run yet. */}
         {booking.actions.canPay && !isPendingTrainer(booking) && <PaymentPanel booking={booking} onUpdated={loadMemberBookings} />}
@@ -312,8 +354,10 @@ export function RoleDashboard({
             </ol>
           </div>
         )}
-        {!showSessions && (
-          <div className="ledger-row"><span>{confirmedLabel ? "เวลาที่ขอไว้" : "เวลาที่ขอ"}</span><strong>{formatDateTime(booking.startsAt)}</strong></div>
+        {/* The requested time is only worth a second row when the confirmed
+            one differs from it. */}
+        {!showSessions && (!confirmedLabel || decisionView(booking).confirmedStartsAt !== booking.startsAt) && (
+          <div className="ledger-row"><span>{isPendingTrainer(booking) ? "เวลาที่ขอ" : confirmedLabel ? "เวลาที่ขอไว้" : "เวลาฝึก"}</span><strong>{formatDateTime(booking.startsAt)}</strong></div>
         )}
         {cancellationReason && (
           <div className="ledger-row"><span>เหตุผลที่ยกเลิก</span><strong>{cancellationReason}</strong></div>
@@ -324,7 +368,7 @@ export function RoleDashboard({
           <div className="ledger-row"><span>ยอดที่โอน</span><strong>{formatAmount(booking.payment.amount)}</strong></div>
         )}
         {booking.payment?.status === "rejected" && booking.payment.reviewNote && (
-          <div className="ledger-row"><span>หมายเหตุจากผู้ตรวจสลิป</span><strong>{booking.payment.reviewNote}</strong></div>
+          <div className="ledger-row"><span>หมายเหตุจากเทรนเนอร์</span><strong>{booking.payment.reviewNote}</strong></div>
         )}
         {booking.actions.canScheduleSession && <MonthlySessionScheduler booking={booking} onUpdated={loadMemberBookings} />}
         {booking.actions.canReview && (
@@ -367,13 +411,20 @@ export function RoleDashboard({
     >
       <span className="member-booking-summary__identity">
         <strong>{booking.trainer.displayName}</strong>
-        <span>คำขอ {booking.id}</span>
+        <span className="member-booking-summary__appointment">{formatDateTime(booking.confirmedStartsAt ?? booking.startsAt)}</span>
       </span>
       <span className="member-booking-summary__meta">
-        <span className="member-booking-summary__appointment">{formatDateTime(booking.confirmedStartsAt ?? booking.startsAt)}</span>
         <StatusBadge status={booking.status} />
+        {booking.actions.canPay && !isPendingTrainer(booking) && booking.paymentDeadlineAt ? (
+          <span className="member-booking-summary__hint is-urgent">
+            <PaymentDeadline deadlineAt={booking.paymentDeadlineAt} onExpired={ignoreExpiry} />
+          </span>
+        ) : rowHint(booking) ? (
+          <span className="member-booking-summary__hint">{rowHint(booking)}</span>
+        ) : null}
       </span>
-      <span className="member-booking-summary__action">ดูรายละเอียด <ChevronRight aria-hidden="true" size={16} /></span>
+      <ChevronRight className="member-booking-summary__chevron" aria-hidden="true" size={18} />
+      <span className="sr-only">ดูรายละเอียดคำขอ {booking.id}</span>
     </button>
   );
 
@@ -382,11 +433,22 @@ export function RoleDashboard({
   const actionBooking = bookings.find((booking) => booking.id === actionBookingId);
   const availableFilters = bookingFilters.filter((filter) => filter.id === "all" || bookings.some(filter.match));
   const selectedFilter = availableFilters.some((filter) => filter.id === bookingFilter) ? bookingFilter : "all";
+  const actionDeadline = actionBooking?.actions.canPay && !isPendingTrainer(actionBooking) ? actionBooking.paymentDeadlineAt : null;
   const normalizedQuery = bookingQuery.trim().toLocaleLowerCase("th");
   const filteredBookings = bookings.filter((booking) => {
     const selected = bookingFilters.find((filter) => filter.id === selectedFilter) ?? bookingFilters[0];
     const searchText = `${booking.trainer.displayName} ${booking.id}`.toLocaleLowerCase("th");
     return selected.match(booking) && (!normalizedQuery || searchText.includes(normalizedQuery));
+  }).sort((left, right) => {
+    if (selectedFilter !== "active") return appointmentTime(right) - appointmentTime(left);
+    // Active work: upcoming sessions soonest first, then sessions already
+    // past (owed a result or a review) most recent first.
+    const leftUpcoming = appointmentTime(left) >= listNow;
+    const rightUpcoming = appointmentTime(right) >= listNow;
+    if (leftUpcoming !== rightUpcoming) return leftUpcoming ? -1 : 1;
+    return leftUpcoming
+      ? appointmentTime(left) - appointmentTime(right)
+      : appointmentTime(right) - appointmentTime(left);
   });
   const rankedBookings = actionBooking && filteredBookings.some((booking) => booking.id === actionBooking.id)
     ? [actionBooking, ...filteredBookings.filter((booking) => booking.id !== actionBooking.id)]
@@ -404,7 +466,9 @@ export function RoleDashboard({
 
   return (
     <main className={`page-shell dashboard-shell dashboard-shell--${role}`}>
-      {role === "member" || role === "trainer"
+      {role === "member"
+        ? <h1 className="member-dashboard-title">{copy.title}</h1>
+        : role === "trainer"
         ? <h1 className="sr-only">{copy.title}</h1>
         : <section className="dashboard-heading"><div><h1>{copy.title}</h1></div><p>{copy.lead}</p></section>}
       {role === "member" && (
@@ -424,7 +488,20 @@ export function RoleDashboard({
             </div>
           )}
           {(!loadingBookings || bookings.length > 0) && (!bookingError || bookings.length > 0) && (
-            <NextActionCard action={memberNextAction} />
+            <NextActionCard
+              action={memberNextAction}
+              // Next pushes the hash without a hashchange event, so the card
+              // opens the booking it names itself.
+              onFollow={actionBookingId ? () => {
+                setBookingFilter("all");
+                setSelectedBookingId(actionBookingId);
+              } : undefined}
+              detail={actionDeadline ? (
+                <p className="next-action-card__deadline">
+                  เหลือเวลา <PaymentDeadline deadlineAt={actionDeadline} onExpired={ignoreExpiry} />
+                </p>
+              ) : undefined}
+            />
           )}
           {bookings.length > 0 && (
             <DashboardSection title="การจอง">
@@ -457,9 +534,10 @@ export function RoleDashboard({
                 ))}
               </div>
               {filteredBookings.length === 0 ? (
-                <p className="booking-next-step">{normalizedQuery ? "ไม่พบการจองที่ตรงกับคำค้น" : "ไม่มีการจองในสถานะนี้"}</p>
+                <p className="booking-next-step" role="status">{normalizedQuery ? "ไม่พบการจองที่ตรงกับคำค้น" : "ไม่มีการจองในสถานะนี้"}</p>
               ) : (
                 <div className="member-booking-list">
+                  <p className="sr-only" role="status">{filteredBookings.length} รายการ</p>
                   {visibleBookings.map((booking) => renderBookingSummary(booking, booking.id === actionBookingId))}
                 </div>
               )}

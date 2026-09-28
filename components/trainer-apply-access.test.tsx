@@ -48,6 +48,6 @@ describe("TrainerApplyAccess", () => {
     render(<TrainerApplyAccess />);
 
     expect(screen.getByRole("form", { name: "แบบฟอร์มข้อมูลวิชาชีพ" })).toBeInTheDocument();
-    expect(screen.getByRole("heading", { name: "กรอกข้อมูลวิชาชีพให้ครบในที่เดียว" })).toBeInTheDocument();
+    expect(screen.getByRole("heading", { name: "กรอกข้อมูลวิชาชีพ" })).toBeInTheDocument();
   });
 });
