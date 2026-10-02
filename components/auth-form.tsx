@@ -2,18 +2,7 @@
 
 import Link from "next/link";
 import { FormEvent, useCallback, useEffect, useRef, useState } from "react";
-import {
-  ArrowRight,
-  CircleAlert,
-  Dumbbell,
-  Eye,
-  EyeOff,
-  LoaderCircle,
-  LockKeyhole,
-  Mail,
-  UserCheck,
-  UserRound,
-} from "lucide-react";
+import { ArrowRight, CircleAlert, Dumbbell, Eye, EyeOff, LoaderCircle, LockKeyhole, Mail, UserCheck, UserRound } from "lucide-react";
 import { apiRequest, authenticatedRequest } from "@/lib/api";
 import { resolveAuthRedirect, resolvePostAuthDestination } from "@/lib/post-auth-destination";
 import { TOKEN_STORAGE_KEY, USER_STORAGE_KEY, readStoredUser } from "@/lib/session";
@@ -36,26 +25,15 @@ const minimumPasswordLength = 8;
 
 type FieldErrors = Partial<Record<"displayName" | "email" | "password" | "confirmPassword", string>>;
 
-function validate(fields: {
-  mode: "login" | "register";
-  displayName: string;
-  email: string;
-  password: string;
-  confirmPassword: string;
-}): FieldErrors {
+/** Field keys in screen order, with the id of the input each one belongs to. */
+const fieldIds = { displayName: "display-name", email: "email", password: "password", confirmPassword: "confirm-password" } as const;
+
+function validate(mode: "login" | "register", fields: Record<keyof typeof fieldIds, string>): FieldErrors {
   const errors: FieldErrors = {};
-  if (fields.mode === "register" && fields.displayName.trim() === "") {
-    errors.displayName = "กรุณากรอกชื่อที่ใช้ในระบบ";
-  }
-  if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(fields.email.trim())) {
-    errors.email = "กรุณากรอกอีเมลให้ถูกต้อง เช่น name@example.com";
-  }
-  if (fields.password.length < minimumPasswordLength) {
-    errors.password = `รหัสผ่านต้องมีอย่างน้อย ${minimumPasswordLength} ตัวอักษร`;
-  }
-  if (fields.mode === "register" && fields.confirmPassword !== fields.password) {
-    errors.confirmPassword = "รหัสผ่านทั้งสองช่องไม่ตรงกัน";
-  }
+  if (mode === "register" && fields.displayName.trim() === "") errors.displayName = "กรุณากรอกชื่อที่ใช้ในระบบ";
+  if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(fields.email.trim())) errors.email = "กรุณากรอกอีเมลให้ถูกต้อง เช่น name@example.com";
+  if (fields.password.length < minimumPasswordLength) errors.password = `รหัสผ่านต้องมีอย่างน้อย ${minimumPasswordLength} ตัวอักษร`;
+  if (mode === "register" && fields.confirmPassword !== fields.password) errors.confirmPassword = "รหัสผ่านทั้งสองช่องไม่ตรงกัน";
   return errors;
 }
 
@@ -91,10 +69,7 @@ export function AuthForm({
     setPending(true);
     setMessage({ tone: "success", text: "เชื่อมต่อบัญชีสำเร็จ กำลังตรวจพื้นที่ใช้งานของคุณ" });
     try {
-      const destination = await resolvePostAuthDestination(
-        user,
-        () => authenticatedRequest<TrainerWorkspace>("/v1/trainer/me"),
-      );
+      const destination = await resolvePostAuthDestination(user, () => authenticatedRequest<TrainerWorkspace>("/v1/trainer/me"));
       // A new member fills a short profile first, then goes where they were headed.
       if (registered && user.role === "member") {
         navigate(redirectTo ? `/member/welcome?next=${encodeURIComponent(redirectTo)}` : "/member/welcome");
@@ -102,10 +77,7 @@ export function AuthForm({
       }
       navigate(resolveAuthRedirect(redirectTo, destination));
     } catch (error) {
-      setMessage({
-        tone: "error",
-        text: error instanceof Error ? error.message : "ตรวจสถานะเทรนเนอร์ไม่สำเร็จ",
-      });
+      setMessage({ tone: "error", text: error instanceof Error ? error.message : "ตรวจสถานะเทรนเนอร์ไม่สำเร็จ" });
     } finally {
       setPending(false);
     }
@@ -130,18 +102,12 @@ export function AuthForm({
     event.preventDefault();
     if (pending) return;
 
-    const errors = validate({ mode, displayName, email, password, confirmPassword });
-    if (Object.keys(errors).length > 0) {
+    const errors = validate(mode, { displayName, email, password, confirmPassword });
+    const firstInvalid = (Object.keys(fieldIds) as Array<keyof typeof fieldIds>).find((key) => errors[key]);
+    if (firstInvalid) {
       setFieldErrors(errors);
       setMessage(null);
-      const firstInvalid = (["displayName", "email", "password", "confirmPassword"] as const)
-        .find((key) => errors[key]);
-      if (firstInvalid) {
-        const element = document.getElementById(
-          firstInvalid === "displayName" ? "display-name" : firstInvalid === "confirmPassword" ? "confirm-password" : firstInvalid,
-        );
-        element?.focus();
-      }
+      document.getElementById(fieldIds[firstInvalid])?.focus();
       return;
     }
 
@@ -149,16 +115,10 @@ export function AuthForm({
     setPending(true);
     setMessage(null);
 
-    const payload: Record<string, unknown> = { email: email.trim(), password };
-    if (mode === "register") {
-      payload.displayName = displayName.trim();
-      payload.role = role;
-    }
-
     try {
       const result = await apiRequest<{ token: string; user: AuthenticatedUser }>(`/v1/auth/${mode}`, {
         method: "POST",
-        body: JSON.stringify(payload),
+        body: JSON.stringify({ email: email.trim(), password, ...(mode === "register" && { displayName: displayName.trim(), role }) }),
       });
       localStorage.setItem(TOKEN_STORAGE_KEY, result.token);
       localStorage.setItem(USER_STORAGE_KEY, JSON.stringify(result.user));
@@ -169,10 +129,7 @@ export function AuthForm({
       setAuthenticatedUser(result.user);
       await continueToWorkspace(result.user, mode === "register");
     } catch (error) {
-      setMessage({
-        tone: "error",
-        text: error instanceof Error ? error.message : "ยังเชื่อมต่อบริการไม่ได้ กรุณาลองใหม่อีกครั้ง",
-      });
+      setMessage({ tone: "error", text: error instanceof Error ? error.message : "ยังเชื่อมต่อบริการไม่ได้ กรุณาลองใหม่อีกครั้ง" });
     } finally {
       setPending(false);
     }
@@ -264,9 +221,7 @@ export function AuthForm({
         <div className="field-header">
           <label htmlFor="password">รหัสผ่าน</label>
           {mode === "login" && (
-            <Link className="text-link text-link--subtle forgot-link" href="/forgot-password">
-              ลืมรหัสผ่าน?
-            </Link>
+            <Link className="text-link text-link--subtle forgot-link" href="/forgot-password">ลืมรหัสผ่าน?</Link>
           )}
         </div>
         <div className="input-with-icon input-with-toggle">
@@ -347,27 +302,15 @@ export function AuthForm({
       )}
 
       <button className="button button--accent button--wide" type="submit" disabled={pending}>
-        {pending ? (
-          <>
-            <LoaderCircle className="spin" aria-hidden="true" size={18} /> กำลังเชื่อมต่อ...
-          </>
-        ) : (
-          <>
-            {mode === "login" ? "เข้าสู่ระบบ" : "สร้างบัญชี"} <ArrowRight aria-hidden="true" size={18} />
-          </>
-        )}
+        {pending
+          ? <><LoaderCircle className="spin" aria-hidden="true" size={18} /> กำลังเชื่อมต่อ...</>
+          : <>{mode === "login" ? "เข้าสู่ระบบ" : "สร้างบัญชี"} <ArrowRight aria-hidden="true" size={18} /></>}
       </button>
 
       <p className="form-switch">
-        {mode === "login" ? (
-          <>
-            ยังไม่มีบัญชี? <Link href="/register">สร้างบัญชีสมาชิก</Link>
-          </>
-        ) : (
-          <>
-            มีบัญชีแล้ว? <Link href="/login">เข้าสู่ระบบ</Link>
-          </>
-        )}
+        {mode === "login"
+          ? <>ยังไม่มีบัญชี? <Link href="/register">สร้างบัญชีสมาชิก</Link></>
+          : <>มีบัญชีแล้ว? <Link href="/login">เข้าสู่ระบบ</Link></>}
       </p>
     </form>
   );

@@ -80,4 +80,4 @@ FitConnect is a trainer marketplace built around verifiable trainer credentials 
 
 ## Accessibility & Inclusion
 
-Target WCAG 2.2 AA for contrast, keyboard access, focus visibility, labels, errors, and touch targets. Status must never rely on color alone. Motion must respect reduced-motion preferences, and the Thai interface must remain readable at 200% zoom and on narrow mobile screens.
+Target WCAG 2.2 AA for contrast, keyboard access, focus visibility, labels, errors, and touch targets. Status must never rely on color alone. Motion must respect reduced-motion preferences, and the Thai interface must remain readable down to a 768px-wide window. FitConnect is desktop-only; there is no phone layout.

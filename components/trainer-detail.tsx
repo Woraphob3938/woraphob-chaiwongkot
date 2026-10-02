@@ -3,7 +3,7 @@
 import Image from "next/image";
 import Link from "next/link";
 import { useEffect, useState } from "react";
-import { ArrowLeft, Award, CalendarClock, ChevronLeft, ChevronRight, Dumbbell, Expand, MessageSquareText, Pencil, Star } from "lucide-react";
+import { ArrowLeft, Award, ChevronLeft, ChevronRight, Dumbbell, Expand, MessageSquareText, Pencil, Star } from "lucide-react";
 import { CredentialCard } from "@/components/credential-card";
 import { DisclosureSection } from "@/components/disclosure-section";
 import { ProfileBookingPanel } from "@/components/profile-booking-panel";
@@ -280,9 +280,6 @@ export function TrainerDetail({ trainer, returnTo = "/trainers" }: { trainer: Tr
 
         <ProfileBookingPanel trainer={currentTrainer} selectedSlot={slot} onSelectSlot={setSlot} />
       </div>
-      <a className="trainer-mobile-booking-action" href="#booking-panel">
-        <CalendarClock aria-hidden="true" /> เลือกเวลาฝึก
-      </a>
       <Dialog open={lightboxOpen && activeImage !== null} onOpenChange={setLightboxOpen}>
         <DialogContent
           className="trainer-lightbox"

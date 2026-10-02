@@ -17,18 +17,13 @@ test("a member lands on their bookings", async ({ page }) => {
   await expectNoHorizontalOverflow(page);
 });
 
-test("the trainer workspace opens on the weekly calendar", async ({ page, isMobile }) => {
+test("the trainer workspace opens on the weekly calendar", async ({ page }) => {
   await signIn(page, "trainer");
   await page.goto("/trainer");
   const calendar = page.locator("#schedule");
   await expect(calendar.getByRole("heading", { name: "ตารางงาน" })).toBeVisible();
   await expect(page.getByRole("heading", { name: "นัดของสมาชิก" })).toBeVisible();
-  if (isMobile) {
-    // One day at a time on a phone, picked from the seven-day strip.
-    await expect(calendar.locator(".trainer-cal__phone-days button")).toHaveCount(7);
-  } else {
-    await expect(calendar.getByRole("group")).toHaveCount(7);
-  }
+  await expect(calendar.getByRole("group")).toHaveCount(7);
   await expectNoHorizontalOverflow(page);
 });
 
@@ -159,16 +154,12 @@ test("the brand fonts load from the app itself, not from Google Fonts", async ({
   await page.screenshot({ path: `output/fonts-${info.project.name}.png` });
 });
 
-test("the trainer tabs sit on one row and the calendar starts today", async ({ page, isMobile }) => {
+test("the trainer tabs sit on one row and the calendar starts today", async ({ page }) => {
   await signIn(page, "trainer");
   await page.goto("/trainer");
   await expect(page.locator("#schedule .trainer-cal__scroll")).toBeVisible();
   const tops = await page.getByRole("tab").evaluateAll((tabs) => tabs.map((tab) => Math.round(tab.getBoundingClientRect().top)));
   expect(new Set(tops).size).toBe(1);
-  if (isMobile) {
-    await expect(page.locator(".trainer-cal__phone-days button").first()).toHaveClass(/is-today/);
-  } else {
-    await expect(page.locator("#schedule [role=group]").first()).toHaveClass(/is-today/);
-  }
+  await expect(page.locator("#schedule [role=group]").first()).toHaveClass(/is-today/);
   await expectNoHorizontalOverflow(page);
 });

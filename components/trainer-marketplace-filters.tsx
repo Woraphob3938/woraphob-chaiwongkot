@@ -71,14 +71,7 @@ export const timeOfDayOptions: { value: TrainerTimeOfDay; label: string; hint: s
   { value: "evening", label: "เย็น", hint: "หลัง 17:00" },
 ];
 
-const bangkokParts = new Intl.DateTimeFormat("en-CA", {
-  timeZone: "Asia/Bangkok",
-  year: "numeric",
-  month: "2-digit",
-  day: "2-digit",
-  hour: "2-digit",
-  hourCycle: "h23",
-});
+const bangkokParts = new Intl.DateTimeFormat("en-CA", { timeZone: "Asia/Bangkok", year: "numeric", month: "2-digit", day: "2-digit", hour: "2-digit", hourCycle: "h23" });
 
 /** `YYYY-MM-DD` and the hour of an instant, read on the Bangkok clock. */
 function bangkokDateAndHour(value: Date): { date: string; hour: number } {
@@ -201,46 +194,29 @@ export function filterTrainers(trainers: Trainer[], filters: TrainerFilterState)
  * is. The count ignores the filter it belongs to — otherwise every option would
  * report the same number as the current selection.
  */
+function countBy<Value>(trainers: Trainer[], filters: TrainerFilterState, values: Value[], override: (value: Value) => Partial<TrainerFilterState>) {
+  return new Map(values.map((value) => [value, trainers.filter((trainer) => matchesAll(trainer, filters, override(value))).length]));
+}
+
+// Every known type is counted, so one nobody offers reports 0 instead of nothing.
 export function countByTrainingType(trainers: Trainer[], filters: TrainerFilterState, trainingTypes: TrainingType[]) {
-  const counts = new Map<string, number>();
-  counts.set("", filterTrainers(trainers, { ...filters, trainingType: "" }).length);
-  // Seed every known type so one nobody offers reports 0 instead of nothing.
-  for (const type of trainingTypes) {
-    counts.set(type.slug, filterTrainers(trainers, { ...filters, trainingType: type.slug }).length);
-  }
-  return counts;
+  return countBy(trainers, filters, ["", ...trainingTypes.map((type) => type.slug)], (trainingType) => ({ trainingType }));
 }
 
 export function countByPriceRange(trainers: Trainer[], filters: TrainerFilterState) {
-  const counts = new Map<TrainerPriceRange, number>();
-  for (const option of priceRangeOptionsByBasis[filters.priceBasis ?? "session"]) {
-    counts.set(option.value, filterTrainers(trainers, { ...filters, priceRange: option.value }).length);
-  }
-  return counts;
+  return countBy(trainers, filters, priceRangeOptionsByBasis[filters.priceBasis ?? "session"].map((option) => option.value), (priceRange) => ({ priceRange }));
 }
 
 export function countByRating(trainers: Trainer[], filters: TrainerFilterState) {
-  const counts = new Map<TrainerRatingFilter, number>();
-  for (const option of ratingFilterOptions) {
-    counts.set(option.value, filterTrainers(trainers, { ...filters, ratingFilter: option.value }).length);
-  }
-  return counts;
+  return countBy(trainers, filters, ratingFilterOptions.map((option) => option.value), (ratingFilter) => ({ ratingFilter }));
 }
 
 export function countByAvailabilityDay(trainers: Trainer[], filters: TrainerFilterState) {
-  const counts = new Map<TrainerAvailabilityDay, number>();
-  for (const option of availabilityDayOptions) {
-    counts.set(option.value, filterTrainers(trainers, { ...filters, availableOnly: false, availabilityDay: option.value }).length);
-  }
-  return counts;
+  return countBy(trainers, filters, availabilityDayOptions.map((option) => option.value), (availabilityDay) => ({ availableOnly: false, availabilityDay }));
 }
 
 export function countByExperience(trainers: Trainer[], filters: TrainerFilterState) {
-  const counts = new Map<TrainerExperienceFilter, number>();
-  for (const option of experienceFilterOptions) {
-    counts.set(option.value, filterTrainers(trainers, { ...filters, experience: option.value }).length);
-  }
-  return counts;
+  return countBy(trainers, filters, experienceFilterOptions.map((option) => option.value), (experience) => ({ experience }));
 }
 
 type TrainerMarketplaceFiltersProps = {
@@ -316,11 +292,7 @@ export function TrainerMarketplaceFilters({
     <div className="marketplace-filter-fields">
       <div className="field">
         <Label htmlFor={trainingTypeId}>หมวดหมู่ความเชี่ยวชาญ</Label>
-        <NativeSelect
-          id={trainingTypeId}
-          value={trainingType}
-          onChange={(event) => onTrainingTypeChange(event.target.value)}
-        >
+        <NativeSelect id={trainingTypeId} value={trainingType} onChange={(event) => onTrainingTypeChange(event.target.value)}>
           <NativeSelectOption value="">{withCount("ทุกหมวดหมู่", trainingTypeCounts?.get(""))}</NativeSelectOption>
           {trainingTypes.map((type) => (
             <NativeSelectOption key={type.id} value={type.slug}>
@@ -335,22 +307,11 @@ export function TrainerMarketplaceFilters({
         {onPriceBasisChange && (
           <div className="marketplace-segment" role="group" aria-label="คิดราคาค่าจ้าง">
             {priceBasisOptions.map((option) => (
-              <button
-                key={option.value}
-                type="button"
-                aria-pressed={priceBasis === option.value}
-                onClick={() => onPriceBasisChange(option.value)}
-              >
-                {option.label}
-              </button>
+              <button key={option.value} type="button" aria-pressed={priceBasis === option.value} onClick={() => onPriceBasisChange(option.value)}>{option.label}</button>
             ))}
           </div>
         )}
-        <NativeSelect
-          id={priceRangeId}
-          value={priceRange}
-          onChange={(event) => onPriceRangeChange(event.target.value as TrainerPriceRange)}
-        >
+        <NativeSelect id={priceRangeId} value={priceRange} onChange={(event) => onPriceRangeChange(event.target.value as TrainerPriceRange)}>
           {priceRangeOptionsByBasis[priceBasis].map((option) => (
             <NativeSelectOption key={option.value} value={option.value}>
               {withCount(option.label, priceCounts?.get(option.value))}
@@ -362,11 +323,7 @@ export function TrainerMarketplaceFilters({
       {onRatingFilterChange && (
         <div className="field">
           <Label htmlFor={`${idPrefix}-rating-filter`}>คะแนนรีวิว</Label>
-          <NativeSelect
-            id={`${idPrefix}-rating-filter`}
-            value={ratingFilter ?? "all"}
-            onChange={(event) => onRatingFilterChange(event.target.value as TrainerRatingFilter)}
-          >
+          <NativeSelect id={`${idPrefix}-rating-filter`} value={ratingFilter ?? "all"} onChange={(event) => onRatingFilterChange(event.target.value as TrainerRatingFilter)}>
             {ratingFilterOptions.map((option) => (
               <NativeSelectOption key={option.value} value={option.value}>
                 {withCount(option.label, ratingCounts?.get(option.value))}
@@ -379,11 +336,7 @@ export function TrainerMarketplaceFilters({
       {onExperienceChange && (
         <div className="field">
           <Label htmlFor={`${idPrefix}-experience-filter`}>ระดับประสบการณ์</Label>
-          <NativeSelect
-            id={`${idPrefix}-experience-filter`}
-            value={experience ?? "all"}
-            onChange={(event) => onExperienceChange(event.target.value as TrainerExperienceFilter)}
-          >
+          <NativeSelect id={`${idPrefix}-experience-filter`} value={experience ?? "all"} onChange={(event) => onExperienceChange(event.target.value as TrainerExperienceFilter)}>
             {experienceFilterOptions.map((option) => (
               <NativeSelectOption key={option.value} value={option.value}>
                 {withCount(option.label, experienceCounts?.get(option.value))}
@@ -394,12 +347,7 @@ export function TrainerMarketplaceFilters({
       )}
 
       <label className="marketplace-check-row" htmlFor={verifiedId}>
-        <input
-          id={verifiedId}
-          type="checkbox"
-          checked={verifiedOnly}
-          onChange={(event) => onVerifiedOnlyChange(event.target.checked)}
-        />
+        <input id={verifiedId} type="checkbox" checked={verifiedOnly} onChange={(event) => onVerifiedOnlyChange(event.target.checked)} />
         <span>เฉพาะโปรไฟล์ที่ตรวจแล้ว</span>
       </label>
 
@@ -407,11 +355,7 @@ export function TrainerMarketplaceFilters({
         <fieldset className="field marketplace-availability">
           <legend>ตารางเวลาที่ว่าง</legend>
           <Label htmlFor={availabilityDayId} className="sr-only">วันที่ว่าง</Label>
-          <NativeSelect
-            id={availabilityDayId}
-            value={availabilityDay}
-            onChange={(event) => onAvailabilityDayChange(event.target.value as TrainerAvailabilityDay)}
-          >
+          <NativeSelect id={availabilityDayId} value={availabilityDay} onChange={(event) => onAvailabilityDayChange(event.target.value as TrainerAvailabilityDay)}>
             {availabilityDayOptions.map((option) => (
               <NativeSelectOption key={option.value} value={option.value}>
                 {option.value === "date" ? option.label : withCount(option.label, availabilityCounts?.get(option.value))}
@@ -421,14 +365,7 @@ export function TrainerMarketplaceFilters({
           {availabilityDay === "date" && onAvailabilityDateChange && (
             <label className="marketplace-availability__date" htmlFor={availabilityDateId}>
               <span>วันที่ต้องการฝึก</span>
-              <input
-                id={availabilityDateId}
-                type="date"
-                lang="th-TH"
-                min={today}
-                value={availabilityDate}
-                onChange={(event) => onAvailabilityDateChange(event.target.value)}
-              />
+              <input id={availabilityDateId} type="date" lang="th-TH" min={today} value={availabilityDate} onChange={(event) => onAvailabilityDateChange(event.target.value)} />
             </label>
           )}
           {onTimeOfDayChange && (

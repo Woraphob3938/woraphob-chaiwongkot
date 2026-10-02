@@ -41,7 +41,7 @@ npm run test:payment-routing
 npm run test:e2e
 ```
 
-- `npm run test:e2e` runs the Playwright suite in `e2e/` at 1440px and 375px against the real stack. Start Apache and MySQL in XAMPP first; it starts `next dev` itself or reuses a running one. The suite is read-only and signs in with the demo accounts. Reports and traces go to `output/`.
+- `npm run test:e2e` runs the Playwright suite in `e2e/` at 1440px against the real stack. Start Apache and MySQL in XAMPP first; it starts `next dev` itself or reuses a running one. The suite is read-only and signs in with the demo accounts. Reports and traces go to `output/`.
 - Vitest excludes `.kilo/**`, `e2e/**` and `output/**` in `vitest.config.ts`; keep Playwright specs out of Vitest and vice versa.
 - `components/trainer-apply-form.test.tsx` can time out under a full parallel run and passes on its own. Rerun it alone before treating it as a regression.
 - For UI work, add or extend a spec in `e2e/` for the surface you changed; `expectNoHorizontalOverflow` in `e2e/helpers.ts` covers the no-sideways-scroll rule.

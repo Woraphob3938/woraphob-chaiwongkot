@@ -52,13 +52,10 @@ function useLoad<T>(path: string) {
     }
   }, [path]);
   useEffect(() => {
-    let active = true;
     async function run() {
-      if (!active) return;
       await load();
     }
     void run();
-    return () => { active = false; };
   }, [load]);
   return { data, error, loading, reload: load };
 }
@@ -74,7 +71,6 @@ function LoadError({ message, onRetry, busy }: { message: string; onRetry: () =>
   );
 }
 
-
 /** Members per page: two columns of five on a wide screen. */
 const MEMBERS_PER_PAGE = 10;
 /** Bookings shown in an opened member before "show all". */
@@ -89,14 +85,7 @@ function pageWindow(page: number, pages: number): number[] {
   return Array.from({ length: Math.min(5, pages) }, (_, index) => first + index);
 }
 
-function ListPager({ page, pages, total, perPage, label, onChange }: {
-  page: number;
-  pages: number;
-  total: number;
-  perPage: number;
-  label: string;
-  onChange: (page: number) => void;
-}) {
+function ListPager({ page, pages, total, perPage, label, onChange }: { page: number; pages: number; total: number; perPage: number; label: string; onChange: (page: number) => void }) {
   if (pages <= 1) return null;
   return (
     <nav className="trainer-list-pager" aria-label={label}>

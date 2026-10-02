@@ -45,9 +45,6 @@ type TrainerApplyFormProps = {
   onCancel?: () => void;
 };
 
-/** `birthDate`/`education` land in `lib/types.ts` with the backend change. */
-type TrainerRecord = TrainerAccountProfile["trainer"] & { birthDate?: string | null; education?: string | null };
-
 const fieldIdByKey: Record<string, string> = {
   displayName: "apply-display-name",
   nickname: "apply-nickname",
@@ -84,7 +81,7 @@ function stepOfField(key: string) {
 }
 
 function fromProfile(profile: TrainerAccountProfile): FormValues {
-  const record = profile.trainer as TrainerRecord;
+  const record = profile.trainer;
   return {
     displayName: profile.user.displayName,
     nickname: record.nickname ?? "",
@@ -95,10 +92,10 @@ function fromProfile(profile: TrainerAccountProfile): FormValues {
     headline: record.headline,
     bio: record.bio,
     yearsExperience: record.yearsExperience.toString(),
-    serviceMode: profile.trainer.serviceMode,
-    priceFrom: profile.trainer.priceFrom?.toString() ?? "",
-    monthlyPrice: profile.trainer.monthlyPrice?.toString() ?? "",
-    monthlySessionCount: profile.trainer.monthlySessionCount?.toString() ?? "",
+    serviceMode: record.serviceMode,
+    priceFrom: record.priceFrom?.toString() ?? "",
+    monthlyPrice: record.monthlyPrice?.toString() ?? "",
+    monthlySessionCount: record.monthlySessionCount?.toString() ?? "",
   };
 }
 
@@ -202,17 +199,12 @@ export function TrainerApplyForm({ embedded = false, onDirtyChange, onSaved, onC
   function pickCertificate(event: ChangeEvent<HTMLInputElement>) {
     const file = event.target.files?.[0] ?? null;
     setFields((current) => ({ ...current, certificate: "" }));
-    if (!file) {
-      setCertificate(null);
-      return;
-    }
-    if (file.type !== "application/pdf" || file.size > 8 * 1024 * 1024) {
-      setCertificate(null);
+    const invalid = file !== null && (file.type !== "application/pdf" || file.size > 8 * 1024 * 1024);
+    if (invalid) {
       setFields((current) => ({ ...current, certificate: "ใช้ไฟล์ PDF ขนาดไม่เกิน 8 MB" }));
       if (certificateInputRef.current) certificateInputRef.current.value = "";
-      return;
     }
-    setCertificate(file);
+    setCertificate(invalid ? null : file);
   }
 
   const hasUnsavedChanges = certificate !== null
@@ -246,11 +238,8 @@ export function TrainerApplyForm({ embedded = false, onDirtyChange, onSaved, onC
   }
 
   function cancelEditing() {
-    if (hasUnsavedChanges) {
-      setLeavingWithChanges(true);
-      return;
-    }
-    onCancel?.();
+    if (hasUnsavedChanges) setLeavingWithChanges(true);
+    else onCancel?.();
   }
 
   function validate(): Record<string, string> {
@@ -344,38 +333,20 @@ export function TrainerApplyForm({ embedded = false, onDirtyChange, onSaved, onC
     setMessage(null);
     setFields({});
     const body = new FormData();
-    body.set("displayName", values.displayName.trim());
-    body.set("nickname", values.nickname.trim());
-    body.set("legalName", values.legalName.trim());
-    body.set("phone", values.phone.trim());
-    body.set("birthDate", values.birthDate);
-    body.set("education", values.education.trim());
-    body.set("headline", values.headline.trim());
-    body.set("bio", values.bio.trim());
-    body.set("yearsExperience", values.yearsExperience);
-    body.set("serviceMode", values.serviceMode);
-    body.set("priceFrom", values.priceFrom);
-    body.set("monthlyPrice", values.monthlyPrice);
-    body.set("monthlySessionCount", values.monthlySessionCount);
+    for (const [key, value] of Object.entries(values)) body.set(key, value.trim());
     for (const typeId of selectedTypes) body.append("trainingTypeIds[]", String(typeId));
     if (certificate) body.set("certificate", certificate);
-    const submittedValues = { ...values };
-    const submittedTypes = [...selectedTypes];
-    const submittedCertificate = certificate;
 
     try {
       await authenticatedRequest("/v1/trainer-applications", { method: "POST", body });
-      setSaved(submittedValues);
-      setSavedTypes(submittedTypes);
+      setSaved(values);
+      setSavedTypes(selectedTypes);
       setCertificate(null);
       if (certificateInputRef.current) certificateInputRef.current.value = "";
-      if (submittedCertificate) setCertificateName(submittedCertificate.name);
+      if (certificate) setCertificateName(certificate.name);
       setCertificateStatus("pending");
       setHasSavedRecord(true);
-      setMessage({
-        tone: "success",
-        text: "ส่งใบสมัครแล้ว โปรไฟล์จะกลับมาแสดงเมื่อผู้ดูแลระบบตรวจและยืนยันอีกครั้ง",
-      });
+      setMessage({ tone: "success", text: "ส่งใบสมัครแล้ว โปรไฟล์จะกลับมาแสดงเมื่อผู้ดูแลระบบตรวจและยืนยันอีกครั้ง" });
       onDirtyChange?.(false);
       onSaved?.();
     } catch (submitError) {
@@ -391,7 +362,6 @@ export function TrainerApplyForm({ embedded = false, onDirtyChange, onSaved, onC
     }
   }
 
-  const needsCertificate = !hasStoredCertificate;
   const isLastStep = step === APPLY_STEPS.length - 1;
   // A first application walks the steps and sends from the last one; an
   // existing record is being edited, so it can be saved from any step.
@@ -536,13 +506,7 @@ export function TrainerApplyForm({ embedded = false, onDirtyChange, onSaved, onC
 
           <div className={`apply-package${packageOpen ? " is-open" : ""}`}>
             <label className="apply-switch">
-              <input
-                type="checkbox"
-                role="switch"
-                checked={packageOpen}
-                aria-checked={packageOpen}
-                onChange={(event) => togglePackage(event.target.checked)}
-              />
+              <input type="checkbox" role="switch" checked={packageOpen} aria-checked={packageOpen} onChange={(event) => togglePackage(event.target.checked)} />
               <span className="apply-switch__track" aria-hidden="true"><span /></span>
               <span><strong>เปิดแพ็กเกจ 30 วัน</strong><small>ขายหลายครั้งในราคาเหมาต่อเดือน</small></span>
             </label>
@@ -617,7 +581,7 @@ export function TrainerApplyForm({ embedded = false, onDirtyChange, onSaved, onC
               id="apply-certificate"
               type="file"
               accept="application/pdf"
-              aria-required={needsCertificate}
+              aria-required={!hasStoredCertificate}
               aria-invalid={Boolean(fields.certificate)}
               aria-describedby={fields.certificate ? "apply-certificate-error" : undefined}
               onChange={pickCertificate}

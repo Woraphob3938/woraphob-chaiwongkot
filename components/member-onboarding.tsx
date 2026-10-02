@@ -36,18 +36,8 @@ const experienceOptions = [
 
 const goalSuggestions = ["ลดน้ำหนัก", "สร้างกล้ามเนื้อ", "เพิ่มความแข็งแรง", "ฟื้นฟูร่างกาย", "เตรียมแข่งกีฬา"];
 
-type Values = {
-  firstName: string;
-  lastName: string;
-  phone: string;
-  birthDate: string;
-  experienceLevel: string;
-  weight: string;
-  height: string;
-  fitnessGoal: string;
-};
-
-const empty: Values = { firstName: "", lastName: "", phone: "", birthDate: "", experienceLevel: "", weight: "", height: "", fitnessGoal: "" };
+const empty = { firstName: "", lastName: "", phone: "", birthDate: "", experienceLevel: "", weight: "", height: "", fitnessGoal: "" };
+type Values = typeof empty;
 
 /** Only an internal path may follow the welcome, never another site. */
 function safeNext(value: string | null | undefined) {
@@ -79,7 +69,7 @@ export function MemberOnboarding({ next }: { next?: string | null }) {
           router.replace("/");
           return;
         }
-        const member = profile.member as MemberAccountProfile["member"] & { birthDate?: string | null };
+        const member = profile.member;
         setDisplayName(profile.user.displayName);
         setValues({
           firstName: member.nameFromDisplayName ? "" : member.firstName,
@@ -137,11 +127,8 @@ export function MemberOnboarding({ next }: { next?: string | null }) {
   function nextStep() {
     const stepFields = STEPS[step].fields as readonly string[];
     const errors = Object.fromEntries(Object.entries(validate()).filter(([key]) => stepFields.includes(key)));
-    if (Object.keys(errors).length > 0) {
-      showErrors(errors);
-      return;
-    }
-    setStep(step + 1);
+    if (Object.keys(errors).length > 0) showErrors(errors);
+    else setStep(step + 1);
   }
 
   async function submit(event: FormEvent<HTMLFormElement>) {

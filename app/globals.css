@@ -1079,77 +1079,6 @@ body {
   }
 }
 
-@media (max-width: 38rem) {
-  .profile-identity__main {
-    align-items: flex-start;
-    flex-wrap: wrap;
-  }
-
-  .profile-identity__copy {
-    flex: 1 1 calc(100% - 7rem);
-  }
-
-  .profile-identity__upload>.button {
-    flex: 1 1 100%;
-  }
-
-  .profile-group__heading,
-  .profile-save-bar {
-    align-items: stretch;
-    flex-direction: column;
-  }
-
-  .profile-readiness {
-    grid-template-columns: minmax(0, 1fr);
-  }
-
-  .profile-training-types {
-    grid-template-columns: minmax(0, 1fr);
-  }
-
-  .profile-readiness>div,
-  .profile-readiness>div:last-child {
-    border-inline-end: 0;
-    border-bottom: 1px solid var(--color-rule);
-  }
-
-  .profile-readiness>div:last-child {
-    border-bottom: 0;
-  }
-
-  .profile-monthly-fields {
-    grid-template-columns: minmax(0, 1fr);
-  }
-
-  .profile-save-bar__actions {
-    display: grid;
-    grid-template-columns: minmax(0, 1fr);
-  }
-
-  .profile-save-bar__actions .button {
-    min-width: 0;
-  }
-
-  .profile-photo-dialog__actions {
-    width: 100%;
-  }
-
-  .profile-photo-dialog__actions .button {
-    width: 100%;
-  }
-}
-
-@media (max-width: 24rem) {
-  .mobile-role-nav__label {
-    font-size: 0;
-  }
-
-  .mobile-role-nav__label::after {
-    content: attr(data-short-label);
-    font-size: 0.75rem;
-  }
-}
-
 .profile-menu {
   position: absolute;
   top: calc(100% + var(--space-xs));
@@ -1683,46 +1612,6 @@ body {
 
   .home-trust {
     padding: var(--space-xl);
-  }
-}
-
-@media (max-width: 38rem) {
-  .home-overview-shell {
-    padding-bottom: var(--space-xl);
-  }
-
-  .home-training-types,
-.home-featured,
-.home-journey,
-.home-final-cta {
-    padding-block: var(--space-xl);
-  }
-
-  .home-training-types__list,
-  .home-featured__grid {
-    grid-template-columns: minmax(0, 1fr);
-  }
-
-  .home-section-heading {
-    margin-bottom: var(--space-lg);
-  }
-
-  .home-journey__steps li {
-    grid-template-columns: minmax(0, 1fr);
-    gap: var(--space-xs);
-  }
-
-  .home-trust {
-    padding: var(--space-lg);
-  }
-
-  .home-final-cta {
-    align-items: stretch;
-    flex-direction: column;
-  }
-
-  .home-final-cta .button {
-    width: 100%;
   }
 }
 
@@ -2882,27 +2771,6 @@ body {
   }
 }
 
-@media (max-width: 38rem) {
-  .trainer-apply-form .profile-training-types {
-    grid-template-columns: minmax(0, 1fr);
-  }
-
-  .trainer-apply-actions {
-    flex-direction: column-reverse;
-    align-items: stretch;
-  }
-
-  .trainer-apply-actions .button {
-    justify-content: center;
-    width: 100%;
-  }
-}
-
-@media (max-width: 560px) {
-  /* Keeping two columns on a phone keeps the card short: a stacked, centred card
-     measured 484px tall and pushed the slip upload 1210px down the dialog. */
-}
-
 /* A caution about the member's own transfer, not a call to action: the accent
    belongs to the submit button, which is the only thing here to press. */
 
@@ -3509,26 +3377,6 @@ body {
 
 .trainer-week__day.is-today > header span {
   color: inherit;
-}
-
-@media (max-width: 38rem) {
-  /* On a phone the identity and the facts each fit on one line, so the row
-     reads as three lines instead of five and six records cost 300px less. */
-  .trainer-appointment-row > div:not(.queue-actions) {
-    display: flex;
-    flex-wrap: wrap;
-    align-items: baseline;
-    gap: var(--space-2xs) var(--space-xs);
-  }
-
-  .trainer-appointment-row {
-    grid-template-columns: minmax(0, 1fr);
-    gap: var(--space-sm);
-  }
-
-  .trainer-appointment-dialog .trainer-booking-card {
-    grid-template-columns: minmax(0, 1fr);
-  }
 }
 
 .trainer-slot-row {
@@ -4554,273 +4402,6 @@ body {
   }
 }
 
-@media (max-width: 47.99rem) {
-
-  body {
-    padding-bottom: calc(4.25rem + env(safe-area-inset-bottom));
-  }
-
-  .desktop-nav,
-  .desktop-only {
-    display: none;
-  }
-
-  .mobile-role-nav {
-    position: fixed;
-    right: 0;
-    bottom: 0;
-    left: 0;
-    z-index: var(--z-sticky-nav);
-    display: flex;
-    min-height: calc(4.25rem + env(safe-area-inset-bottom));
-    align-items: stretch;
-    padding: 0 var(--space-2xs) env(safe-area-inset-bottom);
-    background: var(--color-paper);
-    border-top: 1px solid var(--color-rule);
-    box-shadow: 0 -0.75rem 2rem var(--color-shadow);
-  }
-
-  .mobile-role-nav a {
-    display: flex;
-    min-width: 0;
-    min-height: 2.75rem;
-    flex: 1 1 auto;
-    align-items: center;
-    flex-direction: column;
-    justify-content: center;
-    gap: var(--space-3xs);
-    padding: var(--space-xs) var(--space-2xs);
-    color: var(--color-muted);
-    font-size: clamp(0.625rem, 2.8vw, var(--text-xs));
-    font-weight: 700;
-    line-height: 1;
-    text-align: center;
-    white-space: nowrap;
-  }
-
-  .mobile-role-nav__icon {
-    display: grid;
-    flex: 0 0 auto;
-    place-items: center;
-  }
-
-  .mobile-role-nav a[aria-current="page"] {
-    color: var(--color-ink);
-    background: var(--color-accent-soft);
-  }
-
-}
-
-@media (max-width: 38rem) {
-
-  .page-shell,
-  .header-inner,
-  .page-footer {
-    width: min(100% - 1.25rem, var(--container));
-  }
-
-  .home-shell,
-  .profile-shell {
-    padding-bottom: 9rem;
-  }
-
-  .profile-trigger {
-    padding-right: var(--space-2xs);
-  }
-
-  .profile-trigger__name,
-  .profile-trigger>svg {
-    display: none;
-  }
-
-  .profile-menu {
-    position: fixed;
-    top: calc(4rem + var(--space-2xs));
-    right: var(--space-sm);
-    left: var(--space-sm);
-    width: auto;
-  }
-
-  .credential-card,
-.trainer-detail-copy,
-.booking-summary,
-.booking-fields,
-.auth-panel,
-.auth-copy {
-    padding: var(--space-md);
-  }
-
-  .trainer-portrait {
-    min-height: 15rem;
-  }
-
-  .trainer-detail-photo {
-    min-height: 22rem;
-  }
-
-  .slot-list {
-    grid-template-columns: minmax(0, 1fr);
-  }
-
-  .detail-meta {
-    align-items: flex-start;
-    flex-direction: column;
-  }
-
-  .detail-meta strong {
-    margin-left: 0;
-  }
-
-  .form-page,
-  .dashboard-shell {
-    padding-block: var(--space-xl) var(--space-2xl);
-  }
-
-  .form-grid {
-    grid-template-columns: minmax(0, 1fr);
-  }
-
-  .field--full {
-    grid-column: auto;
-  }
-
-  .ledger-row {
-    padding: var(--space-md);
-  }
-
-  .ledger-row {
-    grid-template-columns: minmax(0, 1fr);
-    align-items: flex-start;
-  }
-
-  .ledger-row strong {
-    text-align: left;
-  }
-
-  .ledger-actions {
-    align-items: flex-start;
-    flex-direction: column;
-    padding: var(--space-md);
-  }
-
-  .admin-summary {
-    grid-template-columns: minmax(0, 1fr);
-  }
-
-  .admin-summary>div {
-    border-right: 0;
-    border-bottom: 1px solid var(--color-ink-2);
-  }
-
-  .approval-panel,
-  .approval-panel--empty {
-    grid-template-columns: minmax(0, 1fr);
-    align-items: start;
-  }
-
-  .approval-panel--empty .button {
-    width: 100%;
-    justify-self: stretch;
-  }
-
-  .workbench-error,
-  .trainer-slot-row,
-  .certificate-list li {
-    align-items: flex-start;
-    flex-direction: column;
-  }
-
-  .workbench-error button,
-  .trainer-slot-row button,
-  .certificate-action {
-    width: 100%;
-    justify-content: center;
-  }
-
-  .trainer-booking-card dl>div {
-    grid-template-columns: minmax(0, 1fr);
-    gap: var(--space-2xs);
-  }
-
-  .payment-panel>.booking-fields,
-.review-form>.booking-fields,
-.chat-composer,
-.chat-thread>.booking-fields {
-    padding: var(--space-md);
-  }
-
-  .payment-panel .button--accent,
-.review-form .button--accent,
-.chat-composer .button--accent,
-.chat-thread>.booking-fields .button--accent {
-    width: 100%;
-  }
-
-  .chat-guided-layout {
-    grid-template-columns: minmax(0, 1fr);
-    min-height: 0;
-    overflow: visible;
-  }
-
-  .chat-room-list {
-    grid-column: 1;
-    grid-row: 1;
-    border-bottom: 1px solid var(--color-rule);
-  }
-
-  .chat-thread {
-    grid-column: 1;
-    grid-row: 2;
-    max-height: none;
-    border-inline-start: 0;
-  }
-
-  .chat-page {
-    min-height: 0;
-    padding: var(--space-xs);
-  }
-
-  .chat-message {
-    width: min(94%, 46rem);
-  }
-
-  .chat-message__meta {
-    align-items: flex-start;
-    flex-direction: column;
-    gap: var(--space-2xs);
-  }
-
-  .chat-composer__bar .button {
-    width: auto;
-  }
-
-  .chat-attachment-row {
-    grid-template-columns: minmax(0, 1fr);
-  }
-
-  .chat-thread>header {
-    align-items: flex-start;
-    flex-direction: column;
-  }
-
-  .footer-line {
-    grid-template-columns: minmax(0, 1fr);
-    gap: var(--space-md);
-  }
-
-  .footer-line p,
-  .footer-line nav {
-    grid-column: auto;
-    grid-row: auto;
-  }
-
-  .footer-line nav {
-    align-items: flex-start;
-    flex-direction: column;
-    gap: var(--space-sm);
-  }
-}
-
 @media (prefers-reduced-motion: reduce) {
   html {
     scroll-behavior: auto;
@@ -4923,15 +4504,6 @@ body {
 
 .dashboard-section__header [data-slot="button"] {
   flex: 0 0 auto;
-}
-
-@media (max-width: 40rem) {
-
-  .next-action-card,
-  .dashboard-section__header {
-    align-items: start;
-    flex-direction: column;
-  }
 }
 
 .member-dashboard-content {
@@ -5127,50 +4699,6 @@ body {
   font-weight: 700;
 }
 
-@media (max-width: 40rem) {
-  .member-dashboard-content {
-    gap: var(--space-lg);
-  }
-
-  .member-booking-summary {
-    grid-template-columns: minmax(0, 1fr) auto;
-    gap: var(--space-xs) var(--space-sm);
-    padding-inline: var(--space-md);
-  }
-
-  .member-booking-summary__meta {
-    align-items: flex-start;
-    flex-direction: column;
-    justify-content: flex-start;
-  }
-
-  .member-booking-summary__action {
-    grid-column: 2;
-    grid-row: 1 / span 2;
-  }
-
-  .member-booking-pager {
-    align-items: flex-start;
-    flex-direction: column;
-    padding-inline: var(--space-md);
-  }
-
-  .member-booking-dialog {
-    max-height: calc(100dvh - 1rem);
-  }
-}
-
-@media (max-width: 24rem) {
-  .member-booking-summary {
-    grid-template-columns: minmax(0, 1fr);
-  }
-
-  .member-booking-summary__action {
-    grid-column: 1;
-    grid-row: auto;
-  }
-}
-
 /* Guided payment and review actions */
 .guided-transaction-panel {
   display: grid;
@@ -5275,25 +4803,6 @@ body {
   padding: 0;
 }
 
-@media (max-width: 38rem) {
-  .transaction-status-summary {
-    grid-template-columns: minmax(0, 1fr);
-    padding: var(--space-md);
-  }
-
-  .transaction-status-summary>strong {
-    text-align: left;
-  }
-
-  .transaction-primary-action {
-    padding: var(--space-md);
-  }
-
-  .transaction-primary-action .button--accent {
-    width: 100%;
-  }
-}
-
 /* Guided trainer discovery: search first, evidence on demand, schedule last */
 
 .trainer-results {
@@ -5312,13 +4821,6 @@ body {
 
   .trainer-results {
     border-bottom: 1px solid var(--color-rule);
-  }
-}
-
-@media (max-width: 38rem) {
-
-  .trainer-results {
-    padding: var(--space-md);
   }
 }
 
@@ -5742,48 +5244,6 @@ body {
     grid-template-columns: repeat(2, minmax(0, 1fr));
   }
 }
-
-@media (max-width: 47.99rem) {
-  .admin-operation-panel>header {
-    align-items: stretch;
-    flex-direction: column;
-  }
-
-  .admin-booking-disclosure__content dl,
-  .admin-editor__fields,
-  .admin-create-form .admin-editor__fields,
-  .admin-permission-grid {
-    grid-template-columns: minmax(0, 1fr);
-  }
-
-  .admin-transaction-list article {
-    grid-template-columns: minmax(0, 1fr);
-  }
-
-  .admin-transaction-list article>small {
-    grid-column: auto;
-  }
-
-  .admin-pager {
-    align-items: stretch;
-    flex-direction: column;
-  }
-
-  .admin-pager>div {
-    justify-content: space-between;
-  }
-}
-
-@media (max-width: 24rem) {
-  .admin-operations__summary>div {
-    padding-inline: var(--space-sm);
-  }
-
-  .admin-operations__summary strong {
-    font-size: var(--text-lg);
-  }
-}
-
 
 .trainer-commerce-layout .trainer-detail-copy {
   min-height: 28rem;
@@ -6872,32 +6332,6 @@ a.trainer-week-event:hover {
   }
 }
 
-@media (max-width: 38rem) {
-
-  .admin-review-workbench__heading,
-.trainer-week__legend {
-    padding-inline: var(--space-md);
-  }
-
-  .admin-evidence-facts {
-    grid-template-columns: minmax(0, 1fr);
-  }
-
-  .admin-evidence-facts>div:nth-child(odd),
-  .admin-evidence-facts>div:nth-child(even) {
-    padding-inline: 0;
-    border-inline-start: 0;
-  }
-
-  .admin-decision-panel .queue-actions {
-    grid-template-columns: minmax(0, 1fr);
-  }
-
-  .admin-decision-panel .queue-actions button:last-child:nth-child(3) {
-    grid-column: auto;
-  }
-}
-
 @media (prefers-reduced-motion: reduce) {
 
   .admin-workbench-queue button {
@@ -6954,146 +6388,6 @@ a.trainer-week-event:hover {
 
   .profile-booking-schedule .slot-list {
     grid-template-columns: repeat(3, minmax(0, 1fr));
-  }
-}
-
-@media (max-width: 48rem) {
-  .trainer-commerce-layout {
-    grid-template-columns: minmax(0, 1fr);
-  }
-
-  .trainer-detail-media,
-  .profile-booking-panel {
-    position: static;
-  }
-
-  .trainer-commerce-layout .trainer-detail-photo {
-    min-height: 24rem;
-    border-right: 0;
-    border-bottom: 1px solid var(--color-rule);
-  }
-
-  .profile-booking-panel {
-    border-top: 1px solid var(--color-rule);
-    border-left: 0;
-  }
-
-  .trainer-reviews__heading,
-  .trainer-review {
-    grid-template-columns: minmax(0, 1fr);
-  }
-
-  .trainer-reviews__heading {
-    display: grid;
-  }
-
-  .trainer-reviews__heading>strong {
-    white-space: normal;
-  }
-
-  .trainer-review {
-    gap: var(--space-xs);
-  }
-
-  .slot-calendar-dialog {
-    width: calc(100% - 2rem);
-    max-height: calc(100svh - 2rem);
-  }
-
-  .slot-calendar-dialog__header,
-  .slot-calendar,
-  .slot-calendar-times,
-  .slot-calendar-dialog__footer {
-    padding: var(--space-md);
-  }
-
-  .slot-calendar-dialog__header {
-    padding-right: calc(var(--space-md) + var(--size-control));
-  }
-
-  .slot-calendar-dialog__body {
-    grid-template-columns: minmax(0, 1fr);
-    min-height: 0;
-  }
-
-  .slot-calendar {
-    border-right: 0;
-    border-bottom: 1px solid var(--color-rule);
-  }
-
-  .slot-calendar-times {
-    max-height: 12rem;
-    overflow: auto;
-  }
-}
-
-@media (max-width: 40rem) {
-  .profile-shell {
-    padding-bottom: calc(5rem + env(safe-area-inset-bottom));
-  }
-
-  .trainer-commerce-layout .trainer-detail-photo {
-    min-height: 20rem;
-    border-right: 0;
-    border-bottom: 1px solid var(--color-rule);
-  }
-
-  .trainer-commerce-layout .trainer-detail-copy {
-    min-height: 0;
-  }
-
-  .profile-booking-panel {
-    grid-column: auto;
-    padding: var(--space-md);
-  }
-
-  .profile-booking-selection {
-    grid-template-columns: auto minmax(0, 1fr);
-  }
-
-  .profile-booking-selection .button {
-    grid-column: 1 / -1;
-    width: 100%;
-  }
-
-  .profile-booking-schedule .slot-list {
-    grid-template-columns: minmax(0, 1fr);
-  }
-
-  .profile-booking-panel>.button {
-    position: sticky;
-    bottom: calc(4.25rem + env(safe-area-inset-bottom));
-    z-index: var(--z-sticky);
-    box-shadow: 0 -0.75rem 1.5rem var(--color-shadow);
-  }
-
-  .booking-confirm-facts>div {
-    grid-template-columns: minmax(0, 1fr);
-    gap: var(--space-2xs);
-  }
-
-  .slot-calendar-dialog__header,
-  .slot-calendar,
-  .slot-calendar-times,
-  .slot-calendar-dialog__footer {
-    padding: var(--space-sm);
-  }
-
-  .slot-calendar-dialog__header {
-    padding-right: calc(var(--space-sm) + var(--size-control));
-  }
-
-  .slot-calendar__days {
-    gap: var(--space-3xs);
-  }
-
-  .slot-calendar__day {
-    min-height: var(--size-control);
-    padding-inline: 0;
-  }
-
-  .slot-calendar__day small {
-    font-size: 0.625rem;
   }
 }
 
@@ -7808,38 +7102,6 @@ body:has(.app-sidebar) .page-footer {
   }
 }
 
-@media (max-width: 40rem) {
-  .trainer-marketplace {
-    padding-top: var(--space-md);
-  }
-
-  .trainer-marketplace__toolbar {
-    grid-template-columns: minmax(0, 1fr) auto;
-  }
-
-  .marketplace-search-field {
-    grid-column: 1 / -1;
-    max-width: none;
-  }
-
-  .marketplace-sort-field {
-    min-width: 0;
-  }
-
-  .marketplace-results__heading {
-    align-items: flex-start;
-    flex-direction: column;
-  }
-
-  .trainer-marketplace-grid {
-    grid-template-columns: minmax(0, 1fr);
-  }
-
-  .trainer-marketplace-card__body {
-    padding: var(--space-md);
-  }
-}
-
 @media (prefers-reduced-motion: reduce) {
   .trainer-marketplace-card__media img {
     transition: none;
@@ -7924,14 +7186,6 @@ body:has(.app-sidebar) .page-footer {
 
 .disclosure-section__content {
   padding: var(--space-lg);
-}
-
-@media (max-width: 38rem) {
-
-  .disclosure-section>summary,
-  .disclosure-section__content {
-    padding-inline: var(--space-md);
-  }
 }
 
 @media (prefers-reduced-motion: reduce) {
@@ -8531,58 +7785,52 @@ body:has(.app-sidebar) .page-footer {
   font-size: var(--text-sm);
 }
 
-@media (min-width: 24rem) {
-  .notification-list-panel__toolbar .toolbar-controls [data-slot="button"] {
-    width: auto;
-  }
+.notification-list-panel__toolbar .toolbar-controls [data-slot="button"] {
+  width: auto;
 }
 
-@media (min-width: 36rem) {
-  .notification-list-panel__toolbar .toolbar-controls {
-    display: grid;
-    grid-template-columns: repeat(2, minmax(0, 1fr));
-    align-items: center;
-    gap: var(--space-xs);
-  }
-
-  .notification-list-panel__toolbar .notification-search-box {
-    grid-column: 1 / -1;
-  }
-
-  .notification-list-panel__toolbar .toolbar-controls [data-slot="button"] {
-    width: 100%;
-  }
+.notification-list-panel__toolbar .toolbar-controls {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  align-items: center;
+  gap: var(--space-xs);
 }
 
-@media (min-width: 48rem) {
-  .notification-category-select {
-    display: none;
-  }
+.notification-list-panel__toolbar .notification-search-box {
+  grid-column: 1 / -1;
+}
 
-  .notification-center__grid {
-    grid-template-columns: minmax(18rem, 0.9fr) minmax(20rem, 1.1fr);
-  }
+.notification-list-panel__toolbar .toolbar-controls [data-slot="button"] {
+  width: 100%;
+}
 
-  .notification-categories {
-    display: flex;
-    grid-column: 1 / -1;
-  }
+.notification-category-select {
+  display: none;
+}
 
-  .notification-list-panel,
-  .notification-center[data-detail-open="true"] .notification-list-panel {
-    display: grid;
-    border-inline-end: 1px solid var(--color-rule);
-  }
+.notification-center__grid {
+  grid-template-columns: minmax(18rem, 0.9fr) minmax(20rem, 1.1fr);
+}
 
-  .notification-detail-panel,
-  .notification-center[data-detail-open="true"] .notification-detail-panel {
-    display: block;
-    border-top: 0;
-  }
+.notification-categories {
+  display: flex;
+  grid-column: 1 / -1;
+}
 
-  .notification-detail-panel__back {
-    display: none;
-  }
+.notification-list-panel,
+.notification-center[data-detail-open="true"] .notification-list-panel {
+  display: grid;
+  border-inline-end: 1px solid var(--color-rule);
+}
+
+.notification-detail-panel,
+.notification-center[data-detail-open="true"] .notification-detail-panel {
+  display: block;
+  border-top: 0;
+}
+
+.notification-detail-panel__back {
+  display: none;
 }
 
 @media (min-width: 64rem) {
@@ -8619,67 +7867,9 @@ body:has(.app-sidebar) .page-footer {
   }
 }
 
-@media (max-width: 23.99rem) {
-
-  .notification-list__copy>span:first-child,
-  .notification-booking-facts>div {
-    align-items: start;
-    grid-template-columns: minmax(0, 1fr);
-    flex-direction: column;
-  }
-
-  .notification-list__copy strong,
-  .notification-list__copy small,
-  .notification-list__copy code {
-    overflow: visible;
-    text-overflow: clip;
-    white-space: normal;
-    overflow-wrap: anywhere;
-  }
-}
-
 @media (prefers-reduced-motion: reduce) {
   .notification-detail {
     animation: none;
-  }
-}
-
-@media (max-width: 47.99rem) {
-
-  .trainer-booking-summary>summary,
-  .trainer-disclosure>summary {
-    grid-template-columns: minmax(0, 1fr) auto;
-    gap: var(--space-xs) var(--space-sm);
-    padding-inline: var(--space-md);
-  }
-
-  .trainer-booking-summary>summary>span:nth-child(2) {
-    grid-column: 1;
-  }
-
-  .trainer-booking-summary .trainer-booking-card {
-    grid-template-columns: minmax(0, 1fr);
-    gap: var(--space-md);
-    padding: var(--space-md);
-  }
-
-  .trainer-disclosure-label {
-    grid-column: 2;
-    grid-row: 1 / span 2;
-  }
-}
-
-@media (max-width: 24rem) {
-
-  .trainer-booking-summary>summary,
-  .trainer-disclosure>summary {
-    grid-template-columns: minmax(0, 1fr);
-  }
-
-  .trainer-booking-summary>summary>span:nth-child(2),
-  .trainer-disclosure-label {
-    grid-column: 1;
-    grid-row: auto;
   }
 }
 
@@ -8689,38 +7879,6 @@ body:has(.app-sidebar) .page-footer {
 
 .app-sidebar .profile-menu {
   left: 0;
-}
-
-.trainer-mobile-booking-action {
-  display: none;
-}
-
-@media (max-width: 767px) {
-  .trainer-mobile-booking-action {
-    display: inline-flex;
-    position: fixed;
-    right: var(--space-md);
-    bottom: calc(4.75rem + env(safe-area-inset-bottom));
-    z-index: calc(var(--z-sticky-nav) - 1);
-    align-items: center;
-    gap: var(--space-2xs);
-    padding: var(--space-xs) var(--space-md);
-    background: var(--color-ink);
-    color: var(--color-paper);
-    border-radius: var(--radius-pill, 9999px);
-    font-weight: 700;
-    font-size: var(--text-sm);
-    box-shadow: 0 4px 14px var(--color-shadow);
-    text-decoration: none;
-    transition: transform var(--dur-micro) var(--ease-out), background var(--dur-micro) var(--ease-out);
-  }
-
-  .trainer-mobile-booking-action:hover,
-  .trainer-mobile-booking-action:focus-visible {
-    background: var(--color-accent);
-    color: var(--color-ink);
-    transform: translateY(-2px);
-  }
 }
 
 /* ─────────────────────────────────────────────────────────────────────────
@@ -9218,7 +8376,6 @@ body:has(.app-sidebar) .page-footer {
   object-position: 50% 22%;
 }
 
-
 .trainer-marketplace-card__body {
   gap: var(--space-sm);
   padding: var(--space-md) var(--space-lg) var(--space-lg);
@@ -9457,32 +8614,6 @@ body:has(.app-sidebar) .page-footer {
 
   .trainer-commerce-layout .trainer-detail-photo {
     min-height: 26rem;
-  }
-}
-
-@media (width <= 40rem) {
-  .trainer-marketplace__toolbar {
-    padding: var(--space-sm);
-  }
-
-  .trainer-marketplace-grid {
-    grid-template-columns: minmax(0, 1fr);
-  }
-
-  .trainer-commerce-layout {
-    border-radius: var(--radius-card);
-  }
-
-  .trainer-commerce-layout .trainer-detail-photo {
-    min-height: 22rem;
-  }
-
-  .trainer-quick-facts > div {
-    padding: var(--space-xs) var(--space-sm);
-  }
-
-  .trainer-quick-facts dd {
-    font-size: var(--text-lg);
   }
 }
 
@@ -9762,24 +8893,6 @@ body:has(.app-sidebar) .page-footer {
   }
 }
 
-@media (width <= 40rem) {
-  .booking-progress--compact {
-    grid-template-columns: minmax(0, 1fr);
-  }
-
-  .booking-progress__step {
-    padding: var(--space-xs) var(--space-sm);
-  }
-
-  .booking-detail-content .booking-progress--compact {
-    margin-inline: var(--space-md);
-  }
-
-  .booking-detail-content > .booking-next-step {
-    margin-inline: var(--space-md);
-  }
-}
-
 /* ─────────────────────────────────────────────────────────────────────────
  * Account profile (member and trainer): a header card, rounded tab strip,
  * and content grouped into cards by who sees it.
@@ -10011,11 +9124,6 @@ legend.profile-card__title + * {
 
 .trainer-apply-actions__status.is-dirty .trainer-apply-actions__dot {
   background: #f59e0b;
-}
-
-@media (width <= 40rem) {
-  .trainer-apply-actions__status { width: 100%; }
-  .trainer-apply-actions .button { flex: 1 1 auto; justify-content: center; }
 }
 
 /* ───────── Trainer workspace (พื้นที่เทรนเนอร์) ─────────
@@ -10461,32 +9569,6 @@ legend.profile-card__title + * {
   }
 }
 
-@media (width <= 40rem) {
-  .trainer-hero {
-    grid-template-columns: minmax(0, 1fr);
-    padding: var(--space-md);
-  }
-
-  .trainer-hero__add {
-    width: 100%;
-  }
-
-  .trainer-workbench .trainer-tabs {
-    width: 100%;
-    border-radius: var(--radius-card);
-  }
-
-  .trainer-workbench .trainer-tabs button {
-    flex: 1 1 auto;
-    justify-content: center;
-    padding-inline: var(--space-sm);
-  }
-
-  .trainer-money-cards--two {
-    grid-template-columns: minmax(0, 1fr);
-  }
-}
-
 .trainer-workbench [role="tabpanel"] > *,
 .trainer-workbench [role="tabpanel"] > * + * {
   margin-top: 0;
@@ -10504,18 +9586,6 @@ legend.profile-card__title + * {
   box-sizing: border-box;
   width: 100%;
   max-width: 100%;
-}
-
-@media (width <= 40rem) {
-  .trainer-kpis a {
-    grid-template-columns: 1fr;
-    grid-template-areas: "value" "label";
-    padding: var(--space-sm) var(--space-md);
-  }
-
-  .trainer-kpis__icon {
-    display: none;
-  }
 }
 
 /* ───────── Trainer record form: every group is a card ─────────
@@ -10834,27 +9904,6 @@ form.trainer-apply-form .trainer-certificate-drop input[type="file"]::file-selec
 
 form.trainer-apply-form .trainer-apply-submit {
   margin-top: 0;
-}
-
-@media (width <= 48rem) {
-  form.trainer-apply-form .trainer-form-card {
-    padding: var(--space-md);
-  }
-
-  form.trainer-apply-form .trainer-form-card__heading {
-    grid-template-columns: auto minmax(0, 1fr);
-  }
-
-  form.trainer-apply-form .trainer-form-card__heading > .trainer-form-card__pill {
-    grid-column: 2;
-    justify-self: start;
-  }
-
-  form.trainer-apply-form .trainer-form-card .profile-form-grid,
-  form.trainer-apply-form .trainer-form-card .profile-form-grid--numbers,
-  .trainer-service-mode__options {
-    grid-template-columns: minmax(0, 1fr);
-  }
 }
 
 form.trainer-apply-form .trainer-form-card .profile-training-types {
@@ -11183,32 +10232,6 @@ form.trainer-apply-form .trainer-form-card .trainer-money-input input:not([type=
   color: var(--color-error);
 }
 
-@media (width <= 48rem) {
-  .trainer-workbench .trainer-booking-list > .trainer-booking-card {
-    grid-template-columns: minmax(0, 1fr);
-    grid-template-areas: "who" "hint" "facts" "note" "actions";
-    margin-inline: var(--space-md);
-    padding: var(--space-md);
-  }
-
-  .trainer-workbench .trainer-booking-card__identity {
-    flex-wrap: wrap;
-  }
-
-  .trainer-workbench .trainer-appointment-row {
-    grid-template-columns: minmax(0, 1fr);
-    padding-inline: var(--space-md);
-  }
-
-  .trainer-workbench .trainer-appointment-row .queue-actions {
-    justify-content: flex-start;
-  }
-
-  .trainer-workbench .trainer-slot-row {
-    flex-wrap: wrap;
-  }
-}
-
 .trainer-workbench .trainer-appointment-row > .trainer-appointment-row__who {
   display: flex;
   flex-direction: row;
@@ -11235,14 +10258,6 @@ form.trainer-apply-form .trainer-form-card .trainer-money-input input:not([type=
 .trainer-workbench .trainer-slot-row {
   justify-content: space-between;
   text-align: left;
-}
-
-@media (width <= 48rem) {
-  .trainer-workbench .trainer-slot-row > .trainer-slot-row__body,
-  .trainer-workbench .trainer-slot-row > .trainer-slot-row__actions {
-    width: 100%;
-    justify-content: flex-start;
-  }
 }
 
 /* ───────── Public pages: header, home, login / register ───────── */
@@ -11667,30 +10682,6 @@ form.trainer-apply-form .trainer-form-card .trainer-money-input input:not([type=
   }
 }
 
-@media (width <= 40rem) {
-  .home-intro__facts {
-    grid-template-columns: repeat(3, minmax(0, 1fr));
-    gap: var(--space-md);
-  }
-
-  .home-intro__facts dd {
-    font-size: var(--text-lg);
-  }
-
-  .home-intro__note--top {
-    left: 0;
-  }
-
-  .home-intro__note--bottom {
-    right: 0;
-  }
-
-  .home-overview .home-training-types__list,
-  .home-overview .home-journey__steps {
-    grid-template-columns: minmax(0, 1fr);
-  }
-}
-
 .home-overview .home-journey__steps > li {
   grid-template-columns: minmax(0, 1fr);
 }
@@ -12006,18 +10997,6 @@ form.trainer-apply-form .trainer-form-card .trainer-money-input input:not([type=
 @media (width <= 64rem) {
   .trainer-commerce-layout {
     grid-template-columns: minmax(14rem, 0.7fr) minmax(0, 1.3fr);
-  }
-}
-
-@media (width <= 48rem) {
-  .trainer-commerce-layout {
-    grid-template-columns: minmax(0, 1fr);
-  }
-
-  .trainer-commerce-layout > .trainer-detail-media {
-    max-width: 24rem;
-    width: 100%;
-    justify-self: center;
   }
 }
 
@@ -12487,20 +11466,6 @@ form.trainer-apply-form .trainer-form-card .trainer-money-input input:not([type=
   border-radius: var(--radius-panel);
 }
 
-@media (width <= 40rem) {
-  .dashboard-shell--admin .admin-operations__tabs {
-    border-radius: var(--radius-card);
-  }
-
-  .dashboard-shell--admin .admin-operation-panel {
-    padding: var(--space-md);
-  }
-
-  .dashboard-shell--admin .admin-summary {
-    grid-template-columns: minmax(0, 1fr);
-  }
-}
-
 /* ───────── Notifications ─────────
    A header with the unread count, category chips across the top, then the
    inbox and the opened notification side by side. */
@@ -12708,12 +11673,6 @@ form.trainer-apply-form .trainer-form-card .trainer-money-input input:not([type=
   }
 }
 
-@media (width <= 40rem) {
-  .notification-center .notification-booking-facts {
-    grid-template-columns: minmax(0, 1fr);
-  }
-}
-
 .notification-center .notification-booking-facts > div {
   display: block;
 }
@@ -12767,12 +11726,6 @@ form.trainer-apply-form .trainer-form-card .trainer-money-input input:not([type=
 @media (width <= 75rem) {
   .trainer-workbench .trainer-hero {
     grid-template-columns: minmax(0, 1fr);
-  }
-}
-
-@media (width <= 40rem) {
-  .trainer-workbench .trainer-kpis {
-    grid-template-columns: repeat(2, minmax(0, 1fr));
   }
 }
 
@@ -13047,104 +12000,6 @@ form.trainer-apply-form .trainer-form-card .trainer-money-input input:not([type=
 }
 
 /* Phones: one day column, picked from a strip of seven. */
-.trainer-cal__phone-days {
-  display: none;
-}
-
-@media (width <= 40rem) {
-  .trainer-cal__toolbar {
-    padding: var(--space-sm) var(--space-md);
-  }
-
-  .trainer-cal__add,
-  .trainer-cal__add button {
-    width: 100%;
-  }
-
-  .trainer-cal__phone-days {
-    display: grid;
-    grid-template-columns: repeat(7, minmax(0, 1fr));
-    gap: var(--space-3xs);
-    padding: var(--space-xs) var(--space-sm);
-    border-bottom: 1px solid var(--color-rule-2);
-  }
-
-  .trainer-cal__phone-days button {
-    display: grid;
-    justify-items: center;
-    gap: 0;
-    min-height: 3.5rem;
-    padding: var(--space-2xs) 0;
-    border: 1px solid transparent;
-    border-radius: var(--radius-md);
-    background: transparent;
-    color: var(--color-ink);
-    font: inherit;
-  }
-
-  .trainer-cal__phone-days button span {
-    font-size: var(--text-xs);
-    color: var(--color-muted);
-  }
-
-  .trainer-cal__phone-days button strong {
-    font-family: var(--font-display);
-    font-size: var(--text-md);
-    font-variant-numeric: tabular-nums;
-  }
-
-  .trainer-cal__phone-days button.is-today {
-    border-color: var(--color-rule);
-  }
-
-  .trainer-cal__phone-days button[aria-pressed="true"] {
-    background: var(--color-ink);
-    color: var(--color-paper);
-  }
-
-  .trainer-cal__phone-days button[aria-pressed="true"] span {
-    color: inherit;
-  }
-
-  .trainer-cal__phone-days i {
-    width: 5px;
-    height: 5px;
-    border-radius: 50%;
-  }
-
-  .trainer-cal__phone-days i.has-items {
-    background: var(--color-success);
-  }
-
-  .trainer-cal__phone-days button[aria-pressed="true"] i.has-items {
-    background: var(--color-accent);
-  }
-
-  .trainer-cal__grid {
-    grid-template-columns: var(--gutter-w) minmax(0, 1fr);
-    min-width: 0;
-  }
-
-  /* The strip above already names the day, so the sticky header goes. */
-  .trainer-cal__corner,
-  .trainer-cal__head,
-  .trainer-cal__col:not(.is-phone-day) {
-    display: none;
-  }
-
-  .trainer-cal__hour:first-child {
-    padding-top: var(--space-2xs);
-  }
-
-  .trainer-cal__scroll {
-    max-height: 60vh;
-  }
-
-  .trainer-cal .trainer-week__legend {
-    padding: var(--space-sm) var(--space-md);
-  }
-}
-
 /* The appointment list as a narrow rail: each row stacks. */
 .trainer-workbench .trainer-agenda .trainer-appointment-row {
   grid-template-columns: minmax(0, 1fr);
@@ -13177,7 +12032,7 @@ form.trainer-apply-form .trainer-form-card .trainer-money-input input:not([type=
   }
 }
 
-@media (width <= 80rem) and (width > 40rem) {
+@media (width <= 80rem) {
   .trainer-workbench .trainer-agenda .trainer-appointment-row {
     grid-template-columns: minmax(0, 1fr) minmax(0, 1fr) max-content;
     align-items: center;
@@ -13449,12 +12304,6 @@ form.trainer-apply-form .trainer-form-card .trainer-money-input input:not([type=
 @media (width <= 64rem) {
   .marketplace-results .trainer-marketplace-grid {
     grid-template-columns: repeat(2, minmax(0, 1fr));
-  }
-}
-
-@media (width <= 40rem) {
-  .marketplace-results .trainer-marketplace-grid {
-    grid-template-columns: minmax(0, 1fr);
   }
 }
 
@@ -13785,16 +12634,6 @@ form.trainer-apply-form .trainer-form-card .trainer-money-input input:not([type=
   }
 }
 
-@media (width <= 40rem) {
-  #trainer-reviews.trainer-reviews--cards {
-    padding: var(--space-md);
-  }
-
-  #trainer-reviews.trainer-reviews--cards .trainer-review-list {
-    grid-template-columns: minmax(0, 1fr);
-  }
-}
-
 .credential-card__list .status-badge {
   flex-shrink: 0;
   white-space: nowrap;
@@ -13916,40 +12755,7 @@ form.trainer-apply-form .trainer-form-card .trainer-money-input input:not([type=
   background: color-mix(in oklch, var(--color-accent-soft) 70%, var(--color-paper-2));
 }
 
-@media (max-width: 40rem) {
-  .member-booking-summary {
-    grid-template-columns: minmax(0, 1fr) auto auto;
-    gap: var(--space-xs);
-    padding: var(--space-sm) var(--space-md);
-  }
-
-  .member-booking-summary__meta {
-    align-items: flex-end;
-  }
-}
-
-@media (max-width: 24rem) {
-  .member-booking-summary {
-    grid-template-columns: minmax(0, 1fr) auto;
-  }
-
-  .member-booking-summary__chevron {
-    display: none;
-  }
-}
-
 /* Four filters fit on one scrollable line on a phone instead of wrapping. */
-@media (max-width: 40rem) {
-  .member-dashboard-content .profile-tabs {
-    flex-wrap: nowrap;
-    overflow-x: auto;
-    scrollbar-width: none;
-  }
-
-  .member-dashboard-content .profile-tabs button {
-    flex: 0 0 auto;
-  }
-}
 
 /* Dialog links meet the 44px touch target. */
 .member-booking-dialog .ledger-actions a {
@@ -14811,12 +13617,6 @@ form.apply-wizard.member-welcome .member-welcome__goals {
   margin-bottom: var(--space-xs);
 }
 
-@media (max-width: 640px) {
-  form.apply-wizard.member-welcome .member-welcome__levels {
-    grid-template-columns: minmax(0, 1fr);
-  }
-}
-
 /* Notifications: an inbox with nothing in it yet is one card, not a toolbar,
    an empty list and a detail pane with nothing to select. */
 .notification-empty--inbox {
@@ -14883,46 +13683,6 @@ form.apply-wizard.member-welcome .member-welcome__goals {
 
   .trainer-workbench #trainer-requests > .trainer-booking-card:only-of-type .queue-actions > * {
     width: 100%;
-  }
-}
-
-@media (width <= 40rem) {
-  /* Four tabs on one row: icons go, the row scrolls sideways only if a very
-     narrow screen still cannot fit the labels. */
-  .trainer-workbench .trainer-tabs {
-    flex-wrap: nowrap;
-    overflow-x: auto;
-    scrollbar-width: none;
-  }
-
-  .trainer-workbench .trainer-tabs::-webkit-scrollbar {
-    display: none;
-  }
-
-  .trainer-workbench .trainer-tabs button {
-    flex: 1 0 auto;
-    gap: var(--space-2xs);
-    padding-inline: var(--space-xs);
-    white-space: nowrap;
-  }
-
-  .trainer-workbench .trainer-tabs button > svg {
-    display: none;
-  }
-
-  /* One day on a phone is short enough for the page itself to scroll. A box
-     scrolling inside the page caught the thumb and would not hand it back. */
-  .trainer-cal__scroll {
-    max-height: none;
-    overflow: visible;
-    overscroll-behavior: auto;
-  }
-
-  /* The day headers are hidden here, so the hours are the only row. With the
-     header row still declared, a second empty row the height of the whole day
-     sat under the calendar (the old scroll box hid it). */
-  .trainer-cal__grid {
-    grid-template-rows: calc(var(--hour-h) * var(--cal-hours));
   }
 }
 

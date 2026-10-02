@@ -236,8 +236,6 @@ export function TrainerWorkbench({ onIncompleteProfile }: { onIncompleteProfile?
     typeof window !== "undefined" && new URLSearchParams(window.location.search).has("stripe") ? "finance" : "work");
   const [selectedBooking, setSelectedBooking] = useState<Booking | null>(null);
   const [weekOffset, setWeekOffset] = useState(0);
-  // On a phone the week collapses to one day column; this is the day shown.
-  const [phoneDay, setPhoneDay] = useState(0);
   const calendarScrollRef = useRef<HTMLDivElement>(null);
   // A minute clock for the calendar only: the red "now" line and which hours
   // may still take a new slot move with real time while the page stays open.
@@ -547,12 +545,6 @@ export function TrainerWorkbench({ onIncompleteProfile }: { onIncompleteProfile?
   }));
   const calendarHours = Array.from({ length: calendarEndHour - calendarStartHour }, (_, index) => calendarStartHour + index);
   const todayKey = localDateKey(now);
-  const currentPhoneDay = Math.min(6, Math.max(0, phoneDay));
-
-  function changeWeek(offset: number) {
-    setWeekOffset(offset);
-    setPhoneDay(0);
-  }
 
   // Each new week scrolls the hour grid to its first item (or to "now" on the
   // current week), so the calendar never opens on an empty early morning.
@@ -1221,9 +1213,9 @@ export function TrainerWorkbench({ onIncompleteProfile }: { onIncompleteProfile?
               </p>
             </div>
             <div className="trainer-week-strip__controls" aria-label="เปลี่ยนช่วงวัน">
-              <button type="button" aria-label="7 วันก่อนหน้า" onClick={() => changeWeek(weekOffset - 1)}><ChevronLeft aria-hidden="true" size={18} /></button>
-              <button type="button" onClick={() => changeWeek(0)} disabled={weekOffset === 0}>วันนี้</button>
-              <button type="button" aria-label="7 วันถัดไป" onClick={() => changeWeek(weekOffset + 1)}><ChevronRight aria-hidden="true" size={18} /></button>
+              <button type="button" aria-label="7 วันก่อนหน้า" onClick={() => setWeekOffset(weekOffset - 1)}><ChevronLeft aria-hidden="true" size={18} /></button>
+              <button type="button" onClick={() => setWeekOffset(0)} disabled={weekOffset === 0}>วันนี้</button>
+              <button type="button" aria-label="7 วันถัดไป" onClick={() => setWeekOffset(weekOffset + 1)}><ChevronRight aria-hidden="true" size={18} /></button>
             </div>
             <span id="availability" className="trainer-cal__add">
               <Button type="button" onClick={(event) => { rememberDialogTrigger(event); openSlotDialog(); }}>
@@ -1233,26 +1225,12 @@ export function TrainerWorkbench({ onIncompleteProfile }: { onIncompleteProfile?
           </header>
           {availabilityError && !slotDialogOpen && !slotToDelete && <p className="row-error trainer-cal__error" role="alert">{availabilityError}</p>}
 
-          {/* Phones show one day at a time; this strip picks it. */}
-          <div className="trainer-cal__phone-days" aria-label="เลือกวันที่จะดู">
-            {weekDays.map((day, index) => {
-              const count = weeklySchedule.filter((item) => localDateKey(new Date(item.startsAt)) === localDateKey(day)).length;
-              return (
-                <button type="button" key={localDateKey(day)} aria-pressed={index === currentPhoneDay} className={localDateKey(day) === todayKey ? "is-today" : undefined} onClick={() => setPhoneDay(index)}>
-                  <span>{dayNameFormatter.format(day)}</span>
-                  <strong>{day.getDate()}</strong>
-                  <i aria-hidden="true" className={count > 0 ? "has-items" : undefined} />
-                  <span className="sr-only">{count} รายการ</span>
-                </button>
-              );
-            })}
-          </div>
 
           <div className="trainer-cal__scroll" ref={calendarScrollRef} role="region" aria-label="ตารางรายสัปดาห์" tabIndex={0}>
             <div className="trainer-cal__grid" style={{ "--cal-hours": calendarHours.length } as CSSProperties}>
               <span className="trainer-cal__corner" aria-hidden="true" />
-              {weekDays.map((day, index) => (
-                <div className={`trainer-cal__head${localDateKey(day) === todayKey ? " is-today" : ""}${index === currentPhoneDay ? " is-phone-day" : ""}`} key={`head-${localDateKey(day)}`} aria-hidden="true">
+              {weekDays.map((day) => (
+                <div className={`trainer-cal__head${localDateKey(day) === todayKey ? " is-today" : ""}`} key={`head-${localDateKey(day)}`} aria-hidden="true">
                   <span>{dayNameFormatter.format(day)}</span>
                   <strong>{day.getDate()}</strong>
                 </div>
@@ -1260,7 +1238,7 @@ export function TrainerWorkbench({ onIncompleteProfile }: { onIncompleteProfile?
               <div className="trainer-cal__gutter" aria-hidden="true">
                 {calendarHours.map((hour) => <span className="trainer-cal__hour" key={hour}>{hourLabel(hour)}</span>)}
               </div>
-              {weekDays.map((day, index) => {
+              {weekDays.map((day) => {
                 const key = localDateKey(day);
                 const dayItems = weeklySchedule.filter((item) => localDateKey(new Date(item.startsAt)) === key);
                 const places = layoutDay(dayItems);
@@ -1270,7 +1248,7 @@ export function TrainerWorkbench({ onIncompleteProfile }: { onIncompleteProfile?
                 const nowOffset = clock.getHours() + clock.getMinutes() / 60 - calendarStartHour;
                 return (
                   <div
-                    className={`trainer-cal__col${key === todayKey ? " is-today" : ""}${index === currentPhoneDay ? " is-phone-day" : ""}${canAdd ? " can-add" : ""}`}
+                    className={`trainer-cal__col${key === todayKey ? " is-today" : ""}${canAdd ? " can-add" : ""}`}
                     role="group"
                     aria-label={`${dayNameFormatter.format(day)} ${dayDateFormatter.format(day)} · ${dayItems.length} รายการ`}
                     key={key}
