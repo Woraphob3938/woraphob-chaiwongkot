@@ -5,9 +5,7 @@ import { useRouter } from "next/navigation";
 import { CircleAlert, LoaderCircle, RefreshCw, Trash2 } from "lucide-react";
 import { ProfileIdentity } from "@/components/profile-identity";
 import { MemberProfileForm } from "@/components/member-profile-form";
-import { TrainerPaymentQrManager } from "@/components/trainer-payment-qr-manager";
 import { TrainerPhotosManager } from "@/components/trainer-photos-manager";
-import { TrainerBankAccountsManager } from "@/components/trainer-bank-accounts-manager";
 import { TrainerApplyForm } from "@/components/trainer-apply-form";
 import { TrainerProfileSummary } from "@/components/trainer-profile-summary";
 import { PasswordForm } from "@/components/password-form";
@@ -275,18 +273,6 @@ export function ProfileWorkbench() {
                 )
                 : <TrainerProfileSummary profile={state.profile} onEdit={() => setTrainerEditing(true)} />}
               <TrainerPhotosManager />
-              <section className="profile-section profile-payment-settings" aria-labelledby="payment-settings-title">
-                <div className="profile-section__heading">
-                  <h2 id="payment-settings-title">การรับเงิน</h2>
-                  <p>{state.profile.trainer.serviceMode === "gym"
-                    ? "ตั้งบัญชีธนาคารหรือ QR ที่รับเงินของยิม สมาชิกจะเห็นช่องทางเริ่มต้นเมื่อระบบแจ้งยืนยันการจอง แล้วโอนภายใน 10 นาที"
-                    : "สมาชิกเห็นช่องทางเหล่านี้เมื่อระบบแจ้งยืนยันการจองในรอบ 12:00 หรือ 18:00 น. แล้วโอนเงินภายใน 10 นาที"}</p>
-                </div>
-                <div className="profile-payment-settings__grid">
-                  <TrainerBankAccountsManager />
-                  <TrainerPaymentQrManager profile={state.profile} onSaved={updateProfile} />
-                </div>
-              </section>
             </>
           )}
       </div>

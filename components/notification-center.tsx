@@ -660,7 +660,7 @@ export function NotificationCenter() {
                 <div className="notification-placeholder-tips">
                   <div className="placeholder-tip">
                     <CreditCard size={16} aria-hidden="true" />
-                    <span>ตรวจสอบสถานะสลิปและยอดชำระเงิน</span>
+                    <span>ตรวจสอบสถานะการชำระเงินและยอดชำระ</span>
                   </div>
                   <div className="placeholder-tip">
                     <CalendarCheck size={16} aria-hidden="true" />

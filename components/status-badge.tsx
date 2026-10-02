@@ -25,7 +25,7 @@ const verificationLabels: Record<VerificationStatus, string> = {
   rejected: "ต้องแก้ไข",
 };
 
-/** A trainer application is approved; only a slip is "ตรวจสลิปแล้ว". */
+/** A trainer application is approved; a payment is "ชำระสำเร็จ". */
 const applicationLabels = { approved: "อนุมัติแล้ว" } as const;
 
 /**

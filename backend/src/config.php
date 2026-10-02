@@ -53,5 +53,12 @@ return [
         'from_email' => env('MAIL_FROM_EMAIL', ''),
         'from_name' => env('MAIL_FROM_NAME', 'FitConnect'),
     ],
+    // Stripe (test mode keys for local work). The secret key stays server-side.
+    'stripe' => [
+        'secret_key' => env('STRIPE_SECRET_KEY', ''),
+        'webhook_secret' => env('STRIPE_WEBHOOK_SECRET', ''),
+        // Share of a freelance booking the platform keeps; the rest goes to the trainer.
+        'platform_fee_percent' => (float) env('STRIPE_PLATFORM_FEE_PERCENT', '10'),
+    ],
     'upload_max_bytes' => (int) env('UPLOAD_MAX_BYTES', '5242880'),
 ];

@@ -24,8 +24,8 @@ import {
   Search,
   Send,
   UserRound,
-  X,
 } from "lucide-react";
+import { ChatAttachmentPreview } from "@/components/chat-attachment-preview";
 import { StatusBadge } from "@/components/status-badge";
 import {
   Dialog,
@@ -791,8 +791,8 @@ export function ChatWorkbench({ initialBookingId }: ChatWorkbenchProps) {
       ? "การจองหมดเวลาแล้ว ประวัติยังอ่านได้แต่ส่งข้อความเพิ่มไม่ได้"
     : selectedBooking.status === "pending_trainer"
       ? currentUserRole === "trainer"
-        ? "ห้องนี้เปิดให้พิมพ์หลังคุณตอบรับและระบบแจ้งยืนยันสมาชิกในรอบ 12:00 หรือ 18:00 น."
-        : "ห้องนี้เปิดให้พิมพ์หลังเทรนเนอร์ตอบรับและระบบแจ้งยืนยันในรอบ 12:00 หรือ 18:00 น."
+        ? "ห้องนี้เปิดให้พิมพ์หลังคุณตอบรับคำขอ"
+        : "ห้องนี้เปิดให้พิมพ์หลังเทรนเนอร์ตอบรับคำขอ"
     : "สถานะการจองนี้ยังไม่เปิดให้ส่งข้อความเพิ่ม";
 
   const selectedId = selectedBooking.id;
@@ -1111,29 +1111,26 @@ export function ChatWorkbench({ initialBookingId }: ChatWorkbenchProps) {
             />
             <small className="sr-only" id="chat-attachment-guide">รองรับ JPEG, PNG, WebP, GIF หรือ PDF ขนาดไม่เกิน 5 MB</small>
 
-            {imageAttachment && (
-              <div className="ledger-row">
-                <span>รูปภาพที่เลือก</span>
-                <div className="queue-actions chat-selected-file">
-                  <strong className="chat-breakable">{imageAttachment.name}</strong>
-                  <small>{readableMime(imageAttachment.type)} · {readableSize(imageAttachment.size)}</small>
-                  <button type="button" disabled={sending} aria-label={`เอารูปภาพ ${imageAttachment.name} ออก`} onClick={removeImage}>
-                    <X aria-hidden="true" size={15} /> เอารูปภาพออก
-                  </button>
-                </div>
-              </div>
-            )}
-
-            {fileAttachment && (
-              <div className="ledger-row">
-                <span>ไฟล์ที่เลือก</span>
-                <div className="queue-actions chat-selected-file">
-                  <strong className="chat-breakable">{fileAttachment.name}</strong>
-                  <small>{readableMime(fileAttachment.type)} · {readableSize(fileAttachment.size)}</small>
-                  <button type="button" disabled={sending} aria-label={`เอาไฟล์ ${fileAttachment.name} ออก`} onClick={removeFile}>
-                    <X aria-hidden="true" size={15} /> เอาไฟล์ออก
-                  </button>
-                </div>
+            {(imageAttachment || fileAttachment) && (
+              <div className="chat-attachment-previews">
+                {imageAttachment && (
+                  <ChatAttachmentPreview
+                    file={imageAttachment}
+                    kind="image"
+                    meta={`${readableMime(imageAttachment.type)} · ${readableSize(imageAttachment.size)}`}
+                    disabled={sending}
+                    onRemove={removeImage}
+                  />
+                )}
+                {fileAttachment && (
+                  <ChatAttachmentPreview
+                    file={fileAttachment}
+                    kind="file"
+                    meta={`${readableMime(fileAttachment.type)} · ${readableSize(fileAttachment.size)}`}
+                    disabled={sending}
+                    onRemove={removeFile}
+                  />
+                )}
               </div>
             )}
 

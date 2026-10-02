@@ -49,6 +49,7 @@ npm run test:e2e
 ## Conventions
 
 - Every user-facing string is Thai. Dates and times go through `lib/format.ts` (Buddhist Era, Asia/Bangkok). A component that needs a format `lib/format.ts` lacks (such as calendar day headers) may build its own `Intl.DateTimeFormat`, but it must pin `timeZone: "Asia/Bangkok"` and `th-TH`.
-- Copy must name the real actor. Slips are checked by the booked trainer, not by an administrator (see `PRODUCT.md`).
+- Copy must name the real actor. Payments settle automatically through Stripe Checkout; nobody checks a slip, and the UI must not ask anyone to (see `PRODUCT.md`).
 - Seed and demo records must stay labelled as demonstration data.
-- Access rules live in one place per concern: `PaymentRouting::scope()` decides who may see a slip, `PaymentRouting::decisionScope()` who may decide it. Do not inline a third variant in a handler.
+- Access rules live in one place per concern: `PaymentRouting::scope()` decides who may see a legacy slip file. Stripe rules (amounts, fees, destination charges, refunds) live in `backend/src/StripePayments.php`, and `Handlers::applyCheckoutSession()` is the only place a Checkout Session changes a booking.
+- Stripe runs in test mode locally: `STRIPE_SECRET_KEY` (and `STRIPE_WEBHOOK_SECRET` when a webhook is set up) go in `backend/.env`, never in the front end or in git. Pay with card `4242 4242 4242 4242`. The member's return to `/member?checkout=success` settles the payment through `POST /v1/payments/confirm`, so no public webhook URL is needed on localhost.

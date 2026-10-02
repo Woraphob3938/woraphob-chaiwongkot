@@ -506,7 +506,7 @@ export function AdminOperations() {
         {data.summary.activeMembers !== null && <div><i aria-hidden="true"><UserRound size={18} /></i><span>สมาชิกที่ใช้งาน</span><strong>{data.summary.activeMembers}</strong></div>}
         {data.summary.activeTrainers !== null && <div><i aria-hidden="true"><Dumbbell size={18} /></i><span>เทรนเนอร์ที่ใช้งาน</span><strong>{data.summary.activeTrainers}</strong></div>}
         {data.summary.totalBookings !== null && <div><i aria-hidden="true"><CalendarCheck2 size={18} /></i><span>การจองทั้งหมด</span><strong>{data.summary.totalBookings}</strong></div>}
-        {data.summary.approvedRevenue !== null && <div><i aria-hidden="true"><Wallet size={18} /></i><span>ยอดที่เทรนเนอร์ยืนยันสลิปแล้ว</span><strong>{formatMoney(data.summary.approvedRevenue)}</strong></div>}
+        {data.summary.approvedRevenue !== null && <div><i aria-hidden="true"><Wallet size={18} /></i><span>ยอดที่ชำระสำเร็จแล้ว</span><strong>{formatMoney(data.summary.approvedRevenue)}</strong></div>}
       </section>
 
       <div className="admin-operations__tabs" role="tablist" aria-label="งานผู้ดูแลระบบ">

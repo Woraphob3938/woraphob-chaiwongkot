@@ -17,7 +17,7 @@ export default async function BookingPage({ searchParams }: Props) {
           <Link href={backHref}><ArrowLeft aria-hidden="true" size={17} /> ย้อนกลับ</Link>
         </Button>
       </div>
-      <section className="compact-page-heading"><p className="workflow-current">ขั้นตอนที่ 1 จาก 4</p><h1>ส่งคำขอจอง</h1><p>ตรวจรายละเอียดแล้วส่งคำขอ เมื่อเทรนเนอร์ตอบรับ ระบบจะแจ้งยืนยันให้คุณในรอบ 12:00 หรือ 18:00 น. เวลาฝึกยังเป็นเวลาที่คุณเลือก จากนั้นคุณมีเวลา 10 นาทีสำหรับชำระเงิน</p></section>
+      <section className="compact-page-heading"><p className="workflow-current">ขั้นตอนที่ 1 จาก 4</p><h1>ส่งคำขอจอง</h1><p>ตรวจรายละเอียดแล้วส่งคำขอ เมื่อเทรนเนอร์ตอบรับ ระบบแจ้งคุณทันที เวลาฝึกยังเป็นเวลาที่คุณเลือก จากนั้นคุณมีเวลา 10 นาทีสำหรับชำระเงิน</p></section>
       <BookingForm trainerSlug={params.trainer} slotId={params.slot} bookingType={params.type === "monthly" ? "monthly" : "single"} slotIds={params.slots} />
     </main>
   );

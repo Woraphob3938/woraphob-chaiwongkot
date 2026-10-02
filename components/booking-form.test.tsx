@@ -199,7 +199,7 @@ describe("BookingForm", () => {
     await screen.findByText("แพ็กเกจ 30 วัน");
     expect(screen.getByText("นัดแรก 1 จาก 2 ครั้ง")).toBeInTheDocument();
     expect(screen.getByText("อีก 1 นัดจัดเวลาได้หลังการชำระเงินผ่าน")).toBeInTheDocument();
-    expect(screen.getByText(/ถ้าไม่ส่งทันการจองจะหมดอายุ/)).toBeInTheDocument();
+    expect(screen.getByText(/ถ้าไม่ทันการจองจะหมดอายุ/)).toBeInTheDocument();
     fireEvent.click(screen.getByRole("button", { name: /ตรวจสอบและส่งคำขอ/ }));
     fireEvent.click(screen.getByRole("button", { name: "ส่งคำขอจอง" }));
 

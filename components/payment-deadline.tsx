@@ -8,7 +8,7 @@ const URGENT_MS = 3 * 60 * 1000;
 export function PaymentDeadline({
   deadlineAt,
   onExpired,
-  label = "เวลาที่เหลือสำหรับส่งสลิป",
+  label = "เวลาที่เหลือสำหรับชำระเงิน",
 }: {
   deadlineAt: string;
   onExpired: () => void;

@@ -7,6 +7,9 @@ final class Handlers
     private Auth $auth;
     private NotificationService $notifications;
     private RateLimiter $rateLimiter;
+    private ?StripeClient $stripeClient = null;
+    /** @var list<array{0: string, 1: ?string}> */
+    private array $checkoutsToExpire = [];
 
     public function __construct(
         private readonly Database $database,
@@ -15,6 +18,13 @@ final class Handlers
         $this->auth = new Auth($database);
         $this->notifications = new NotificationService($database, $config);
         $this->rateLimiter = new RateLimiter($database);
+        // Checkout Sessions of bookings closed during this request are expired
+        // in Stripe once the database work is committed.
+        register_shutdown_function(function (): void {
+            $ids = $this->checkoutsToExpire;
+            $this->checkoutsToExpire = [];
+            $this->expireCheckoutSessions($ids);
+        });
     }
 
     public function health(): never
@@ -156,28 +166,6 @@ final class Handlers
         return (int) $id;
     }
 
-    private function bankAccountList(PDO $pdo, int $trainerProfileId): array
-    {
-        $statement = $pdo->prepare(
-            'SELECT id, bank_name, account_name, account_number, is_default, created_at
-             FROM trainer_bank_accounts WHERE trainer_profile_id = ?
-             ORDER BY is_default DESC, created_at ASC, id ASC'
-        );
-        $statement->execute([$trainerProfileId]);
-        return array_map(fn(array $row): array => [
-            'id' => (int) $row['id'],
-            'bankName' => $row['bank_name'],
-            'accountName' => $row['account_name'],
-            'accountNumber' => $row['account_number'],
-            'isDefault' => (bool) $row['is_default'],
-            'createdAt' => $this->iso($row['created_at']),
-        ], $statement->fetchAll());
-    }
-
-    /**
-     * บทที่ 3.1.3 ข้อ 6: members who booked or are booking with this trainer,
-     * each with their training history, newest first.
-     */
     public function trainerMembers(): never
     {
         $user = $this->auth->requireUser(['trainer']);
@@ -287,111 +275,6 @@ final class Handlers
                 'memberName' => $row['display_name'],
             ], $rows),
         ]);
-    }
-
-    public function bankAccounts(): never
-    {
-        $user = $this->auth->requireUser(['trainer']);
-        $pdo = $this->database->pdo();
-        $profileId = $this->ownTrainerProfileId($pdo, $user);
-        Http::json(['banks' => BankAccountRules::BANKS, 'accounts' => $this->bankAccountList($pdo, $profileId)]);
-    }
-
-    public function createBankAccount(): never
-    {
-        $user = $this->auth->requireUser(['trainer']);
-        $input = Http::body();
-        $account = BankAccountRules::validate($input);
-        $makeDefault = filter_var($input['isDefault'] ?? false, FILTER_VALIDATE_BOOL);
-        $accounts = $this->database->transaction(function (PDO $pdo) use ($user, $account, $makeDefault): array {
-            $profileId = $this->ownTrainerProfileId($pdo, $user);
-            $count = $pdo->prepare('SELECT COUNT(*) FROM trainer_bank_accounts WHERE trainer_profile_id = ? FOR UPDATE');
-            $count->execute([$profileId]);
-            $existing = (int) $count->fetchColumn();
-            if ($existing >= BankAccountRules::MAX_ACCOUNTS) {
-                throw new HttpException(409, 'เพิ่มบัญชีได้สูงสุด ' . BankAccountRules::MAX_ACCOUNTS . ' บัญชี', 'BANK_ACCOUNT_LIMIT');
-            }
-            $duplicate = $pdo->prepare('SELECT id FROM trainer_bank_accounts WHERE trainer_profile_id = ? AND account_number = ?');
-            $duplicate->execute([$profileId, $account['accountNumber']]);
-            if ($duplicate->fetchColumn() !== false) {
-                throw new HttpException(409, 'มีเลขบัญชีนี้แล้ว', 'BANK_ACCOUNT_EXISTS', ['accountNumber' => 'เลขบัญชีนี้บันทึกไว้แล้ว']);
-            }
-            // The first account is the default one; later ones only when asked.
-            $isDefault = $existing === 0 || $makeDefault;
-            if ($isDefault) {
-                $pdo->prepare('UPDATE trainer_bank_accounts SET is_default = 0 WHERE trainer_profile_id = ?')->execute([$profileId]);
-            }
-            $pdo->prepare(
-                'INSERT INTO trainer_bank_accounts (trainer_profile_id, bank_name, account_name, account_number, is_default)
-                 VALUES (?, ?, ?, ?, ?)'
-            )->execute([$profileId, $account['bankName'], $account['accountName'], $account['accountNumber'], (int) $isDefault]);
-            return $this->bankAccountList($pdo, $profileId);
-        });
-        Http::json(['accounts' => $accounts], 201);
-    }
-
-    public function updateBankAccount(string $accountId): never
-    {
-        $user = $this->auth->requireUser(['trainer']);
-        $account = BankAccountRules::validate(Http::body());
-        $accounts = $this->database->transaction(function (PDO $pdo) use ($user, $account, $accountId): array {
-            $profileId = $this->ownTrainerProfileId($pdo, $user);
-            $this->lockOwnBankAccount($pdo, $profileId, (int) $accountId);
-            $duplicate = $pdo->prepare('SELECT id FROM trainer_bank_accounts WHERE trainer_profile_id = ? AND account_number = ? AND id <> ?');
-            $duplicate->execute([$profileId, $account['accountNumber'], (int) $accountId]);
-            if ($duplicate->fetchColumn() !== false) {
-                throw new HttpException(409, 'มีเลขบัญชีนี้แล้ว', 'BANK_ACCOUNT_EXISTS', ['accountNumber' => 'เลขบัญชีนี้บันทึกไว้แล้ว']);
-            }
-            $pdo->prepare(
-                'UPDATE trainer_bank_accounts SET bank_name = ?, account_name = ?, account_number = ?, updated_at = UTC_TIMESTAMP()
-                 WHERE id = ?'
-            )->execute([$account['bankName'], $account['accountName'], $account['accountNumber'], (int) $accountId]);
-            return $this->bankAccountList($pdo, $profileId);
-        });
-        Http::json(['accounts' => $accounts]);
-    }
-
-    public function setDefaultBankAccount(string $accountId): never
-    {
-        $user = $this->auth->requireUser(['trainer']);
-        $accounts = $this->database->transaction(function (PDO $pdo) use ($user, $accountId): array {
-            $profileId = $this->ownTrainerProfileId($pdo, $user);
-            $this->lockOwnBankAccount($pdo, $profileId, (int) $accountId);
-            $pdo->prepare('UPDATE trainer_bank_accounts SET is_default = (id = ?) WHERE trainer_profile_id = ?')
-                ->execute([(int) $accountId, $profileId]);
-            return $this->bankAccountList($pdo, $profileId);
-        });
-        Http::json(['accounts' => $accounts]);
-    }
-
-    public function deleteBankAccount(string $accountId): never
-    {
-        $user = $this->auth->requireUser(['trainer']);
-        $accounts = $this->database->transaction(function (PDO $pdo) use ($user, $accountId): array {
-            $profileId = $this->ownTrainerProfileId($pdo, $user);
-            $row = $this->lockOwnBankAccount($pdo, $profileId, (int) $accountId);
-            $pdo->prepare('DELETE FROM trainer_bank_accounts WHERE id = ?')->execute([(int) $accountId]);
-            if ((bool) $row['is_default']) {
-                // Promote the oldest remaining account so members always see one.
-                $pdo->prepare(
-                    'UPDATE trainer_bank_accounts SET is_default = 1
-                     WHERE trainer_profile_id = ? ORDER BY created_at ASC, id ASC LIMIT 1'
-                )->execute([$profileId]);
-            }
-            return $this->bankAccountList($pdo, $profileId);
-        });
-        Http::json(['accounts' => $accounts]);
-    }
-
-    private function lockOwnBankAccount(PDO $pdo, int $profileId, int $accountId): array
-    {
-        $statement = $pdo->prepare('SELECT id, is_default FROM trainer_bank_accounts WHERE id = ? AND trainer_profile_id = ? FOR UPDATE');
-        $statement->execute([$accountId, $profileId]);
-        $row = $statement->fetch();
-        if (!$row) {
-            throw new HttpException(404, 'ไม่พบบัญชีธนาคาร', 'BANK_ACCOUNT_NOT_FOUND');
-        }
-        return $row;
     }
 
     public function createAvailabilitySlot(): never
@@ -626,7 +509,7 @@ final class Handlers
         Http::assertTextFields($request, [
             'firstName', 'lastName', 'phone', 'fitnessGoal', 'experienceLevel', 'weight', 'height', 'birthDate',
             'displayName', 'legalName', 'nickname', 'headline', 'bio', 'serviceMode', 'gymName', 'education',
-            'paymentAccountName', 'promptPayId', 'yearsExperience', 'priceFrom', 'monthlyPrice',
+            'yearsExperience', 'priceFrom', 'monthlyPrice',
             'monthlySessionCount',
         ]);
 
@@ -674,7 +557,7 @@ final class Handlers
             $stored = $this->database->fetchOne(
                 'SELECT tp.id, tp.legal_name, tp.nickname, tp.phone, tp.birth_date, tp.education, tp.headline, tp.bio,
                         tp.years_experience, tp.service_mode, tp.gym_name, tp.price_from, tp.monthly_price,
-                        tp.monthly_session_count, tp.payment_account_name, tp.promptpay_id, u.display_name
+                        tp.monthly_session_count, u.display_name
                  FROM users u JOIN trainer_profiles tp ON tp.user_id = u.id WHERE u.id = ?',
                 [$user['id']]
             );
@@ -700,8 +583,6 @@ final class Handlers
                 'priceFrom' => $stored['price_from'],
                 'monthlyPrice' => $stored['monthly_price'],
                 'monthlySessionCount' => $stored['monthly_session_count'],
-                'paymentAccountName' => $stored['payment_account_name'] ?? '',
-                'promptPayId' => $stored['promptpay_id'] ?? '',
                 'trainingTypeIds' => array_map(
                     fn(array $row): int => (int) $row['training_type_id'],
                     $storedTypes
@@ -736,7 +617,7 @@ final class Handlers
                     'UPDATE trainer_profiles
                      SET legal_name = ?, phone = ?, birth_date = ?, education = ?, headline = ?, bio = ?, years_experience = ?,
                          service_mode = ?, gym_name = ?, price_from = ?, monthly_price = ?, monthly_session_count = ?,
-                         payment_account_name = ?, promptpay_id = ?, updated_at = UTC_TIMESTAMP()
+                         updated_at = UTC_TIMESTAMP()
                      WHERE id = ?'
                 )->execute([
                     $profile['legalName'], self::blankToNull($profile['phone']), $profile['birthDate'],
@@ -744,7 +625,6 @@ final class Handlers
                     self::blankToNull($profile['bio']), $profile['yearsExperience'], $profile['serviceMode'],
                     $profile['serviceMode'] === 'freelance' ? null : $profile['gymName'], $profile['priceFrom'],
                     $profile['monthlyPrice'], $profile['monthlySessionCount'],
-                    $profile['paymentAccountName'], $profile['promptPayId'],
                     (int) $trainerProfile['id'],
                 ]);
                 $pdo->prepare('DELETE FROM trainer_training_types WHERE trainer_profile_id = ?')
@@ -861,37 +741,6 @@ final class Handlers
         ]);
     }
 
-    public function uploadTrainerPaymentQr(): never
-    {
-        $user = $this->auth->requireUser(['trainer']);
-        try {
-            $upload = $this->saveUpload('image', ['image/jpeg', 'image/png', 'image/webp'], 5 * 1024 * 1024, 'payment-qr');
-        } catch (HttpException $error) {
-            if (in_array($error->status, [413, 415], true)) {
-                throw new HttpException(422, $error->getMessage(), 'VALIDATION_FAILED', ['image' => $error->getMessage()]);
-            }
-            throw $error;
-        }
-
-        try {
-            [$profileId, $oldPath] = $this->database->transaction(function (PDO $pdo) use ($user, $upload): array {
-                $statement = $pdo->prepare('SELECT id, payment_qr_path FROM trainer_profiles WHERE user_id = ? FOR UPDATE');
-                $statement->execute([$user['id']]);
-                $profile = $statement->fetch();
-                if (!$profile) throw new HttpException(404, 'ไม่พบโปรไฟล์เทรนเนอร์', 'PROFILE_NOT_FOUND');
-                $pdo->prepare('UPDATE trainer_profiles SET payment_qr_path = ?, updated_at = UTC_TIMESTAMP() WHERE id = ?')
-                    ->execute([$upload['path'], $profile['id']]);
-                return [(int) $profile['id'], $profile['payment_qr_path'] === null ? null : (string) $profile['payment_qr_path']];
-            });
-        } catch (Throwable $error) {
-            $this->removeUpload($upload['path']);
-            throw $error;
-        }
-        if ($oldPath !== null) $this->removeUpload($oldPath);
-
-        Http::json(['paymentQrUrl' => "/v1/trainer-payment-qr/{$profileId}"]);
-    }
-
     public const MAX_TRAINER_PHOTOS = 6;
 
     /** The trainer's own gallery, for the profile manager. */
@@ -967,22 +816,6 @@ final class Handlers
             throw new HttpException(404, 'ไม่พบรูปภาพ', 'IMAGE_NOT_FOUND');
         }
         $this->serveUploadedImage((string) $record['path'], 'trainer-photos', 'fitconnect-trainer-photo-' . (int) $photoId, true);
-    }
-
-    public function deleteTrainerPaymentQr(): never
-    {
-        $user = $this->auth->requireUser(['trainer']);
-        $oldPath = $this->database->transaction(function (PDO $pdo) use ($user): ?string {
-            $statement = $pdo->prepare('SELECT payment_qr_path FROM trainer_profiles WHERE user_id = ? FOR UPDATE');
-            $statement->execute([$user['id']]);
-            $profile = $statement->fetch();
-            if (!$profile) throw new HttpException(404, 'ไม่พบโปรไฟล์เทรนเนอร์', 'PROFILE_NOT_FOUND');
-            $pdo->prepare('UPDATE trainer_profiles SET payment_qr_path = NULL, updated_at = UTC_TIMESTAMP() WHERE user_id = ?')
-                ->execute([$user['id']]);
-            return $profile['payment_qr_path'] === null ? null : (string) $profile['payment_qr_path'];
-        });
-        if ($oldPath !== null) $this->removeUpload($oldPath);
-        Http::json(['paymentQrUrl' => null]);
     }
 
     public function notifications(): never
@@ -1102,19 +935,6 @@ final class Handlers
         $this->serveUploadedImage((string) $record['image_path'], 'profile-images', 'fitconnect-profile-' . $role . '-' . (int) $userId, true);
     }
 
-    public function trainerPaymentQr(string $profileId): never
-    {
-        if ((int) $profileId <= 0) throw new HttpException(404, 'ไม่พบ QR รับเงิน', 'PAYMENT_QR_NOT_FOUND');
-        $record = $this->database->fetchOne(
-            'SELECT payment_qr_path FROM trainer_profiles WHERE id = ?',
-            [(int) $profileId]
-        );
-        if (!$record || !str_starts_with((string) ($record['payment_qr_path'] ?? ''), 'uploads/payment-qr/')) {
-            throw new HttpException(404, 'ไม่พบ QR รับเงิน', 'PAYMENT_QR_NOT_FOUND');
-        }
-        $this->serveUploadedImage((string) $record['payment_qr_path'], 'payment-qr', 'fitconnect-payment-qr-' . (int) $profileId, false);
-    }
-
     public function trainerApplication(): never
     {
         $user = $this->auth->requireUser(['trainer']);
@@ -1127,7 +947,7 @@ final class Handlers
         // `trainingTypeIds` is the field the form sends as a list.
         Http::assertTextFields(Http::body(), [
             'displayName', 'legalName', 'nickname', 'phone', 'headline', 'bio', 'serviceMode', 'gymName', 'education',
-            'paymentAccountName', 'promptPayId', 'birthDate', 'yearsExperience', 'priceFrom',
+            'birthDate', 'yearsExperience', 'priceFrom',
             'monthlyPrice', 'monthlySessionCount',
         ]);
         $profile = ProfileRules::trainer(Http::body());
@@ -1177,7 +997,6 @@ final class Handlers
                     'UPDATE trainer_profiles
                      SET legal_name = ?, phone = ?, birth_date = ?, education = ?, headline = ?, bio = ?, years_experience = ?,
                          service_mode = ?, gym_name = ?, price_from = ?, monthly_price = ?, monthly_session_count = ?,
-                         payment_account_name = ?, promptpay_id = ?,
                          approval_status = "pending", approval_note = NULL, reviewed_by_user_id = NULL, reviewed_at = NULL,
                          updated_at = UTC_TIMESTAMP()
                      WHERE id = ?'
@@ -1186,8 +1005,7 @@ final class Handlers
                     self::blankToNull($profile['education']), self::blankToNull($profile['headline']),
                     self::blankToNull($profile['bio']), $profile['yearsExperience'], $profile['serviceMode'],
                     $profile['serviceMode'] === 'freelance' ? null : self::blankToNull($profile['gymName']),
-                    $profile['priceFrom'], $profile['monthlyPrice'], $profile['monthlySessionCount'],
-                    $profile['paymentAccountName'], $profile['promptPayId'], $profileId,
+                    $profile['priceFrom'], $profile['monthlyPrice'], $profile['monthlySessionCount'], $profileId,
                 ]);
                 $pdo->prepare('UPDATE trainer_profiles SET nickname = ? WHERE id = ?')
                     ->execute([self::blankToNull($profile['nickname']), $profileId]);
@@ -1260,9 +1078,6 @@ final class Handlers
                     b.booking_type, b.session_count, b.period_start, b.period_end, b.payment_service_mode,
                     b.status, b.payment_status, b.payment_deadline_at, b.quoted_price, b.transfer_amount, b.created_at, b.is_demo,
                     tp.id AS trainer_id, tp.slug, tp.user_id AS trainer_user_id, tp.image_path AS trainer_image_path,
-                    tp.payment_account_name, tp.promptpay_id, tp.payment_qr_path,
-                    bank.bank_name AS bank_name, bank.account_name AS bank_account_name,
-                    bank.account_number AS bank_account_number,
                     trainer_user.display_name AS trainer_name,
                     b.member_user_id, member_user.display_name AS member_name,
                     mp.image_path AS member_image_path,
@@ -1280,7 +1095,6 @@ final class Handlers
              JOIN users member_user ON member_user.id = b.member_user_id
              LEFT JOIN member_profiles mp ON mp.user_id = b.member_user_id
              LEFT JOIN chat_rooms cr ON cr.booking_id = b.id
-             LEFT JOIN trainer_bank_accounts bank ON bank.trainer_profile_id = tp.id AND bank.is_default = 1
              LEFT JOIN payments pay ON pay.id = (
                  SELECT latest_payment.id FROM payments latest_payment
                  WHERE latest_payment.booking_id = b.id
@@ -1349,7 +1163,6 @@ final class Handlers
             $statement = $pdo->prepare(
                 'SELECT s.id, s.trainer_profile_id, s.starts_at, s.ends_at, s.state,
                         tp.approval_status, tp.price_from, tp.monthly_price, tp.monthly_session_count, tp.service_mode,
-                        tp.payment_account_name, tp.promptpay_id,
                         trainer_user.status AS trainer_user_status
                  FROM availability_slots s
                  JOIN trainer_profiles tp ON tp.id = s.trainer_profile_id
@@ -1378,9 +1191,6 @@ final class Handlers
             }
             $firstSlot = $slots[0];
             $paymentMode = PaymentRouting::serviceMode((string) $firstSlot['service_mode'], $input['paymentServiceMode'] ?? null);
-            if (empty($firstSlot['payment_account_name']) || preg_match('/^(?:0\d{9}|\d{13})$/', (string) ($firstSlot['promptpay_id'] ?? '')) !== 1) {
-                throw new HttpException(409, 'เทรนเนอร์ยังไม่ได้ตั้งค่าบัญชีรับเงิน', 'PAYMENT_RECIPIENT_NOT_READY');
-            }
             $lastSlot = $slots[count($slots) - 1];
             if ($bookingType === 'monthly') {
                 $sessionCount = (int) ($firstSlot['monthly_session_count'] ?? 0);
@@ -1401,36 +1211,17 @@ final class Handlers
                 $periodStart = null;
                 $periodEnd = null;
             }
-            // Every open booking paid into the same account gets its own satang,
-            // so one credit in the banking app matches exactly one booking. A
-            // freelance trainer's account is theirs alone; gym bookings share the
-            // gym's account, so they are kept apart across every gym trainer.
-            $openPlaceholders = implode(',', array_fill(0, count(SlipRules::OPEN_STATUSES), '?'));
-            $takenQuery = $paymentMode === 'gym'
-                ? 'SELECT transfer_amount FROM bookings WHERE payment_service_mode = "gym"
-                   AND status IN (' . $openPlaceholders . ') AND transfer_amount IS NOT NULL FOR UPDATE'
-                : 'SELECT transfer_amount FROM bookings WHERE trainer_profile_id = ? AND payment_service_mode = "freelance"
-                   AND status IN (' . $openPlaceholders . ') AND transfer_amount IS NOT NULL FOR UPDATE';
-            $takenStatement = $pdo->prepare($takenQuery);
-            $takenStatement->execute($paymentMode === 'gym'
-                ? SlipRules::OPEN_STATUSES
-                : [(int) $input['trainerId'], ...SlipRules::OPEN_STATUSES]);
-            $takenSatang = array_map(
-                static fn(array $row): int => ((int) round(((float) $row['transfer_amount']) * 100)) % 100,
-                $takenStatement->fetchAll()
-            );
-            $transferAmount = SlipRules::transferAmount((string) $quotedPrice, $takenSatang);
             $insert = $pdo->prepare(
                 'INSERT INTO bookings
                  (public_id, member_user_id, trainer_profile_id, availability_slot_id,
                   starts_at, ends_at, member_note, booking_type, session_count, period_start,
-                  period_end, quoted_price, transfer_amount, payment_service_mode, status, payment_status, payment_deadline_at)
-                 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, "pending_trainer", "not_submitted", NULL)'
+                  period_end, quoted_price, payment_service_mode, status, payment_status, payment_deadline_at)
+                 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, "pending_trainer", "not_submitted", NULL)'
             );
             $insert->execute([
                 $publicId, $user['id'], (int) $input['trainerId'], (int) $firstSlot['id'],
                 $firstSlot['starts_at'], $lastSlot['ends_at'], trim(Http::stringField($input, 'note')),
-                $bookingType, $sessionCount, $periodStart, $periodEnd, $quotedPrice, $transferAmount, $paymentMode,
+                $bookingType, $sessionCount, $periodStart, $periodEnd, $quotedPrice, $paymentMode,
             ]);
             $bookingId = (int) $pdo->lastInsertId();
             $insertSession = $pdo->prepare(
@@ -1458,7 +1249,6 @@ final class Handlers
                 'bookingType' => $bookingType,
                 'sessionCount' => $sessionCount,
                 'quotedPrice' => (float) $quotedPrice,
-                'transferAmount' => (float) $transferAmount,
                 // The ten minute payment clock starts when the trainer accepts.
                 'paymentDeadlineAt' => null,
             ];
@@ -1563,7 +1353,8 @@ final class Handlers
             );
             $reason = $memberReason !== '' ? $memberReason : ($booking['status'] === 'pending_trainer'
                 ? 'สมาชิกยกเลิกคำขอก่อนเทรนเนอร์ตอบรับ'
-                : 'สมาชิกยกเลิกก่อนส่งหลักฐานการชำระเงิน');
+                : 'สมาชิกยกเลิกก่อนชำระเงิน');
+            $this->checkoutsToExpire = [...$this->checkoutsToExpire, ...$this->closePendingCheckoutsInTransaction($pdo, (int) $booking['id'])];
 
             $pdo->prepare(
                 'UPDATE bookings
@@ -1637,34 +1428,26 @@ final class Handlers
                 if ($newStatus === 'awaiting_payment') {
                     // Accept the requested period before starting the ten minute payment clock.
                     WorkflowRules::assertTrainerDecision($currentStatus, 'accept');
-                    if ($booking['confirmed_starts_at'] !== null) {
-                        throw new HttpException(409, 'คุณตอบรับคำขอนี้แล้ว ระบบจะแจ้งสมาชิกตามรอบที่เลือก', 'INVALID_BOOKING_TRANSITION');
-                    }
-                    Http::requireFields($input, ['confirmedTime']);
-                    $sessionStart = new DateTimeImmutable((string) $booking['starts_at'], new DateTimeZone('UTC'));
-                    $release = WorkflowRules::confirmationRelease(
-                        Http::stringField($input, 'confirmedTime'),
+$deadline = WorkflowRules::acceptancePaymentDeadline(
                         new DateTimeImmutable('now', new DateTimeZone('UTC')),
-                        $sessionStart
+                        new DateTimeImmutable((string) $booking['starts_at'], new DateTimeZone('UTC'))
                     );
-                    // บทที่ 1: the training time stays as requested. The booking
-                    // waits for its 12:00 / 18:00 round; releaseScheduledAcceptances
-                    // then moves it to awaiting_payment and tells the member. The
-                    // payment deadline is stored now as round + 10 minutes, so the
-                    // round itself is always payment_deadline_at - 10 minutes.
+                    // The training time stays as requested; the member hears
+                    // about the acceptance now and has ten minutes to pay.
                     $pdo->prepare(
                         'UPDATE bookings
-                         SET confirmed_starts_at = starts_at, confirmed_ends_at = ends_at,
+                         SET status = "awaiting_payment", confirmed_starts_at = starts_at, confirmed_ends_at = ends_at,
                              payment_deadline_at = ?, updated_at = UTC_TIMESTAMP()
                          WHERE id = ?'
-                    )->execute([
-                        $release->modify('+' . WorkflowRules::PAYMENT_WINDOW_MINUTES . ' minutes')->format('Y-m-d H:i:s'),
-                        $booking['id'],
-                    ]);
-                    $pdo->prepare('INSERT INTO booking_status_history (booking_id, from_status, to_status, changed_by_user_id, note) VALUES (?, "pending_trainer", "pending_trainer", ?, ?)')
-                        ->execute([$booking['id'], $user['id'], 'เทรนเนอร์ตอบรับ รอแจ้งสมาชิกรอบ ' . Http::stringField($input, 'confirmedTime') . ' น.']);
-                    $result['status'] = 'pending_trainer';
-                    $result['confirmationReleaseAt'] = $this->iso($release->format('Y-m-d H:i:s'));
+                    )->execute([$deadline->format('Y-m-d H:i:s'), $booking['id']]);
+                    $pdo->prepare('INSERT INTO booking_status_history (booking_id, from_status, to_status, changed_by_user_id, note) VALUES (?, "pending_trainer", "awaiting_payment", ?, "เทรนเนอร์ตอบรับ สมาชิกชำระเงินได้ภายใน 10 นาที")')
+                        ->execute([$booking['id'], $user['id']]);
+                    $notificationIds = array_merge($notificationIds, $this->notifications->recordEvent(
+                        $pdo,
+                        NotificationRules::BOOKING_ACCEPTED,
+                        $this->bookingNotificationContext($pdo, (int) $booking['id'], 'pending_trainer', 'awaiting_payment')
+                    ));
+                    $result['paymentDeadlineAt'] = $this->iso($deadline->format('Y-m-d H:i:s'));
                     return $result;
                 } elseif ($newStatus === 'cancelled') {
                     // From pending_trainer this is a rejection, otherwise an
@@ -1754,6 +1537,13 @@ final class Handlers
             }
             if ($newStatus === 'cancelled') {
                 $cancelNote = $note;
+                // A paid booking is refunded in full (the trainer's transfer is
+                // reversed); an unpaid one has its open payment page closed.
+                if ($this->refundBookingPaymentInTransaction($pdo, (int) $booking['id'], $note === '' ? 'ยกเลิกการจอง' : $note)) {
+                    $pdo->prepare('INSERT INTO booking_status_history (booking_id, from_status, to_status, changed_by_user_id, note) VALUES (?, "cancelled", "cancelled", ?, "คืนเงินให้สมาชิกผ่านระบบชำระเงินแล้ว")')
+                        ->execute([$booking['id'], $user['id']]);
+                }
+                $this->checkoutsToExpire = [...$this->checkoutsToExpire, ...$this->closePendingCheckoutsInTransaction($pdo, (int) $booking['id'])];
                 // An administrator can cancel while a slip is still queued. Close
                 // that payment out too, otherwise it stays "reviewing" forever and
                 // decidePayment answers PAYMENT_ALREADY_REVIEWED with no way back.
@@ -1785,100 +1575,417 @@ final class Handlers
         Http::json($result);
     }
 
+    /**
+     * Starts (or resumes) Stripe Checkout for a booking waiting for payment and
+     * answers the hosted payment page URL. Replaces the bank-slip upload.
+     */
     public function payment(): never
     {
         $user = $this->auth->requireUser(['member']);
         $input = Http::body();
         Http::requireFields($input, ['bookingId']);
         $this->rateLimiter->hit(RateLimiter::PAYMENT_SLIP, 'user:' . $user['id']);
-        // The browser reads the slip's QR and sends its raw text. Only a payload
-        // with a valid CRC counts; anything else is stored as "not read" and the
-        // trainer checks that slip with extra care.
-        $slipQr = isset($input['slipQr']) && is_string($input['slipQr']) ? SlipRules::parseSlipQr($input['slipQr']) : null;
-        $file = $this->saveUpload(
-            'slip',
-            ['image/jpeg', 'image/png', 'image/webp', 'application/pdf'],
-            5 * 1024 * 1024,
-            'payments'
-        );
+        $stripe = $this->stripe();
+        $publicId = Http::stringField($input, 'bookingId');
         $notificationIds = [];
 
-        try {
-            $result = $this->database->transaction(function (PDO $pdo) use ($input, $user, $file, $slipQr, &$notificationIds): array {
-                $this->releaseScheduledAcceptancesInTransaction($pdo, $notificationIds);
+        $result = $this->database->transaction(function (PDO $pdo) use ($publicId, $user, $stripe, &$notificationIds): array {
                 $statement = $pdo->prepare(
-                    'SELECT id, status, availability_slot_id, payment_deadline_at, quoted_price, transfer_amount,
-                            UTC_TIMESTAMP() AS database_now
-                     FROM bookings
-                     WHERE public_id = ? AND member_user_id = ? FOR UPDATE'
-                );
-                $statement->execute([Http::stringField($input, 'bookingId'), $user['id']]);
-                $booking = $statement->fetch();
-                if (!$booking) {
-                    throw new HttpException(404, 'ไม่พบคำขอจอง', 'BOOKING_NOT_FOUND');
-                }
-                if ($booking['status'] !== 'awaiting_payment') {
-                    throw new HttpException(409, 'คำขอนี้ยังไม่อยู่ในขั้นส่งหลักฐานการชำระ', 'PAYMENT_NOT_READY');
-                }
-                if ($booking['payment_deadline_at'] === null) {
-                    throw new HttpException(409, 'คำขอนี้ไม่มีช่วงเวลาส่งหลักฐาน', 'PAYMENT_NOT_READY');
-                }
-                $deadline = new DateTimeImmutable((string) $booking['payment_deadline_at'], new DateTimeZone('UTC'));
-                $databaseNow = new DateTimeImmutable((string) $booking['database_now'], new DateTimeZone('UTC'));
-                if (WorkflowRules::isPaymentDeadlineExpired($deadline, $databaseNow)) {
-                    $slotId = $booking['availability_slot_id'] === null ? null : (int) $booking['availability_slot_id'];
-                    $this->expireAwaitingPaymentsInTransaction($pdo, $slotId, $notificationIds);
-                    return ['expired' => true, 'paymentId' => null];
-                }
+                'SELECT b.id, b.public_id, b.status, b.availability_slot_id, b.payment_deadline_at, b.quoted_price,
+                        b.booking_type, b.payment_service_mode, u.email AS member_email,
+                        tp.id AS trainer_profile_id, tp.stripe_account_id, tp.stripe_transfers_enabled,
+                        trainer_user.display_name AS trainer_name,
+                        UTC_TIMESTAMP() AS database_now
+                 FROM bookings b
+                 JOIN users u ON u.id = b.member_user_id
+                 JOIN trainer_profiles tp ON tp.id = b.trainer_profile_id
+                 JOIN users trainer_user ON trainer_user.id = tp.user_id
+                 WHERE b.public_id = ? AND b.member_user_id = ? FOR UPDATE'
+            );
+            $statement->execute([$publicId, $user['id']]);
+            $booking = $statement->fetch();
+            if (!$booking) {
+                throw new HttpException(404, 'ไม่พบคำขอจอง', 'BOOKING_NOT_FOUND');
+            }
+            if ($booking['status'] !== 'awaiting_payment' || $booking['payment_deadline_at'] === null) {
+                throw new HttpException(409, 'คำขอนี้ยังไม่อยู่ในขั้นชำระเงิน', 'PAYMENT_NOT_READY');
+            }
+            $deadline = new DateTimeImmutable((string) $booking['payment_deadline_at'], new DateTimeZone('UTC'));
+            $databaseNow = new DateTimeImmutable((string) $booking['database_now'], new DateTimeZone('UTC'));
+            if (WorkflowRules::isPaymentDeadlineExpired($deadline, $databaseNow)) {
+                $slotId = $booking['availability_slot_id'] === null ? null : (int) $booking['availability_slot_id'];
+                $this->expireAwaitingPaymentsInTransaction($pdo, $slotId, $notificationIds);
+                return ['expired' => true];
+            }
+            if ($booking['quoted_price'] === null) {
+                throw new HttpException(409, 'การจองนี้ยังไม่มียอดชำระ', 'PAYMENT_AMOUNT_UNAVAILABLE');
+            }
 
-                if ($booking['quoted_price'] === null) {
-                    throw new HttpException(409, 'การจองนี้ยังไม่มียอดชำระ', 'PAYMENT_AMOUNT_UNAVAILABLE');
+            // A member who comes back to the page resumes the session already open.
+            $open = $pdo->prepare(
+                'SELECT id, stripe_checkout_session_id, stripe_destination_account FROM payments
+                 WHERE booking_id = ? AND status = "pending" AND stripe_checkout_session_id IS NOT NULL
+                 ORDER BY id DESC LIMIT 1'
+            );
+            $open->execute([$booking['id']]);
+            $existing = $open->fetch();
+            if ($existing) {
+                $session = $stripe->get(
+                    '/v1/checkout/sessions/' . rawurlencode((string) $existing['stripe_checkout_session_id']),
+                    [],
+                    $existing['stripe_destination_account']
+                );
+                $outcome = StripePayments::sessionOutcome($session);
+                if ($outcome === 'open' && !empty($session['url'])) {
+                    return ['expired' => false, 'url' => (string) $session['url']];
                 }
-                // The amount the trainer must find is the exact transfer amount,
-                // satang included; bookings from before it existed use the price.
-                $amount = WorkflowRules::normalizeMoney($booking['transfer_amount'] ?? $booking['quoted_price'], 'amount');
-                if ($slipQr !== null) {
-                    $reused = $pdo->prepare('SELECT id FROM payments WHERE transaction_ref = ? LIMIT 1');
-                    $reused->execute([$slipQr['key']]);
-                    if ($reused->fetch()) {
-                        throw new HttpException(409, 'สลิปนี้เคยส่งเป็นหลักฐานแล้ว กรุณาโอนและใช้สลิปของรายการนี้', 'SLIP_ALREADY_USED');
-                    }
+                if ($outcome === 'paid') {
+                    return ['expired' => false, 'url' => null, 'alreadyPaid' => true];
                 }
-                try {
-                    $pdo->prepare(
-                        'INSERT INTO payments (booking_id, submitted_by_user_id, amount, transaction_ref, window_ends_at, slip_path, mime_type, status, submitted_at)
-                         VALUES (?, ?, ?, ?, ?, ?, ?, "reviewing", UTC_TIMESTAMP())'
-                    )->execute([$booking['id'], $user['id'], $amount, $slipQr['key'] ?? null, $booking['payment_deadline_at'], $file['path'], $file['mime']]);
-                } catch (PDOException $insertError) {
-                    // Two uploads of one slip at the same moment: the unique
-                    // index is the last word.
-                    if ($insertError->getCode() === '23000') {
-                        throw new HttpException(409, 'สลิปนี้เคยส่งเป็นหลักฐานแล้ว กรุณาโอนและใช้สลิปของรายการนี้', 'SLIP_ALREADY_USED');
-                    }
-                    throw $insertError;
-                }
-                $paymentId = (int) $pdo->lastInsertId();
-                $pdo->prepare('UPDATE bookings SET status = "payment_review", payment_status = "reviewing", payment_deadline_at = NULL, updated_at = UTC_TIMESTAMP() WHERE id = ?')
-                    ->execute([$booking['id']]);
-                $pdo->prepare('INSERT INTO booking_status_history (booking_id, from_status, to_status, changed_by_user_id, note) VALUES (?, "awaiting_payment", "payment_review", ?, "สมาชิกอัปโหลดสลิป")')
-                    ->execute([$booking['id'], $user['id']]);
-                $notificationIds = array_merge($notificationIds, $this->notifications->recordEvent(
-                    $pdo,
-                    NotificationRules::PAYMENT_SUBMITTED,
-                    $this->bookingNotificationContext($pdo, (int) $booking['id'], 'awaiting_payment', 'payment_review')
-                ));
-                return ['expired' => false, 'paymentId' => $paymentId];
-            });
-        } catch (Throwable $error) {
-            $this->removeUpload($file['path']);
-            throw $error;
-        }
+                $pdo->prepare('UPDATE payments SET status = "rejected", review_note = "ปิดหน้าชำระเงินก่อนชำระสำเร็จ" WHERE id = ?')
+                    ->execute([$existing['id']]);
+            }
+
+            $destination = null;
+            if ($booking['payment_service_mode'] === 'freelance') {
+                $destination = $this->readyStripeAccount($pdo, $booking);
+            }
+            $amount = StripePayments::toSatang($booking['quoted_price']);
+            $fee = $destination === null ? 0 : StripePayments::applicationFee(
+                $amount,
+                (float) ($this->config['stripe']['platform_fee_percent'] ?? 0)
+            );
+            $appUrl = (string) $this->config['app_url'];
+            $bookingParam = rawurlencode((string) $booking['public_id']);
+            $params = StripePayments::checkoutSessionParams([
+                'publicId' => (string) $booking['public_id'],
+                'amountSatang' => $amount,
+                'description' => ($booking['booking_type'] === 'monthly' ? 'แพ็กเกจรายเดือนกับ ' : 'ค่าฝึกกับ ')
+                    . $booking['trainer_name'] . ' (' . $booking['public_id'] . ')',
+                'memberEmail' => $booking['member_email'] ?? null,
+                'serviceMode' => (string) $booking['payment_service_mode'],
+                'destination' => $destination,
+                'feeSatang' => $fee,
+                'successUrl' => $appUrl . '/member?booking=' . $bookingParam . '&checkout=success',
+                'cancelUrl' => $appUrl . '/member?booking=' . $bookingParam . '&checkout=cancelled',
+                // The booking's own ten minutes still rule: the expiry sweep closes
+                // the session, and a payment that lands late is refunded.
+                'expiresAt' => time() + StripePayments::MINIMUM_SESSION_MINUTES * 60 + 60,
+            ]);
+            // A freelance session is a direct charge on the trainer's account.
+            $session = $stripe->post('/v1/checkout/sessions', $params, 'checkout-' . $booking['public_id'] . '-' . bin2hex(random_bytes(6)), $destination);
+            $pdo->prepare(
+                'INSERT INTO payments (booking_id, submitted_by_user_id, amount, window_ends_at, stripe_checkout_session_id,
+                                       stripe_destination_account, application_fee, status, submitted_at)
+                 VALUES (?, ?, ?, ?, ?, ?, ?, "pending", UTC_TIMESTAMP())'
+            )->execute([
+                $booking['id'], $user['id'], number_format($amount / 100, 2, '.', ''), $booking['payment_deadline_at'],
+                $session['id'], $destination, $fee === 0 ? null : number_format($fee / 100, 2, '.', ''),
+            ]);
+            return ['expired' => false, 'url' => (string) $session['url']];
+        });
         $this->notifications->deliverByIds($notificationIds);
         if ($result['expired']) {
-            $this->removeUpload($file['path']);
-            throw new HttpException(409, 'หมดเวลาส่งหลักฐาน กรุณาเลือกเวลาใหม่', 'PAYMENT_DEADLINE_EXPIRED');
+            throw new HttpException(409, 'หมดเวลาชำระเงิน กรุณาเลือกเวลาใหม่', 'PAYMENT_DEADLINE_EXPIRED');
         }
-        Http::json(['paymentId' => $result['paymentId'], 'bookingId' => $input['bookingId'], 'status' => 'reviewing', 'slipQrRead' => $slipQr !== null, 'message' => 'ส่งสลิปให้เทรนเนอร์ตรวจแล้ว'], 201);
+        if (!empty($result['alreadyPaid'])) {
+            $this->syncBookingCheckout($publicId, (int) $user['id']);
+            throw new HttpException(409, 'การจองนี้ชำระเงินแล้ว', 'PAYMENT_ALREADY_COMPLETED');
+        }
+        Http::json(['bookingId' => $publicId, 'checkoutUrl' => $result['url']], 201);
+    }
+
+    /**
+     * The member lands back from Checkout. Asks Stripe for the session instead
+     * of waiting for the webhook, so a local setup without a public webhook URL
+     * still confirms the booking.
+     */
+    public function confirmPayment(): never
+    {
+        $user = $this->auth->requireUser(['member']);
+        $input = Http::body();
+        Http::requireFields($input, ['bookingId']);
+        $publicId = Http::stringField($input, 'bookingId');
+        $outcome = $this->syncBookingCheckout($publicId, (int) $user['id']);
+        Http::json(['bookingId' => $publicId, 'outcome' => $outcome]);
+    }
+
+    /** Stripe webhook: Checkout Session outcomes and connected account updates. */
+    public function stripeWebhook(): never
+    {
+        $payload = (string) file_get_contents('php://input');
+        $event = $this->stripe()->verifyWebhook($payload, (string) ($_SERVER['HTTP_STRIPE_SIGNATURE'] ?? ''));
+        $eventId = (string) ($event['id'] ?? '');
+        $type = (string) $event['type'];
+        $object = is_array($event['data']['object'] ?? null) ? $event['data']['object'] : [];
+
+        if ($this->database->fetchOne('SELECT id FROM stripe_events WHERE id = ?', [$eventId])) {
+            Http::json(['received' => true, 'duplicate' => true]);
+        }
+        if (str_starts_with($type, 'checkout.session.') && isset($object['id'])) {
+            // The event body can be stale; the session is read back from Stripe.
+            // Freelance sessions live on the trainer's account (event.account).
+            $account = isset($event['account']) ? (string) $event['account'] : null;
+            $this->applyCheckoutSession(
+                $this->stripe()->get('/v1/checkout/sessions/' . rawurlencode((string) $object['id']), [], $account),
+                $account
+            );
+        }
+        $this->database->execute('INSERT IGNORE INTO stripe_events (id, type) VALUES (?, ?)', [$eventId, $type]);
+        Http::json(['received' => true]);
+    }
+
+    /** The trainer's Stripe payout status for the money tab. */
+    public function trainerStripeStatus(): never
+    {
+        $user = $this->auth->requireUser(['trainer']);
+        $profile = $this->database->fetchOne(
+            'SELECT id, stripe_account_id, stripe_transfers_enabled FROM trainer_profiles WHERE user_id = ?',
+            [$user['id']]
+        );
+        if (!$profile) {
+            throw new HttpException(404, 'ไม่พบโปรไฟล์เทรนเนอร์', 'TRAINER_NOT_FOUND');
+        }
+        $enabled = (bool) $profile['stripe_transfers_enabled'];
+        if ($profile['stripe_account_id'] !== null && $this->stripe()->enabled()) {
+            $enabled = StripePayments::chargesEnabled($this->connectedAccount((string) $profile['stripe_account_id']));
+            $this->database->execute('UPDATE trainer_profiles SET stripe_transfers_enabled = ? WHERE id = ?', [$enabled ? 1 : 0, $profile['id']]);
+        }
+        Http::json([
+            'configured' => $this->stripe()->enabled(),
+            'testMode' => $this->stripe()->testMode(),
+            'connected' => $profile['stripe_account_id'] !== null,
+            'payoutsReady' => $enabled,
+        ]);
+    }
+
+    /**
+     * Creates the trainer's connected account on first use and answers a
+     * Stripe-hosted onboarding link. Thai platforms cannot carry connected
+     * account losses, so the account takes its own charges (direct charges)
+     * with Stripe owning risk and the full Stripe Dashboard.
+     */
+    public function trainerStripeOnboarding(): never
+    {
+        $user = $this->auth->requireUser(['trainer']);
+        $stripe = $this->stripe();
+        $profile = $this->database->fetchOne(
+            'SELECT tp.id, tp.stripe_account_id, u.email, u.display_name
+             FROM trainer_profiles tp JOIN users u ON u.id = tp.user_id WHERE tp.user_id = ?',
+            [$user['id']]
+        );
+        if (!$profile) {
+            throw new HttpException(404, 'ไม่พบโปรไฟล์เทรนเนอร์', 'TRAINER_NOT_FOUND');
+        }
+        $accountId = $profile['stripe_account_id'];
+        if ($accountId === null) {
+            $account = $stripe->postV2('/v2/core/accounts', StripePayments::connectedAccountBody(
+                (string) $profile['email'],
+                (string) $profile['display_name'],
+                (int) $profile['id']
+            ), 'trainer-account-v2-' . $profile['id']);
+            $accountId = (string) $account['id'];
+            $this->database->execute(
+                'UPDATE trainer_profiles SET stripe_account_id = ? WHERE id = ? AND stripe_account_id IS NULL',
+                [$accountId, $profile['id']]
+            );
+        }
+        $appUrl = (string) $this->config['app_url'];
+        $link = $stripe->postV2('/v2/core/account_links', [
+            'account' => $accountId,
+            'use_case' => [
+                'type' => 'account_onboarding',
+                'account_onboarding' => [
+                    'configurations' => ['merchant'],
+                    'refresh_url' => $appUrl . '/trainer?stripe=refresh',
+                    'return_url' => $appUrl . '/trainer?stripe=return',
+                ],
+            ],
+        ]);
+        Http::json(['url' => (string) $link['url']], 201);
+    }
+
+    /** The trainer signs in to their own full Stripe Dashboard. */
+    public function trainerStripeDashboard(): never
+    {
+        $user = $this->auth->requireUser(['trainer']);
+        $profile = $this->database->fetchOne('SELECT stripe_account_id FROM trainer_profiles WHERE user_id = ?', [$user['id']]);
+        if (!$profile || $profile['stripe_account_id'] === null) {
+            throw new HttpException(409, 'ยังไม่ได้เชื่อมบัญชีรับเงิน', 'TRAINER_PAYOUTS_NOT_READY');
+        }
+        Http::json(['url' => 'https://dashboard.stripe.com/' . rawurlencode((string) $profile['stripe_account_id'])], 201);
+    }
+
+    private function connectedAccount(string $accountId): array
+    {
+        return $this->stripe()->getV2('/v2/core/accounts/' . rawurlencode($accountId), ['include' => 'configuration.merchant']);
+    }
+
+    private function stripe(): StripeClient
+    {
+        return $this->stripeClient ??= new StripeClient(
+            (string) ($this->config['stripe']['secret_key'] ?? ''),
+            (string) ($this->config['stripe']['webhook_secret'] ?? '')
+        );
+    }
+
+    /** The freelance trainer's connected account, refreshed from Stripe when not yet marked ready. */
+    private function readyStripeAccount(PDO $pdo, array $booking): string
+    {
+        $accountId = $booking['stripe_account_id'];
+        if ($accountId === null) {
+            throw new HttpException(409, 'เทรนเนอร์ยังไม่ได้เปิดรับเงินออนไลน์ กรุณาติดต่อเทรนเนอร์ผ่านแชท', 'TRAINER_PAYOUTS_NOT_READY');
+        }
+        if (!(bool) $booking['stripe_transfers_enabled']) {
+            if (!StripePayments::chargesEnabled($this->connectedAccount((string) $accountId))) {
+                throw new HttpException(409, 'บัญชีรับเงินของเทรนเนอร์ยังยืนยันตัวตนไม่เสร็จ กรุณาติดต่อเทรนเนอร์ผ่านแชท', 'TRAINER_PAYOUTS_NOT_READY');
+            }
+            $pdo->prepare('UPDATE trainer_profiles SET stripe_transfers_enabled = 1 WHERE id = ?')->execute([$booking['trainer_profile_id']]);
+        }
+        return (string) $accountId;
+    }
+
+    /** Reads the booking's latest Checkout Session from Stripe and applies it. */
+    private function syncBookingCheckout(string $publicId, int $memberUserId): string
+    {
+        $row = $this->database->fetchOne(
+            'SELECT pay.stripe_checkout_session_id, pay.stripe_destination_account FROM payments pay JOIN bookings b ON b.id = pay.booking_id
+             WHERE b.public_id = ? AND b.member_user_id = ? AND pay.stripe_checkout_session_id IS NOT NULL
+             ORDER BY pay.id DESC LIMIT 1',
+            [$publicId, $memberUserId]
+        );
+        if (!$row) {
+            throw new HttpException(404, 'ไม่พบรายการชำระเงินของการจองนี้', 'PAYMENT_NOT_FOUND');
+        }
+        $account = $row['stripe_destination_account'];
+        $session = $this->stripe()->get('/v1/checkout/sessions/' . rawurlencode((string) $row['stripe_checkout_session_id']), [], $account);
+        return $this->applyCheckoutSession($session, $account);
+    }
+
+    /**
+     * The single place a Checkout Session changes a booking. Safe to run more
+     * than once for the same session (webhook redelivery, return page reload).
+     * A payment for a booking that no longer waits for one (expired or
+     * cancelled meanwhile) is refunded in full.
+     */
+    private function applyCheckoutSession(array $session, ?string $account = null): string
+    {
+        $outcome = StripePayments::sessionOutcome($session);
+        $notificationIds = [];
+        $this->database->transaction(function (PDO $pdo) use ($session, $outcome, $account, &$notificationIds): void {
+            $statement = $pdo->prepare(
+                'SELECT pay.id, pay.status, pay.booking_id, pay.stripe_destination_account,
+                        b.status AS booking_status, b.availability_slot_id
+                 FROM payments pay JOIN bookings b ON b.id = pay.booking_id
+                 WHERE pay.stripe_checkout_session_id = ? FOR UPDATE'
+            );
+            $statement->execute([(string) ($session['id'] ?? '')]);
+            $payment = $statement->fetch();
+            if (!$payment || in_array($payment['status'], ['approved', 'refunded'], true) || $outcome === 'open') {
+                return;
+            }
+            if ($outcome === 'closed') {
+                $pdo->prepare('UPDATE payments SET status = "rejected", review_note = "ไม่ได้ชำระเงินในหน้าชำระเงิน", reviewed_at = UTC_TIMESTAMP() WHERE id = ? AND status = "pending"')
+                    ->execute([$payment['id']]);
+                return;
+            }
+            $paymentIntent = is_array($session['payment_intent'] ?? null)
+                ? (string) ($session['payment_intent']['id'] ?? '')
+                : (string) ($session['payment_intent'] ?? '');
+
+            if ($payment['booking_status'] !== 'awaiting_payment') {
+                // Paid after the window closed or after a cancellation.
+                $chargeAccount = $payment['stripe_destination_account'] ?? $account;
+                $refund = StripePayments::refundParams($paymentIntent, $chargeAccount !== null, 'booking_not_awaiting_payment');
+                $this->stripe()->post('/v1/refunds', $refund, 'refund-' . md5(StripeClient::encode($refund)), $chargeAccount);
+                $pdo->prepare('UPDATE payments SET status = "refunded", stripe_payment_intent_id = ?, refunded_at = UTC_TIMESTAMP(), review_note = "ชำระหลังหมดเวลาหรือหลังยกเลิก ระบบคืนเงินอัตโนมัติ", reviewed_at = UTC_TIMESTAMP() WHERE id = ?')
+                    ->execute([$paymentIntent, $payment['id']]);
+                $pdo->prepare('INSERT INTO booking_status_history (booking_id, from_status, to_status, changed_by_user_id, note) VALUES (?, ?, ?, NULL, "ชำระเงินหลังการจองปิดแล้ว ระบบคืนเงินอัตโนมัติ")')
+                    ->execute([$payment['booking_id'], $payment['booking_status'], $payment['booking_status']]);
+                return;
+            }
+
+            $pdo->prepare('UPDATE payments SET status = "approved", stripe_payment_intent_id = ?, reviewed_at = UTC_TIMESTAMP() WHERE id = ?')
+                ->execute([$paymentIntent, $payment['id']]);
+            $pdo->prepare('UPDATE bookings SET status = "confirmed", payment_status = "approved", payment_deadline_at = NULL, updated_at = UTC_TIMESTAMP() WHERE id = ?')
+                ->execute([$payment['booking_id']]);
+            $pdo->prepare('INSERT INTO booking_status_history (booking_id, from_status, to_status, changed_by_user_id, note) VALUES (?, "awaiting_payment", "confirmed", NULL, "ชำระเงินออนไลน์สำเร็จ")')
+                ->execute([$payment['booking_id']]);
+            $this->setBookingSlotsState($pdo, (int) $payment['booking_id'], $payment['availability_slot_id'], 'booked');
+            $notificationIds = array_merge($notificationIds, $this->notifications->recordEvent(
+                $pdo,
+                NotificationRules::PAYMENT_APPROVED,
+                $this->bookingNotificationContext($pdo, (int) $payment['booking_id'], 'awaiting_payment', 'confirmed')
+            ));
+        });
+        $this->notifications->deliverByIds($notificationIds);
+        return $outcome;
+    }
+
+    /**
+     * Closes Checkout Sessions whose booking stopped waiting for payment. Best effort.
+     *
+     * @param list<array{0: string, 1: ?string}> $sessions session id and the account it lives on
+     */
+    private function expireCheckoutSessions(array $sessions): void
+    {
+        if ($sessions === [] || !$this->stripe()->enabled()) {
+            return;
+        }
+        foreach ($sessions as [$sessionId, $account]) {
+            try {
+                $this->stripe()->post('/v1/checkout/sessions/' . rawurlencode($sessionId) . '/expire', [], null, $account);
+            } catch (HttpException) {
+                // Already paid or already closed; applyCheckoutSession settles either.
+            }
+        }
+    }
+
+    /** Open Checkout Sessions of one booking, closed in the database as the booking closes. */
+    private function closePendingCheckoutsInTransaction(PDO $pdo, int $bookingId): array
+    {
+        $statement = $pdo->prepare(
+            'SELECT stripe_checkout_session_id, stripe_destination_account FROM payments
+             WHERE booking_id = ? AND status = "pending" AND stripe_checkout_session_id IS NOT NULL FOR UPDATE'
+        );
+        $statement->execute([$bookingId]);
+        $ids = array_map(
+            static fn(array $row): array => [(string) $row['stripe_checkout_session_id'], $row['stripe_destination_account']],
+            $statement->fetchAll()
+        );
+        $pdo->prepare('UPDATE payments SET status = "rejected", review_note = "การจองปิดก่อนชำระเงิน", reviewed_at = UTC_TIMESTAMP() WHERE booking_id = ? AND status = "pending"')
+            ->execute([$bookingId]);
+        return $ids;
+    }
+
+    /** Refunds the booking's Stripe payment in full, reversing the trainer's transfer. */
+    private function refundBookingPaymentInTransaction(PDO $pdo, int $bookingId, string $reason): bool
+    {
+        $statement = $pdo->prepare(
+            'SELECT id, stripe_payment_intent_id, stripe_destination_account FROM payments
+             WHERE booking_id = ? AND status = "approved" AND stripe_payment_intent_id IS NOT NULL FOR UPDATE'
+        );
+        $statement->execute([$bookingId]);
+        $refunded = false;
+        foreach ($statement->fetchAll() as $payment) {
+            $refund = StripePayments::refundParams(
+                (string) $payment['stripe_payment_intent_id'],
+                $payment['stripe_destination_account'] !== null,
+                'booking_cancelled'
+            );
+            // The key carries the parameters, so a corrected retry is not
+            // answered with an earlier refused request.
+            $this->stripe()->post(
+                '/v1/refunds',
+                $refund,
+                'refund-' . md5(StripeClient::encode($refund)),
+                $payment['stripe_destination_account']
+            );
+            $pdo->prepare('UPDATE payments SET status = "refunded", refunded_at = UTC_TIMESTAMP(), review_note = ? WHERE id = ?')
+                ->execute([mb_substr('คืนเงินเพราะยกเลิกการจอง: ' . $reason, 0, 1000), $payment['id']]);
+            $refunded = true;
+        }
+        return $refunded;
     }
 
     public function messages(string $roomId): never
@@ -3010,17 +3117,10 @@ final class Handlers
 
     public function adminReviewQueue(): never
     {
-        $admin = $this->auth->requireUser(['admin', 'trainer']);
-        $permissions = $admin['role'] === 'admin'
-            ? $this->adminPermissions((int) $admin['id'])
-            : array_merge($this->adminPermissionsFromRow([]), ['reviewPayments' => true]);
-        // The queue is a read view: an administrator follows the gym's slips
-        // here without deciding them, so it uses the view scope. Approving and
-        // rejecting stay on decisionScope in decidePayment.
-        [$paymentScope, $paymentParams] = PaymentRouting::scope($admin);
-        if (!$permissions['reviewTrainers'] && !$permissions['reviewPayments']) {
-            throw new HttpException(403, 'บัญชีนี้ไม่มีสิทธิ์เปิดคิวตรวจสอบ', 'ADMIN_PERMISSION_REQUIRED');
-        }
+        // Payments settle through Stripe, so the queue holds trainer
+        // applications only.
+        $this->requireAdminPermission('review_trainers');
+        $permissions = ['reviewTrainers' => true];
         $trainers = $permissions['reviewTrainers'] ? $this->database->fetchAll(
             'SELECT tp.id, tp.slug, tp.created_at, tp.is_demo, u.display_name, COUNT(tc.id) AS certificate_count
              FROM trainer_profiles tp
@@ -3029,22 +3129,6 @@ final class Handlers
              WHERE tp.approval_status = "pending"
              GROUP BY tp.id ORDER BY tp.created_at ASC LIMIT 100'
         ) : [];
-        $payments = $permissions['reviewPayments'] ? $this->database->fetchAll(
-            'SELECT pay.id, pay.submitted_at, pay.amount, pay.transaction_ref, pay.window_ends_at,
-                    b.public_id AS booking_public_id,
-                    COALESCE(b.confirmed_starts_at, b.starts_at) AS starts_at,
-                    COALESCE(b.confirmed_ends_at, b.ends_at) AS ends_at,
-                    b.booking_type, b.quoted_price, b.is_demo,
-                    member_user.display_name AS member_name, trainer_user.display_name AS trainer_name
-             FROM payments pay
-             JOIN bookings b ON b.id = pay.booking_id
-             JOIN users member_user ON member_user.id = pay.submitted_by_user_id
-             JOIN trainer_profiles tp ON tp.id = b.trainer_profile_id
-             JOIN users trainer_user ON trainer_user.id = tp.user_id
-             WHERE pay.status = "reviewing" AND ' . $paymentScope . ' ORDER BY pay.submitted_at ASC LIMIT 100',
-            $paymentParams
-        ) : [];
-
         $certificatesByTrainer = [];
         if ($trainers !== []) {
             $trainerIds = array_map(fn(array $row): int => (int) $row['id'], $trainers);
@@ -3078,129 +3162,7 @@ final class Handlers
                 'submittedAt' => $this->iso($row['created_at']),
                 'demo' => (bool) $row['is_demo'],
             ], $trainers),
-            'payments' => array_map(fn(array $row): array => [
-                'id' => (int) $row['id'],
-                'bookingId' => $row['booking_public_id'],
-                'bookingType' => $row['booking_type'] ?? 'single',
-                'memberName' => $row['member_name'],
-                'trainerName' => $row['trainer_name'],
-                'startsAt' => $this->iso($row['starts_at']),
-                'endsAt' => $this->iso($row['ends_at']),
-                'quotedPrice' => $row['quoted_price'] === null ? null : (float) $row['quoted_price'],
-                'amount' => $row['amount'] === null ? null : (float) $row['amount'],
-                'difference' => $row['amount'] === null || $row['quoted_price'] === null
-                    ? null
-                    : (float) $row['amount'] - (float) $row['quoted_price'],
-                'submittedAt' => $this->iso($row['submitted_at']),
-                // First-line slip checks: the QR reference (null when it could not be
-                // read) and the window the transfer had to fall in.
-                'slipReference' => $row['transaction_ref'] ?? null,
-                'windowEndsAt' => empty($row['window_ends_at']) ? null : $this->iso($row['window_ends_at']),
-                'fileUrl' => '/v1/admin/files/payment/' . $row['id'],
-                'demo' => (bool) $row['is_demo'],
-            ], $payments),
         ]);
-    }
-
-    public function decidePayment(string $paymentId, string $decision): never
-    {
-        $admin = $this->auth->requireUser(['admin', 'trainer']);
-        if ($admin['role'] !== 'trainer') {
-            throw new HttpException(403, 'เทรนเนอร์ของการจองเป็นผู้ยืนยันหลักฐานการชำระเงิน', 'TRAINER_CONFIRMS_PAYMENT');
-        }
-        if (!in_array($decision, ['approve', 'reject'], true)) {
-            throw new HttpException(404, 'ไม่พบการทำงานนี้', 'NOT_FOUND');
-        }
-        $input = Http::body();
-        $bankConfirmed = filter_var($input['bankConfirmed'] ?? false, FILTER_VALIDATE_BOOL);
-        $notificationIds = [];
-        $result = $this->database->transaction(function (PDO $pdo) use ($paymentId, $decision, $input, $admin, $bankConfirmed, &$notificationIds): array {
-            [$scope, $params] = PaymentRouting::decisionScope($admin);
-            $statement = $pdo->prepare(
-                'SELECT pay.id, pay.status, pay.booking_id, b.public_id, b.status AS booking_status,
-                        b.availability_slot_id, UTC_TIMESTAMP() AS database_now
-                 FROM payments pay JOIN bookings b ON b.id = pay.booking_id
-                 JOIN trainer_profiles tp ON tp.id = b.trainer_profile_id
-                 WHERE pay.id = ? AND ' . $scope . ' FOR UPDATE'
-            );
-            $statement->execute([(int) $paymentId, ...$params]);
-            $payment = $statement->fetch();
-            if (!$payment) {
-                throw new HttpException(404, 'ไม่พบหลักฐานการชำระ', 'PAYMENT_NOT_FOUND');
-            }
-            // The bank confirmation is demanded only once the payment exists:
-            // answering 422 for an id that has no row sent the reviewer back to
-            // confirm a payment that was never there.
-            if ($decision === 'approve' && !$bankConfirmed) {
-                throw new HttpException(422, 'กรุณาตรวจรายการเงินจริงในแอปธนาคารก่อนอนุมัติ', 'BANK_CONFIRMATION_REQUIRED', [
-                    'bankConfirmed' => 'ยืนยันว่าเลขอ้างอิง ผู้รับ ยอดเงิน และเวลาตรงกับรายการเงินจริง',
-                ]);
-            }
-            $note = trim(Http::stringField($input, 'note'));
-            WorkflowRules::assertPaymentDecision(
-                (string) $payment['status'],
-                (string) $payment['booking_status'],
-                $decision,
-                $note
-            );
-            $paymentStatus = $decision === 'approve' ? 'approved' : 'rejected';
-            $paymentDeadline = null;
-            if ($decision === 'approve') {
-                $bookingStatus = 'confirmed';
-                $slotState = 'booked';
-            } else {
-                $rejectedCount = $pdo->prepare(
-                    'SELECT COUNT(*) FROM payments WHERE booking_id = ? AND status = "rejected" AND id <> ?'
-                );
-                $rejectedCount->execute([$payment['booking_id'], $payment['id']]);
-                $transition = WorkflowRules::paymentRejectionTransition(
-                    (int) $rejectedCount->fetchColumn(),
-                    new DateTimeImmutable((string) $payment['database_now'], new DateTimeZone('UTC'))
-                );
-                $bookingStatus = $transition['bookingStatus'];
-                $slotState = $transition['slotState'];
-                $paymentDeadline = $transition['paymentDeadlineAt'];
-            }
-            $pdo->prepare('UPDATE payments SET status = ?, review_note = ?, reviewed_by_user_id = ?, reviewed_at = UTC_TIMESTAMP() WHERE id = ?')
-                ->execute([$paymentStatus, $note, $admin['id'], $payment['id']]);
-            $pdo->prepare('UPDATE bookings SET status = ?, payment_status = ?, payment_deadline_at = ?, cancellation_reason = ?, updated_at = UTC_TIMESTAMP() WHERE id = ?')
-                ->execute([
-                    $bookingStatus,
-                    $paymentStatus,
-                    $paymentDeadline?->format('Y-m-d H:i:s'),
-                    $bookingStatus === 'expired' ? $note : null,
-                    $payment['booking_id'],
-                ]);
-            $historyNote = $decision === 'approve' && $note === '' ? 'ผู้ตรวจยืนยันรายการเงินจริงในแอปธนาคารแล้ว' : $note;
-            $pdo->prepare('INSERT INTO booking_status_history (booking_id, from_status, to_status, changed_by_user_id, note) VALUES (?, ?, ?, ?, ?)')
-                ->execute([$payment['booking_id'], $payment['booking_status'], $bookingStatus, $admin['id'], $historyNote]);
-            $this->setBookingSlotsState($pdo, (int) $payment['booking_id'], $payment['availability_slot_id'], $slotState);
-            $event = $decision === 'approve'
-                ? NotificationRules::PAYMENT_APPROVED
-                : ($bookingStatus === 'awaiting_payment'
-                    ? NotificationRules::PAYMENT_REJECTED_RETRY
-                    : NotificationRules::PAYMENT_REJECTED_FINAL);
-            $notificationIds = array_merge($notificationIds, $this->notifications->recordEvent(
-                $pdo,
-                $event,
-                $this->bookingNotificationContext(
-                    $pdo,
-                    (int) $payment['booking_id'],
-                    (string) $payment['booking_status'],
-                    $bookingStatus,
-                    $note
-                )
-            ));
-            return [
-                'paymentId' => (int) $payment['id'],
-                'bookingId' => $payment['public_id'],
-                'status' => $paymentStatus,
-                'bookingStatus' => $bookingStatus,
-                'paymentDeadlineAt' => $paymentDeadline === null ? null : $this->iso($paymentDeadline->format('Y-m-d H:i:s')),
-            ];
-        });
-        $this->notifications->deliverByIds($notificationIds);
-        Http::json($result);
     }
 
     public function adminFile(string $kind, string $recordId): never
@@ -3314,45 +3276,12 @@ final class Handlers
         return $expired;
     }
 
-    /**
-     * บทที่ 1: accepted requests reach the member at the 12:00 / 18:00 round
-     * the trainer picked. Runs before every expiry sweep, so a round that has
-     * passed opens the payment step before anything reads or writes it.
-     */
-    private function releaseScheduledAcceptancesInTransaction(PDO $pdo, ?array &$notificationIds = null): void
-    {
-        $statement = $pdo->prepare(
-            'SELECT id FROM bookings
-             WHERE status = "pending_trainer"
-               AND confirmed_starts_at IS NOT NULL
-               AND payment_deadline_at IS NOT NULL
-               AND DATE_SUB(payment_deadline_at, INTERVAL ' . WorkflowRules::PAYMENT_WINDOW_MINUTES . ' MINUTE) <= UTC_TIMESTAMP()
-             ORDER BY id FOR UPDATE'
-        );
-        $statement->execute();
-        foreach ($statement->fetchAll() as $booking) {
-            $pdo->prepare('UPDATE bookings SET status = "awaiting_payment", updated_at = UTC_TIMESTAMP() WHERE id = ?')
-                ->execute([$booking['id']]);
-            $pdo->prepare('INSERT INTO booking_status_history (booking_id, from_status, to_status, changed_by_user_id, note) VALUES (?, "pending_trainer", "awaiting_payment", NULL, "ระบบยืนยันการตอบรับให้สมาชิกตามรอบที่เทรนเนอร์เลือก")')
-                ->execute([$booking['id']]);
-            $created = $this->notifications->recordEvent(
-                $pdo,
-                NotificationRules::BOOKING_ACCEPTED,
-                $this->bookingNotificationContext($pdo, (int) $booking['id'], 'pending_trainer', 'awaiting_payment')
-            );
-            if ($notificationIds !== null) {
-                $notificationIds = array_merge($notificationIds, $created);
-            }
-        }
-    }
-
     private function expireAwaitingPaymentsInTransaction(
         PDO $pdo,
         ?int $slotId = null,
         ?array &$notificationIds = null
     ): array
     {
-        $this->releaseScheduledAcceptancesInTransaction($pdo, $notificationIds);
         $sql = 'SELECT id, public_id, availability_slot_id
                 FROM bookings
                 WHERE status = "awaiting_payment"
@@ -3371,8 +3300,9 @@ final class Handlers
         foreach ($expired as $booking) {
             $pdo->prepare('UPDATE bookings SET status = "expired", updated_at = UTC_TIMESTAMP() WHERE id = ?')
                 ->execute([$booking['id']]);
+            $this->checkoutsToExpire = [...$this->checkoutsToExpire, ...$this->closePendingCheckoutsInTransaction($pdo, (int) $booking['id'])];
             $this->setBookingSlotsState($pdo, (int) $booking['id'], $booking['availability_slot_id'], 'available');
-            $pdo->prepare('INSERT INTO booking_status_history (booking_id, from_status, to_status, changed_by_user_id, note) VALUES (?, "awaiting_payment", "expired", NULL, "หมดเวลาส่งหลักฐานการชำระ")')
+            $pdo->prepare('INSERT INTO booking_status_history (booking_id, from_status, to_status, changed_by_user_id, note) VALUES (?, "awaiting_payment", "expired", NULL, "หมดเวลาชำระเงิน")')
                 ->execute([$booking['id']]);
             $createdIds = $this->notifications->recordEvent(
                 $pdo,
@@ -3480,7 +3410,7 @@ final class Handlers
         $row = $this->database->fetchOne(
             'SELECT u.display_name, u.email, tp.id, tp.legal_name, tp.nickname, tp.phone, tp.birth_date, tp.education, tp.headline, tp.bio,
                     tp.years_experience, tp.service_mode, tp.gym_name, tp.price_from, tp.monthly_price,
-                    tp.monthly_session_count, tp.payment_account_name, tp.promptpay_id, tp.payment_qr_path, tp.image_path,
+                    tp.monthly_session_count, tp.image_path,
                     tp.approval_status, tp.approval_note
              FROM users u JOIN trainer_profiles tp ON tp.user_id = u.id WHERE u.id = ?',
             [$user['id']]
@@ -3517,9 +3447,6 @@ final class Handlers
                 'priceFrom' => $row['price_from'] === null ? null : (float) $row['price_from'],
                 'monthlyPrice' => $row['monthly_price'] === null ? null : (float) $row['monthly_price'],
                 'monthlySessionCount' => $row['monthly_session_count'] === null ? null : (int) $row['monthly_session_count'],
-                'paymentAccountName' => $row['payment_account_name'] ?? '',
-                'promptPayId' => $row['promptpay_id'] ?? '',
-                'paymentQrUrl' => empty($row['payment_qr_path']) ? null : "/v1/trainer-payment-qr/{$profileId}",
                 'trainingTypeIds' => array_map(fn(array $type): int => (int) $type['training_type_id'], $types),
                 'approvalStatus' => $row['approval_status'],
                 'approvalNote' => $row['approval_note'],
@@ -3553,7 +3480,7 @@ final class Handlers
     {
         return $this->database->fetchOne(
             'SELECT tp.id, tp.user_id, tp.slug, tp.nickname, tp.headline, tp.bio, tp.years_experience, tp.service_mode,
-                    tp.gym_name, tp.price_from, tp.monthly_price, tp.monthly_session_count, tp.payment_qr_path, tp.approval_status, tp.image_path, tp.is_demo,
+                    tp.gym_name, tp.price_from, tp.monthly_price, tp.monthly_session_count, tp.approval_status, tp.image_path, tp.is_demo,
                     u.display_name,
                     AVG(CASE WHEN review_booking.id IS NOT NULL THEN r.rating END) AS rating,
                     COUNT(review_booking.id) AS review_count
@@ -3601,7 +3528,6 @@ final class Handlers
             'priceFrom' => $row['price_from'] === null ? null : (float) $row['price_from'],
             'monthlyPrice' => $row['monthly_price'] === null ? null : (float) $row['monthly_price'],
             'monthlySessionCount' => $row['monthly_session_count'] === null ? null : (int) $row['monthly_session_count'],
-            'paymentQrUrl' => empty($row['payment_qr_path']) ? null : "/v1/trainer-payment-qr/{$profileId}",
             'rating' => $row['rating'] === null ? null : round((float) $row['rating'], 1),
             'reviewCount' => (int) $row['review_count'],
             'verification' => $row['approval_status'] === 'approved' ? 'verified' : $row['approval_status'],
@@ -3657,20 +3583,7 @@ final class Handlers
         // member, trainer and administrator surfaces stay truthful in between.
         $deadlinePassed = $row['payment_deadline_at'] !== null
             && strtotime($row['payment_deadline_at'] . ' UTC') <= time();
-        // An accepted request waits for its 12:00 / 18:00 round. Once the round
-        // has passed it is presented as awaiting payment even before a write
-        // path has run the release sweep.
-        $acceptedAwaitingRound = $row['status'] === 'pending_trainer'
-            && ($row['confirmed_starts_at'] ?? null) !== null
-            && $row['payment_deadline_at'] !== null;
-        $releaseAt = $acceptedAwaitingRound
-            ? gmdate('Y-m-d H:i:s', strtotime($row['payment_deadline_at'] . ' UTC') - WorkflowRules::PAYMENT_WINDOW_MINUTES * 60)
-            : null;
-        $released = $releaseAt !== null && strtotime($releaseAt . ' UTC') <= time();
-        $rawStatus = $released ? 'awaiting_payment' : $row['status'];
-        $status = $rawStatus === 'awaiting_payment' && $deadlinePassed ? 'expired' : $rawStatus;
-        // The member hears about the acceptance only at the round.
-        $hideAcceptance = $isMember && $acceptedAwaitingRound && !$released;
+        $status = $row['status'] === 'awaiting_payment' && $deadlinePassed ? 'expired' : $row['status'];
 
         return [
             'id' => $row['public_id'],
@@ -3690,10 +3603,9 @@ final class Handlers
                 'medicalNote' => $row['member_medical_note'] ?? '',
             ],
             'startsAt' => $this->iso($row['starts_at']), 'endsAt' => $this->iso($row['ends_at']),
-            'confirmedStartsAt' => $hideAcceptance || ($row['confirmed_starts_at'] ?? null) === null ? null : $this->iso($row['confirmed_starts_at']),
-            'confirmedEndsAt' => $hideAcceptance || ($row['confirmed_ends_at'] ?? null) === null ? null : $this->iso($row['confirmed_ends_at']),
+            'confirmedStartsAt' => ($row['confirmed_starts_at'] ?? null) === null ? null : $this->iso($row['confirmed_starts_at']),
+            'confirmedEndsAt' => ($row['confirmed_ends_at'] ?? null) === null ? null : $this->iso($row['confirmed_ends_at']),
             'requestedStartsAt' => $this->iso($row['starts_at']),
-            'confirmationReleaseAt' => $hideAcceptance || $releaseAt === null || $released ? null : $this->iso($releaseAt),
             'cancellationReason' => $row['cancellation_reason'] ?? null,
             'bookingType' => $row['booking_type'] ?? 'single',
             'sessionCount' => (int) ($row['session_count'] ?? 1),
@@ -3706,23 +3618,8 @@ final class Handlers
             ]],
             'note' => $row['member_note'] ?? '',
             'status' => $status, 'paymentStatus' => $row['payment_status'], 'createdAt' => $this->iso($row['created_at']),
-            'paymentDeadlineAt' => $row['payment_deadline_at'] === null || ($acceptedAwaitingRound && !$released) ? null : $this->iso($row['payment_deadline_at']),
+            'paymentDeadlineAt' => $row['payment_deadline_at'] === null ? null : $this->iso($row['payment_deadline_at']),
             'paymentServiceMode' => $row['payment_service_mode'] ?? null,
-            'paymentRecipient' => $isMember && !empty($row['payment_account_name']) && !empty($row['promptpay_id']) ? [
-                'accountName' => $row['payment_account_name'],
-                'promptPayId' => $row['promptpay_id'],
-                // The QR the trainer uploaded is the one they trust; the member
-                // scans it at the payment step, and the server-generated QR is
-                // only the fallback for a trainer who never uploaded one.
-                'paymentQrUrl' => empty($row['payment_qr_path']) ? null : "/v1/trainer-payment-qr/{$row['trainer_id']}",
-                // บทที่ 3.1.2 ข้อ 4: the member may also transfer to the
-                // trainer's default bank account instead of PromptPay.
-                'bankAccount' => empty($row['bank_account_number'] ?? null) ? null : [
-                    'bankName' => $row['bank_name'],
-                    'accountName' => $row['bank_account_name'],
-                    'accountNumber' => $row['bank_account_number'],
-                ],
-            ] : null,
             'quotedPrice' => $row['quoted_price'] === null ? null : (float) $row['quoted_price'],
             // The exact amount to transfer, satang included.
             'transferAmount' => ($row['transfer_amount'] ?? null) === null ? null : (float) $row['transfer_amount'],
@@ -3767,7 +3664,7 @@ final class Handlers
                         && $row['payment_deadline_at'] !== null
                         && strtotime($row['payment_deadline_at'] . ' UTC') > time())
                 ),
-                'canAccept' => $isTrainer && $status === 'pending_trainer' && !$acceptedAwaitingRound,
+                'canAccept' => $isTrainer && $status === 'pending_trainer',
                 'canReject' => $isTrainer && $status === 'pending_trainer',
                 'canCancelBooking' => $isTrainer && in_array($status, $cancellableByTrainer, true),
             ],

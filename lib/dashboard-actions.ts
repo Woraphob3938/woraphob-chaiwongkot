@@ -20,10 +20,10 @@ export function hasValidBookingPeriod(booking: Pick<Booking, "startsAt" | "endsA
 export function getMemberNextAction(bookings: Booking[]): DashboardAction {
   // A request the trainer has not answered yet can still carry `canPay`, but the
   // payment panel renders nothing for that status, so the CTA would open a
-  // booking whose upload form is empty. Waiting for the trainer comes after the
-  // two actions the member can actually take, and before the later waiting states.
+  // booking with nothing to pay. Waiting for the trainer comes after the two
+  // actions the member can actually take, and before the later waiting states.
   const payment = bookings.find((booking) => booking.actions.canPay && booking.status !== "pending_trainer");
-  if (payment) return { title: "ส่งหลักฐานการชำระเงิน", description: memberBookingDescription(payment), href: `/member#booking-${payment.id}`, cta: "อัปโหลดสลิป", state: "action" };
+  if (payment) return { title: "ชำระเงินเพื่อยืนยันการจอง", description: memberBookingDescription(payment), href: `/member#booking-${payment.id}`, cta: "ชำระเงิน", state: "action" };
 
   const review = bookings.find((booking) => booking.actions.canReview);
   if (review) return { title: "แบ่งปันผลการฝึก", description: memberBookingDescription(review), href: `/member#booking-${review.id}`, cta: "เขียนรีวิว", state: "action" };
@@ -31,16 +31,13 @@ export function getMemberNextAction(bookings: Booking[]): DashboardAction {
   const pendingTrainer = bookings.find((booking) => booking.status === "pending_trainer");
   if (pendingTrainer) return { title: "รอเทรนเนอร์ตอบรับคำขอ", description: memberBookingDescription(pendingTrainer), href: `/member#booking-${pendingTrainer.id}`, cta: "ดูสถานะ", state: "waiting" };
 
-  const paymentReview = bookings.find((booking) => booking.status === "payment_review");
-  if (paymentReview) return { title: "รอเทรนเนอร์ตรวจสลิป", description: memberBookingDescription(paymentReview), href: `/member#booking-${paymentReview.id}`, cta: "ดูสถานะ", state: "waiting" };
-
   const confirmed = bookings.find((booking) => booking.status === "confirmed");
   if (confirmed) return { title: "เตรียมตัวสำหรับการฝึก", description: memberBookingDescription(confirmed), href: `/member#booking-${confirmed.id}`, cta: "ดูนัดหมาย", state: "waiting" };
 
   return { title: "เริ่มค้นหาเทรนเนอร์", description: "เปรียบเทียบคุณสมบัติและตารางว่าง", href: "/trainers", cta: "ค้นหาเทรนเนอร์", state: "complete" };
 }
 
-export function getTrainerNextAction(workspace: TrainerWorkspace | null, bookings: Booking[], pendingSlips = 0): DashboardAction {
+export function getTrainerNextAction(workspace: TrainerWorkspace | null, bookings: Booking[]): DashboardAction {
   if (!workspace?.profile) {
     return { title: "กรอกข้อมูลวิชาชีพให้ครบ", description: "บัญชีพร้อมแล้ว เหลือข้อมูลการให้บริการและใบรับรอง", href: "/trainer/apply", cta: "กรอกข้อมูลวิชาชีพ", state: "action" };
   }
@@ -65,23 +62,8 @@ export function getTrainerNextAction(workspace: TrainerWorkspace | null, booking
     };
   }
 
-  // A freelance trainer is the reviewer of their own slips, and the member's
-  // payment clock is running, so this outranks recording a session that is
-  // already over.
-  if (pendingSlips > 0) {
-    return {
-      title: "ตรวจสลิปที่รออยู่",
-      description: `${pendingSlips} สลิปจากสมาชิกที่รอผลตรวจ`,
-      href: "/trainer#payment-review",
-      cta: "เปิดคิวตรวจสลิป",
-      state: "action",
-    };
-  }
-
-  // บทที่ 1: the trainer answers each request and picks the 12:00 or 18:00
-  // round at which the member hears back;
-  // the member cannot pay until then.
-  const unanswered = (booking: Booking) => booking.status === "pending_trainer" && !booking.confirmationReleaseAt;
+  // The trainer answers each request; the member cannot pay until then.
+  const unanswered = (booking: Booking) => booking.status === "pending_trainer";
   const request = bookings.find(unanswered);
   if (request) {
     const memberName = request.member?.displayName ?? "สมาชิก FitConnect";
@@ -135,8 +117,8 @@ export function getTrainerNextAction(workspace: TrainerWorkspace | null, booking
 }
 
 export function getAdminNextAction(queue: AdminQueue): DashboardAction {
-  if (queue.trainers.length > 0 || queue.payments.length > 0) {
-    return { title: "มีรายการรอตรวจ", description: "เปิดคิวเพื่อตัดสินใจรายการที่รออยู่", href: "/admin#review-queue", cta: "เปิดคิวตรวจสอบ", state: "action" };
+  if (queue.trainers.length > 0) {
+    return { title: "มีใบสมัครรอตรวจ", description: "เปิดคิวเพื่อตัดสินใบสมัครเทรนเนอร์ที่รออยู่", href: "/admin#review-queue", cta: "เปิดคิวตรวจสอบ", state: "action" };
   }
 
   return { title: "คิวตรวจสอบเป็นปัจจุบันแล้ว", description: "ไม่มีรายการรอตรวจ", href: "/admin#review-queue", cta: "ดูคิวตรวจสอบ", state: "complete" };

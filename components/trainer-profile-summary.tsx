@@ -11,15 +11,8 @@ export function TrainerProfileSummary({ profile, onEdit }: { profile: TrainerAcc
     && trainer.headline.trim()
     && trainer.bio.trim()
     && trainer.priceFrom
-    && (trainer.paymentAccountName ?? "").trim()
-    && (trainer.promptPayId ?? "").trim()
     && trainer.trainingTypeIds.length > 0,
   );
-
-  const maskedPromptPay = (trainer.promptPayId ?? "").replace(/\D/g, "");
-  const promptPayLabel = maskedPromptPay
-    ? `${maskedPromptPay.slice(0, 3)}••••${maskedPromptPay.slice(-3)}`
-    : "ยังไม่ระบุ";
 
   return (
     <section className="profile-section" aria-labelledby="trainer-details-title">
@@ -59,8 +52,6 @@ export function TrainerProfileSummary({ profile, onEdit }: { profile: TrainerAcc
           <dl className="profile-ledger">
             <div><dt>ชื่อ-นามสกุลจริง</dt><dd>{trainer.legalName || "ยังไม่ระบุ"}</dd></div>
             <div><dt>เบอร์โทรศัพท์</dt><dd>{trainer.phone || "ยังไม่ระบุ"}</dd></div>
-            <div><dt>ชื่อบัญชีพร้อมเพย์</dt><dd>{trainer.paymentAccountName || "ยังไม่ระบุ"}</dd></div>
-            <div><dt>พร้อมเพย์</dt><dd>{promptPayLabel}</dd></div>
           </dl>
         </section>
       </div>

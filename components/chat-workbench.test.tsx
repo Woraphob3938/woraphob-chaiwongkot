@@ -379,7 +379,7 @@ describe("ChatWorkbench", () => {
 
   it.each([
     ["awaiting_payment", "รอชำระเงิน"],
-    ["payment_review", "รอตรวจสลิป"],
+    ["payment_review", "รอตรวจสอบการชำระ"],
     ["confirmed", "ชำระแล้ว"],
     ["completed", "เสร็จสิ้น"],
   ] as const)("shows the exact %s workflow label in the active chat", async (status, label) => {

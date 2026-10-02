@@ -2,13 +2,16 @@
 
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import {
   ArrowRight,
   CalendarDays,
   CalendarX2,
   ChevronLeft,
   ChevronRight,
+  CircleAlert,
+  CircleCheck,
+  Clock3,
   MessageSquareText,
   RefreshCw,
   Search,
@@ -76,15 +79,42 @@ function confirmedPeriodLabel(booking: Booking): string | null {
 
 function nextStepCopy(booking: Booking): string {
   if (booking.review) return "รีวิวนี้เผยแพร่แล้ว";
-  if (isPendingTrainer(booking)) return "รอเทรนเนอร์ตอบรับ ระบบจะแจ้งผลให้คุณในรอบ 12:00 หรือ 18:00 น. แล้วจึงชำระเงินได้ เวลาฝึกยังเป็นเวลาที่คุณขอ";
-  if (booking.actions.canPay && booking.paymentStatus === "rejected") return "สลิปไม่ผ่านการตรวจ ส่งใหม่ได้อีกหนึ่งครั้งภายในเวลาที่เหลือ ถ้าไม่ผ่านอีกหรือหมดเวลา การจองจะหมดอายุ";
-  if (booking.actions.canPay) return "เทรนเนอร์ยืนยันเวลาแล้ว โอนเงินและส่งสลิปภายในเวลาที่เหลือ ถ้าสลิปไม่ผ่านจะส่งใหม่ได้อีกหนึ่งครั้ง";
+  if (isPendingTrainer(booking)) return "รอเทรนเนอร์ตอบรับ ระบบแจ้งคุณทันทีที่ตอบรับ แล้วจึงชำระเงินได้ เวลาฝึกยังเป็นเวลาที่คุณขอ";
+  if (booking.actions.canPay) return "เทรนเนอร์ยืนยันเวลาแล้ว ชำระเงินออนไลน์ภายในเวลาที่เหลือ ระบบยืนยันการจองให้ทันทีเมื่อชำระสำเร็จ ถ้าหมดเวลา การจองจะหมดอายุ";
   if (booking.actions.canReview) return "เขียนรีวิวหลังการฝึก";
-  if (booking.status === "payment_review") return "ส่งสลิปแล้ว รอเทรนเนอร์ตรวจและยืนยันการชำระเงิน";
+  if (booking.status === "payment_review") return "รายการชำระเงินเดิมรอตรวจสอบ";
   if (booking.status === "confirmed") return "เตรียมตัวตามวันและเวลานัด";
   if (booking.status === "cancelled") return "คำขอนี้สิ้นสุดแล้ว";
   if (booking.status === "expired") return "การจองหมดเวลา ช่วงเวลานี้ถูกคืนแล้ว";
   return "ยังไม่มีขั้นตอนที่ต้องทำในขณะนี้";
+}
+
+type CheckoutOutcome = "paid" | "pending" | "cancelled" | "error";
+type CheckoutReturn = { bookingId: string; kind: "success" | "cancelled" };
+type CheckoutNotice = { bookingId: string; outcome: CheckoutOutcome };
+
+const wait = (ms: number) => new Promise((resolve) => window.setTimeout(resolve, ms));
+
+/**
+ * Asks the API to settle the Checkout Session the member came back from.
+ * A PromptPay payment can still be arriving when the member lands, so an
+ * open session is asked again a few times before reporting "pending".
+ */
+async function settleCheckout(bookingId: string): Promise<CheckoutOutcome> {
+  for (let attempt = 0; attempt < 5; attempt += 1) {
+    try {
+      const result = await authenticatedRequest<{ outcome: "paid" | "open" | "closed" }>("/v1/payments/confirm", {
+        method: "POST",
+        body: JSON.stringify({ bookingId }),
+      });
+      if (result?.outcome === "paid") return "paid";
+      if (result?.outcome === "closed") return "cancelled";
+    } catch {
+      if (attempt === 4) return "error";
+    }
+    await wait(2_000);
+  }
+  return "pending";
 }
 
 type BookingFilter = "active" | "completed" | "closed" | "all";
@@ -112,8 +142,8 @@ function appointmentTime(booking: Booking) {
 /** One short line on the row: what happens next, without opening the booking. */
 function rowHint(booking: Booking): string {
   if (isPendingTrainer(booking)) return "รอเทรนเนอร์ตอบรับ";
-  if (booking.actions.canPay) return booking.paymentStatus === "rejected" ? "ส่งสลิปใหม่" : "ส่งสลิปภายในเวลาที่เหลือ";
-  if (booking.status === "payment_review") return "รอเทรนเนอร์ตรวจสลิป";
+  if (booking.actions.canPay) return "ชำระเงินภายในเวลาที่เหลือ";
+  if (booking.status === "payment_review") return "รอตรวจสอบการชำระ";
   if (booking.actions.canReview) return "เขียนรีวิวได้แล้ว";
   if (booking.status === "confirmed") return "นัดยืนยันแล้ว";
   return "";
@@ -233,6 +263,12 @@ export function RoleDashboard({
   const [bookingQuery, setBookingQuery] = useState("");
   const [bookingPage, setBookingPage] = useState(0);
   const [selectedBookingId, setSelectedBookingId] = useState<string | null>(null);
+  // Read once: Strict Mode runs the load effect twice, and the first run
+  // removes ?checkout from the address bar.
+  const checkoutReturnRef = useRef<CheckoutReturn | null | undefined>(undefined);
+  const [checkoutNotice, setCheckoutNotice] = useState<CheckoutNotice | null>(null);
+  const [checkoutSettling, setCheckoutSettling] = useState(false);
+  const checkoutNoticeRef = useRef<HTMLDivElement>(null);
   // Captured once so sorting stays pure across renders (react-hooks/purity).
   const [listNow] = useState(() => Date.now());
 
@@ -262,7 +298,32 @@ export function RoleDashboard({
       return;
     }
     let cancelled = false;
-    void authenticatedRequest<Booking[]>("/v1/bookings")
+    // Back from Stripe Checkout: settle the payment with the API before the
+    // list loads, so a paid booking already shows as confirmed. The webhook
+    // does the same on a deployed server; either one is enough.
+    if (checkoutReturnRef.current === undefined) {
+      const params = new URLSearchParams(window.location.search);
+      const kind = params.get("checkout");
+      const bookingId = params.get("booking");
+      checkoutReturnRef.current = bookingId && (kind === "success" || kind === "cancelled") ? { bookingId, kind } : null;
+      if (params.has("checkout")) {
+        params.delete("checkout");
+        const query = params.toString();
+        window.history.replaceState(null, "", `${window.location.pathname}${query ? `?${query}` : ""}${window.location.hash}`);
+      }
+    }
+    const checkoutReturn = checkoutReturnRef.current;
+    if (checkoutReturn?.kind === "success") queueMicrotask(() => setCheckoutSettling(true));
+    const settled: Promise<CheckoutOutcome | null> = checkoutReturn?.kind === "success"
+      ? settleCheckout(checkoutReturn.bookingId)
+      : Promise.resolve(checkoutReturn ? "cancelled" : null);
+    void settled
+      .then((outcome) => {
+        if (cancelled || !checkoutReturn || !outcome) return;
+        setCheckoutSettling(false);
+        setCheckoutNotice({ bookingId: checkoutReturn.bookingId, outcome });
+      })
+      .then(() => authenticatedRequest<Booking[]>("/v1/bookings"))
       .then((items) => {
         if (cancelled) return;
         setBookings(items);
@@ -276,6 +337,18 @@ export function RoleDashboard({
       });
     return () => { cancelled = true; };
   }, [role]);
+
+  useEffect(() => {
+    if (checkoutNotice) checkoutNoticeRef.current?.focus();
+  }, [checkoutNotice]);
+
+  async function recheckCheckout(bookingId: string) {
+    setCheckoutSettling(true);
+    const outcome = await settleCheckout(bookingId);
+    setCheckoutSettling(false);
+    setCheckoutNotice({ bookingId, outcome });
+    await loadMemberBookings();
+  }
 
   useEffect(() => {
     if (role !== "member") return;
@@ -323,10 +396,10 @@ export function RoleDashboard({
     return (
       <>
         {/* The clock leads and stays pinned while the member scrolls to the
-            upload field: it is the one fact that decides the booking. */}
+            payment button: it is the one fact that decides the booking. */}
         {booking.actions.canPay && !isPendingTrainer(booking) && booking.paymentDeadlineAt && (
           <div className="payment-deadline-row">
-            <span>{booking.paymentStatus === "rejected" ? "ส่งสลิปใหม่ภายใน" : "เวลาที่เหลือสำหรับส่งสลิป"}</span>
+            <span>เวลาที่เหลือสำหรับชำระเงิน</span>
             <PaymentDeadline deadlineAt={booking.paymentDeadlineAt} onExpired={ignoreExpiry} />
           </div>
         )}
@@ -473,6 +546,49 @@ export function RoleDashboard({
         : <section className="dashboard-heading"><div><h1>{copy.title}</h1></div><p>{copy.lead}</p></section>}
       {role === "member" && (
         <div className="member-dashboard-content">
+          {checkoutSettling && !checkoutNotice && (
+            <div className="checkout-result checkout-result--pending" role="status">
+              <Clock3 aria-hidden="true" size={22} />
+              <div><strong>กำลังยืนยันการชำระเงิน…</strong><p>รอสักครู่ ระบบกำลังตรวจผลจาก Stripe</p></div>
+            </div>
+          )}
+          {checkoutNotice && (
+            <div
+              ref={checkoutNoticeRef}
+              className={`checkout-result checkout-result--${checkoutNotice.outcome}`}
+              role={checkoutNotice.outcome === "error" ? "alert" : "status"}
+              tabIndex={-1}
+            >
+              {checkoutNotice.outcome === "paid"
+                ? <CircleCheck aria-hidden="true" size={22} />
+                : checkoutNotice.outcome === "pending"
+                  ? <Clock3 aria-hidden="true" size={22} />
+                  : <CircleAlert aria-hidden="true" size={22} />}
+              <div>
+                <strong>{{
+                  paid: "ชำระเงินสำเร็จ การจองยืนยันแล้ว",
+                  pending: "ยังรอผลการชำระเงิน",
+                  cancelled: "ยังไม่ได้ชำระเงิน",
+                  error: "ยังยืนยันผลการชำระเงินไม่ได้",
+                }[checkoutNotice.outcome]}</strong>
+                <p>{{
+                  paid: `การจอง ${checkoutNotice.bookingId} พร้อมแล้ว ดูวันเวลานัดและแชทกับเทรนเนอร์ได้ในรายการด้านล่าง`,
+                  pending: `ถ้าชำระด้วยพร้อมเพย์ ยอดอาจใช้เวลาสักครู่ กดตรวจสอบอีกครั้งได้ การจอง ${checkoutNotice.bookingId} จะยืนยันเองเมื่อได้รับเงิน`,
+                  cancelled: `คุณออกจากหน้าชำระเงินก่อนชำระเสร็จ ยังกดชำระการจอง ${checkoutNotice.bookingId} ได้ภายในเวลาที่เหลือ`,
+                  error: `เชื่อมต่อระบบไม่สำเร็จ ถ้าชำระไปแล้ว ไม่ต้องจ่ายซ้ำ กดตรวจสอบอีกครั้งได้`,
+                }[checkoutNotice.outcome]}</p>
+                <div className="checkout-result__actions">
+                  {(checkoutNotice.outcome === "pending" || checkoutNotice.outcome === "error") && (
+                    <button className="button" type="button" disabled={checkoutSettling} onClick={() => void recheckCheckout(checkoutNotice.bookingId)}>
+                      <RefreshCw aria-hidden="true" size={15} /> {checkoutSettling ? "กำลังตรวจสอบ…" : "ตรวจสอบอีกครั้ง"}
+                    </button>
+                  )}
+                  <button className="button" type="button" onClick={() => setSelectedBookingId(checkoutNotice.bookingId)}>ดูการจองนี้</button>
+                  <button className="button" type="button" onClick={() => setCheckoutNotice(null)}>ปิด</button>
+                </div>
+              </div>
+            </div>
+          )}
           {loadingBookings && bookings.length === 0 && (
             <section className="queue-loading" aria-live="polite">กำลังโหลดรายการจอง…</section>
           )}

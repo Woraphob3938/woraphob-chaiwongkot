@@ -17,10 +17,10 @@ function BookingPanelHarness({ trainer }: { trainer: Trainer }) {
 }
 
 describe("ProfileBookingPanel", () => {
-  it.each(["freelance", "gym", "both"] as const)("names the correct slip reviewer for %s", (serviceMode) => {
+  it.each(["freelance", "gym", "both"] as const)("explains online payment for %s", (serviceMode) => {
     render(<BookingPanelHarness trainer={{ ...trainers[0], serviceMode }} />);
-    // The booked trainer confirms the slip in every service mode (บทที่ 1).
-    expect(screen.getByText(/ส่งสลิปให้เทรนเนอร์ตรวจและยืนยัน/)).toBeInTheDocument();
+    // Payment is online in every service mode; nobody checks a slip.
+    expect(screen.getByText(/ชำระเงินออนไลน์ ระบบยืนยันการจองทันทีเมื่อชำระสำเร็จ/)).toBeInTheDocument();
     expect(screen.queryByText(/ผู้ดูแลระบบตรวจและยืนยัน/)).not.toBeInTheDocument();
   });
 
@@ -103,6 +103,6 @@ describe("ProfileBookingPanel", () => {
       "href",
       `/booking?trainer=${trainer.slug}&type=monthly&slots=${trainer.slots[0].id}`,
     );
-    expect(screen.getByText(/เทรนเนอร์ตรวจและยืนยัน/)).toBeInTheDocument();
+    expect(screen.getByText(/ระบบยืนยันการจองทันทีเมื่อชำระสำเร็จ/)).toBeInTheDocument();
   });
 });

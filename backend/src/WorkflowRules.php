@@ -81,53 +81,28 @@ final class WorkflowRules
         }
     }
 
-    /** The two daily rounds at which accepted requests reach members (Asia/Bangkok). */
-    public const CONFIRMATION_TIMES = ['12:00', '18:00'];
-
-    /** Minutes the member has to pay once the confirmation reaches them. */
+    /** Minutes the member has to pay once the trainer accepts. */
     public const PAYMENT_WINDOW_MINUTES = 10;
 
     /**
-     * บทที่ 1: the trainer accepts a request and picks the 12:00 or 18:00
-     * round. At that round the system confirms the booking to the member, who
-     * then has ten minutes to pay. The training time itself stays exactly as
-     * the member requested it.
-     *
-     * Returns the release instant in UTC: the next occurrence of the chosen
-     * round after `$now`. The member must still be able to pay before the
-     * session starts, so a round that lands too late is refused.
+     * The trainer accepts a request and the member is told at once; the ten
+     * minute payment window starts now. The training time stays exactly as
+     * the member requested it. A request whose session starts before the
+     * window would close cannot be accepted: the member could not pay in time.
      */
-    public static function confirmationRelease(
-        string $value,
+    public static function acceptancePaymentDeadline(
         DateTimeImmutable $now,
         DateTimeImmutable $sessionStart
     ): DateTimeImmutable {
-        if (!in_array($value, self::CONFIRMATION_TIMES, true)) {
+        $deadline = $now->modify('+' . self::PAYMENT_WINDOW_MINUTES . ' minutes');
+        if ($deadline > $sessionStart) {
             throw new HttpException(
                 422,
-                'รอบยืนยันไม่ถูกต้อง',
-                'VALIDATION_FAILED',
-                ['confirmedTime' => 'เลือกรอบยืนยัน 12:00 น. หรือ 18:00 น.']
+                'ใกล้เวลาฝึกเกินไป สมาชิกจะชำระเงินไม่ทัน',
+                'ACCEPTANCE_TOO_LATE'
             );
         }
-        $bangkok = new DateTimeZone('Asia/Bangkok');
-        $utc = new DateTimeZone('UTC');
-        [$hour, $minute] = array_map('intval', explode(':', $value));
-        $release = $now->setTimezone($bangkok)->setTime($hour, $minute, 0);
-        if ($release <= $now->setTimezone($bangkok)) {
-            $release = $release->modify('+1 day');
-        }
-        $release = $release->setTimezone($utc);
-        $paymentClosesAt = $release->modify('+' . self::PAYMENT_WINDOW_MINUTES . ' minutes');
-        if ($paymentClosesAt > $sessionStart) {
-            throw new HttpException(
-                422,
-                'รอบยืนยันนี้ถึงหลังเวลาฝึกแล้ว',
-                'CONFIRMATION_ROUND_TOO_LATE',
-                ['confirmedTime' => "รอบ {$value} น. ถัดไปจะถึงหลังเวลาเริ่มฝึก สมาชิกจะชำระเงินไม่ทัน"]
-            );
-        }
-        return $release;
+        return $deadline;
     }
 
     /**

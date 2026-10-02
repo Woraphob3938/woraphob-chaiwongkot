@@ -71,12 +71,19 @@ test("trainer members and reviews stay paged", async ({ page }) => {
   }
 });
 
-test("the admin review queue loads without decision buttons on slips", async ({ page }) => {
+test("the admin review queue holds trainer applications and no slips", async ({ page }) => {
   await signIn(page, "admin");
   await page.goto("/admin");
-  await expect(page.getByText("สลิปรอเทรนเนอร์ตรวจ")).toBeVisible();
-  // Administrators follow gym slips read-only; only the trainer decides them.
-  await expect(page.getByRole("button", { name: /^อนุมัติสลิป/ })).toHaveCount(0);
+  await expect(page.getByText("ใบสมัครรอตรวจ")).toBeVisible();
+  // Payments settle through Stripe Checkout; nothing about slips is left to review.
+  await expect(page.getByText(/สลิป/)).toHaveCount(0);
+  await expectNoHorizontalOverflow(page);
+});
+
+test("the trainer finance tab offers the Stripe payout account", async ({ page }) => {
+  await signIn(page, "trainer");
+  await page.goto("/trainer?stripe=return");
+  await expect(page.getByRole("heading", { name: "บัญชีรับเงิน" })).toBeVisible();
   await expectNoHorizontalOverflow(page);
 });
 

@@ -19,7 +19,7 @@ describe("HomeOverview", () => {
       "href",
       `/trainers?type=${trainingTypes[0].slug}`,
     );
-    expect(screen.getByText(/สลิปการชำระเงินเทรนเนอร์ของการจองเป็นผู้ยืนยัน/)).toBeInTheDocument();
+    expect(screen.getByText(/การชำระเงินยืนยันอัตโนมัติผ่าน Stripe/)).toBeInTheDocument();
     expect(screen.getByText("เริ่มจากประเภทที่สนใจ แล้วปรับราคาและเวลาในหน้าค้นหา")).toBeInTheDocument();
     expect(screen.queryByText(/ข้อมูลสาธิต|ภาพสังเคราะห์/)).not.toBeInTheDocument();
     expect(screen.queryByText(/ปรับพื้นที่/)).not.toBeInTheDocument();
@@ -77,11 +77,11 @@ describe("HomeOverview", () => {
     render(<HomeOverview trainers={trainers} trainingTypes={trainingTypes} />);
 
     expect(
-      screen.getByText("ดูเส้นทางตั้งแต่เลือกเทรนเนอร์ ส่งคำขอ อัปโหลดสลิป จนถึงเขียนรีวิวหลังการฝึก"),
+      screen.getByText("ดูเส้นทางตั้งแต่เลือกเทรนเนอร์ ส่งคำขอ ชำระเงินออนไลน์ จนถึงเขียนรีวิวหลังการฝึก"),
     ).toBeInTheDocument();
     expect(screen.queryByText(/ข้อมูลการจองชุดเดียวกัน/)).not.toBeInTheDocument();
-    // บทที่ 1: the acceptance reaches the member at the 12:00 or 18:00 round.
-    expect(screen.getByText("ระบบแจ้งผลการตอบรับให้คุณในรอบ 12:00 หรือ 18:00 น. เวลาฝึกยังเป็นเวลาที่คุณเลือก")).toBeInTheDocument();
+    // The acceptance reaches the member right away.
+    expect(screen.getByText("ระบบแจ้งผลการตอบรับให้คุณทันที เวลาฝึกยังเป็นเวลาที่คุณเลือก")).toBeInTheDocument();
     expect(screen.getByRole("heading", { name: "ชำระเงินภายใน 10 นาที" })).toBeInTheDocument();
   });
 });

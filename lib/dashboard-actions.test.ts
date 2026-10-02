@@ -17,19 +17,6 @@ const trainerQueueItem: AdminQueue["trainers"][number] = {
   submittedAt: "2026-08-09T09:00:00+07:00",
   certificates: [],
 };
-const paymentQueueItem: AdminQueue["payments"][number] = {
-  id: 8,
-  bookingId: "BK-PAYMENT",
-  memberName: "สมาชิกทดสอบ",
-  trainerName: "เทรนเนอร์ทดสอบ",
-  startsAt: "2026-08-10T09:00:00+07:00",
-  endsAt: "2026-08-10T10:00:00+07:00",
-  quotedPrice: 850,
-  amount: 850,
-  difference: 0,
-  submittedAt: "2026-08-09T09:00:00+07:00",
-  fileUrl: "/v1/admin/files/payment/8",
-};
 const workspace: TrainerWorkspace = {
   profile: { id: 1, slug: "trainer-test", displayName: "เทรนเนอร์ทดสอบ", approvalStatus: "approved", approvalNote: null },
   certificates: [],
@@ -46,7 +33,7 @@ describe("getMemberNextAction", () => {
       { ...booking, id: "BK-CONFIRMED", status: "confirmed" },
     ])).toMatchObject({
       href: "/member#booking-BK-PAY",
-      cta: "อัปโหลดสลิป",
+      cta: "ชำระเงิน",
       description: expect.stringMatching(`${booking.trainer.displayName}.*คำขอ BK-PAY`),
       state: "action",
     });
@@ -79,22 +66,14 @@ describe("getMemberNextAction", () => {
     expect(getMemberNextAction([
       { ...booking, id: "BK-PENDING", status: "pending_trainer", actions: { ...booking.actions, canPay: true, canReview: false } },
       { ...booking, id: "BK-PAY", status: "awaiting_payment", actions: { ...booking.actions, canPay: true, canReview: false } },
-    ])).toMatchObject({ href: "/member#booking-BK-PAY", cta: "อัปโหลดสลิป", state: "action" });
+    ])).toMatchObject({ href: "/member#booking-BK-PAY", cta: "ชำระเงิน", state: "action" });
   });
 
-  it("ignores an expired booking and shows payment review", () => {
+  it("ignores an expired booking and shows the confirmed appointment", () => {
     expect(getMemberNextAction([
-      { ...booking, id: "BK-PAYMENT", status: "payment_review" },
       { ...booking, id: "BK-CONFIRMED", status: "confirmed" },
       expiredBooking,
-    ])).toMatchObject({ href: "/member#booking-BK-PAYMENT", cta: "ดูสถานะ", state: "waiting" });
-  });
-
-  it("shows payment review before a confirmed appointment", () => {
-    expect(getMemberNextAction([
-      { ...booking, id: "BK-CONFIRMED", status: "confirmed" },
-      { ...booking, id: "BK-PAYMENT", status: "payment_review" },
-    ])).toMatchObject({ href: "/member#booking-BK-PAYMENT", cta: "ดูสถานะ", state: "waiting" });
+    ])).toMatchObject({ href: "/member#booking-BK-CONFIRMED", cta: "ดูนัดหมาย", state: "waiting" });
   });
 
   it("falls back to trainer search", () => {
@@ -103,10 +82,9 @@ describe("getMemberNextAction", () => {
 });
 
 describe("getTrainerNextAction", () => {
-  it("asks the trainer to answer a pending request before anything but slips", () => {
+  it("asks the trainer to answer a pending request", () => {
     const request: Booking = { ...booking, id: "BK-REQ", status: "pending_trainer" };
     expect(getTrainerNextAction(workspace, [request])).toMatchObject({ href: "/trainer#request-BK-REQ", cta: "ตอบคำขอ", state: "action" });
-    expect(getTrainerNextAction(workspace, [request], 1)).toMatchObject({ href: "/trainer#payment-review" });
   });
 
   it("names the upcoming session by the trainer-confirmed time", () => {
@@ -159,17 +137,6 @@ describe("getTrainerNextAction", () => {
     }, [])).toMatchObject({ href: "/trainer#availability", state: "action" });
   });
 
-  it("surfaces slips that are waiting for the trainer's own review", () => {
-    expect(getTrainerNextAction(workspace, [], 2)).toMatchObject({
-      title: "ตรวจสลิปที่รออยู่",
-      description: "2 สลิปจากสมาชิกที่รอผลตรวจ",
-      href: "/trainer#payment-review",
-      cta: "เปิดคิวตรวจสลิป",
-      state: "action",
-    });
-    expect(getTrainerNextAction(workspace, [], 0).href).not.toBe("/trainer#payment-review");
-  });
-
   it("otherwise leads to the current schedule", () => {
     expect(getTrainerNextAction(workspace, [])).toMatchObject({ href: "/trainer#schedule" });
   });
@@ -218,14 +185,10 @@ describe("getTrainerNextAction", () => {
 
 describe("getAdminNextAction", () => {
   it("directs a non-empty review queue to its action", () => {
-    expect(getAdminNextAction({ trainers: [trainerQueueItem], payments: [] })).toMatchObject({ href: "/admin#review-queue", state: "action" });
-  });
-
-  it("directs a payments-only review queue to its action", () => {
-    expect(getAdminNextAction({ trainers: [], payments: [paymentQueueItem] })).toMatchObject({ href: "/admin#review-queue", state: "action" });
+    expect(getAdminNextAction({ trainers: [trainerQueueItem] })).toMatchObject({ href: "/admin#review-queue", state: "action" });
   });
 
   it("shows the current queue when no review is pending", () => {
-    expect(getAdminNextAction({ trainers: [], payments: [] })).toMatchObject({ href: "/admin#review-queue", cta: "ดูคิวตรวจสอบ", state: "complete" });
+    expect(getAdminNextAction({ trainers: [] })).toMatchObject({ href: "/admin#review-queue", cta: "ดูคิวตรวจสอบ", state: "complete" });
   });
 });

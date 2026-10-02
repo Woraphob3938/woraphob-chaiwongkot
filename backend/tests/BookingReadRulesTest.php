@@ -88,7 +88,7 @@ test('a passed deadline is reported as expired when reading', function () use ($
     assertTrue(
         str_contains(
             $handlers,
-            "\$status = \$rawStatus === 'awaiting_payment' && \$deadlinePassed ? 'expired' : \$rawStatus;"
+            "\$status = \$row['status'] === 'awaiting_payment' && \$deadlinePassed ? 'expired' : \$row['status'];"
         ),
         'bookingPayload must derive an effective status'
     );

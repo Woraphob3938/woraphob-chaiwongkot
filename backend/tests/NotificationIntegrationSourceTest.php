@@ -31,13 +31,12 @@ if ($source === false) {
     throw new RuntimeException('Could not read Handlers.php');
 }
 
+// Slip submitted / rejected events belonged to the bank-slip review, which
+// Stripe Checkout replaced.
 test('wires all approved notification events into booking workflows', function () use ($source): void {
     foreach ([
         'NotificationRules::BOOKING_CREATED',
-        'NotificationRules::PAYMENT_SUBMITTED',
         'NotificationRules::PAYMENT_APPROVED',
-        'NotificationRules::PAYMENT_REJECTED_RETRY',
-        'NotificationRules::PAYMENT_REJECTED_FINAL',
         'NotificationRules::BOOKING_EXPIRED',
         'NotificationRules::BOOKING_CANCELLED',
         'NotificationRules::BOOKING_ACCEPTED',
@@ -50,9 +49,8 @@ test('wires all approved notification events into booking workflows', function (
     }
 });
 
-test('starts the payment clock at the 12:00 / 18:00 round the trainer picked', function () use ($source): void {
-    assertSourceContains($source, 'WorkflowRules::confirmationRelease');
-    assertSourceContains($source, 'releaseScheduledAcceptancesInTransaction');
+test('starts the payment clock as soon as the trainer accepts', function () use ($source): void {
+    assertSourceContains($source, 'WorkflowRules::acceptancePaymentDeadline');
     assertSourceContains($source, 'NotificationRules::BOOKING_ACCEPTED');
     assertSourceContains($source, 'WorkflowRules::assertTrainerDecision');
     assertSourceContains($source, 'WorkflowRules::assertTrainerCancellation');

@@ -24,8 +24,8 @@ export default function RegisterPage() {
           <li className="auth-feature-item">
             <CalendarClock aria-hidden="true" size={20} />
             <div>
-              <strong>ยืนยันเป็นรอบ แล้วชำระภายใน 10 นาที</strong>
-              <span>สมาชิกส่งคำขอตามเวลาที่อยากฝึก เทรนเนอร์ตอบรับ แล้วระบบแจ้งยืนยันในรอบ 12:00 หรือ 18:00 น. จากนั้นส่งสลิปภายใน 10 นาที</span>
+              <strong>ตอบรับแล้วชำระภายใน 10 นาที</strong>
+              <span>สมาชิกส่งคำขอตามเวลาที่อยากฝึก เทรนเนอร์ตอบรับ จากนั้นชำระเงินออนไลน์ภายใน 10 นาที</span>
             </div>
           </li>
           <li className="auth-feature-item">

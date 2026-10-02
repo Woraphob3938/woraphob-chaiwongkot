@@ -31,7 +31,7 @@ final class RateLimiter
         self::ACCOUNT_DELETE => ['limit' => 5, 'window' => 900, 'message' => 'ยืนยันการลบบัญชีหลายครั้งเกินไป กรุณาลองใหม่ภายหลัง'],
         self::TRAINER_APPLICATION => ['limit' => 10, 'window' => 3600, 'message' => 'ส่งใบสมัครหลายครั้งเกินไป กรุณาลองใหม่ภายหลัง'],
         self::PROFILE_IMAGE => ['limit' => 20, 'window' => 3600, 'message' => 'อัปโหลดรูปหลายครั้งเกินไป กรุณาลองใหม่ภายหลัง'],
-        self::PAYMENT_SLIP => ['limit' => 20, 'window' => 3600, 'message' => 'อัปโหลดหลักฐานหลายครั้งเกินไป กรุณาลองใหม่ภายหลัง'],
+        self::PAYMENT_SLIP => ['limit' => 20, 'window' => 3600, 'message' => 'เริ่มชำระเงินหลายครั้งเกินไป กรุณาลองใหม่ภายหลัง'],
         self::CHAT_ATTACHMENT => ['limit' => 60, 'window' => 3600, 'message' => 'ส่งไฟล์ในแชตหลายครั้งเกินไป กรุณาลองใหม่ภายหลัง'],
     ];
 

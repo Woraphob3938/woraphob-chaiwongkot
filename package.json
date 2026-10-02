@@ -9,7 +9,7 @@
     "lint": "eslint .",
     "typecheck": "tsc --noEmit",
     "test": "vitest run",
-    "test:php": "C:\\xampp\\php\\php.exe backend/tests/WorkflowRulesTest.php && C:\\xampp\\php\\php.exe backend/tests/ProfileRulesTest.php && C:\\xampp\\php\\php.exe backend/tests/NotificationRulesTest.php && C:\\xampp\\php\\php.exe backend/tests/GmailMailerTest.php && C:\\xampp\\php\\php.exe backend/tests/NotificationDeliveryTest.php && C:\\xampp\\php\\php.exe backend/tests/NotificationIntegrationSourceTest.php && C:\\xampp\\php\\php.exe backend/tests/NotificationQueryRulesTest.php && C:\\xampp\\php\\php.exe backend/tests/BookingReadRulesTest.php && C:\\xampp\\php\\php.exe backend/tests/SecurityRulesTest.php && C:\\xampp\\php\\php.exe backend/tests/SlipRulesTest.php",
+    "test:php": "C:\\xampp\\php\\php.exe backend/tests/WorkflowRulesTest.php && C:\\xampp\\php\\php.exe backend/tests/ProfileRulesTest.php && C:\\xampp\\php\\php.exe backend/tests/NotificationRulesTest.php && C:\\xampp\\php\\php.exe backend/tests/GmailMailerTest.php && C:\\xampp\\php\\php.exe backend/tests/NotificationDeliveryTest.php && C:\\xampp\\php\\php.exe backend/tests/NotificationIntegrationSourceTest.php && C:\\xampp\\php\\php.exe backend/tests/NotificationQueryRulesTest.php && C:\\xampp\\php\\php.exe backend/tests/BookingReadRulesTest.php && C:\\xampp\\php\\php.exe backend/tests/SecurityRulesTest.php && C:\\xampp\\php\\php.exe backend/tests/StripePaymentsTest.php",
     "migrate:payment-routing": "C:\\xampp\\php\\php.exe backend/scripts/migrate-payment-routing.php",
     "migrate:payment-proof": "C:\\xampp\\php\\php.exe backend/scripts/migrate-payment-proof.php",
     "migrate:rate-limits": "powershell -NoProfile -ExecutionPolicy Bypass -File scripts/migrate-rate-limits.ps1",
@@ -42,15 +42,14 @@
     "check": "npm run lint && npm run typecheck && npm run lint:php && npm run build",
     "xampp:connect": "powershell -NoProfile -ExecutionPolicy Bypass -File scripts/connect-xampp.ps1",
     "test:e2e": "playwright test",
-    "migrate:slip-checks": "C:\\xampp\\php\\php.exe backend/scripts/migrate-slip-checks.php"
+    "migrate:slip-checks": "C:\\xampp\\php\\php.exe backend/scripts/migrate-slip-checks.php",
+    "migrate:stripe-payments": "C:\\xampp\\php\\php.exe backend/scripts/migrate-stripe-payments.php"
   },
   "dependencies": {
     "class-variance-authority": "^0.7.1",
     "clsx": "^2.1.1",
-    "jsqr": "^1.4.0",
     "lucide-react": "^1.31.0",
     "next": "^16.3.3",
-    "qrcode.react": "^4.2.0",
     "radix-ui": "^1.6.7",
     "react": "^19.2.8",
     "react-dom": "^19.2.8",

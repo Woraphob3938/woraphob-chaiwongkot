@@ -222,9 +222,9 @@ export function BookingForm({
             <div><dt>{monthly ? "ราคาแพ็กเกจ" : "ค่าฝึกต่อครั้ง"}</dt><dd>{hasBookingPrice ? formatMoney(bookingPrice as number) : "ยังไม่กำหนด"}</dd></div>
           </dl>
           <ul className="booking-summary__notes">
-            <li>เวลาฝึกเป็นเวลาที่คุณเลือก เทรนเนอร์ตอบรับแล้วระบบจะแจ้งยืนยันให้คุณในรอบ <strong>12:00</strong> หรือ <strong>18:00 น.</strong></li>
-            <li>เมื่อได้รับการยืนยัน คุณมีเวลา 10 นาทีส่งสลิป ถ้าไม่ส่งทันการจองจะหมดอายุและคืนเวลาอัตโนมัติ</li>
-            <li>ยกเลิกได้ก่อนส่งสลิป และยังไม่มีการเก็บเงินจนกว่าเทรนเนอร์ยืนยันเวลา</li>
+            <li>เวลาฝึกเป็นเวลาที่คุณเลือก เมื่อเทรนเนอร์ตอบรับ ระบบแจ้งคุณทันที</li>
+            <li>เมื่อได้รับการยืนยัน คุณมีเวลา 10 นาทีชำระเงินออนไลน์ ถ้าไม่ทันการจองจะหมดอายุและคืนเวลาอัตโนมัติ</li>
+            <li>ยกเลิกได้ก่อนชำระเงิน และยังไม่มีการเก็บเงินจนกว่าเทรนเนอร์ยืนยันเวลา</li>
           </ul>
         </div>
         <div className="booking-fields">
@@ -242,8 +242,8 @@ export function BookingForm({
             </div>
           )}
           <p className="admin-inline-note">{trainer.serviceMode === "gym" || trainer.serviceMode === "both"
-            ? "ชำระค่าบริการของเทรนเนอร์ประจำยิม หลักฐานจะส่งถึงยิม และเทรนเนอร์เป็นผู้ยืนยัน"
-            : "ชำระให้เทรนเนอร์โดยตรง เทรนเนอร์เป็นผู้ตรวจสลิป"}</p>
+            ? "ชำระค่าบริการของเทรนเนอร์ประจำยิมผ่านระบบ FitConnect ด้วยบัตรหรือพร้อมเพย์"
+            : "ชำระผ่านระบบ FitConnect ด้วยบัตรหรือพร้อมเพย์ ยอดเงินโอนต่อให้เทรนเนอร์อัตโนมัติ"}</p>
           <div className="form-message-slot" aria-live="polite">
             {message && (
               <div className="form-message form-message--error" role="alert">
@@ -281,7 +281,7 @@ export function BookingForm({
           <DialogHeader>
             <DialogTitle>ส่งคำขอจองนี้?</DialogTitle>
             <DialogDescription>
-              คำขอจะส่งถึงเทรนเนอร์ทันที เมื่อเทรนเนอร์ตอบรับ ระบบจะแจ้งยืนยันให้คุณในรอบ 12:00 หรือ 18:00 น. แล้วเริ่มนับเวลา 10 นาทีสำหรับชำระเงิน
+              คำขอจะส่งถึงเทรนเนอร์ทันที เมื่อเทรนเนอร์ตอบรับ ระบบเริ่มนับเวลา 10 นาทีสำหรับชำระเงิน
             </DialogDescription>
           </DialogHeader>
           <dl className="booking-confirm-facts">

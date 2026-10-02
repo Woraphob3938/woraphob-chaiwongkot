@@ -38,9 +38,9 @@ export function PaymentRoutingSettings() {
   }
 
   return <details className="admin-record-disclosure">
-    <summary>กำหนดผู้ตรวจสลิปของการจองเดิม</summary>
+    <summary>กำหนดรูปแบบบริการของการจองเดิม</summary>
     <div className="admin-editor">
-      <p>FitConnect ใช้ยิมเดียว เทรนเนอร์เป็นผู้ยืนยันสลิปของการจองตนเองทั้งแบบฟรีแลนซ์และประจำยิม ส่วนผู้ดูแลระบบที่มีสิทธิ์ตรวจการชำระเงินดูสลิปและรายได้ของเทรนเนอร์ประจำยิมเพื่อสรุปเงินเดือน</p>
+      <p>การจองแบบฟรีแลนซ์โอนเงินเข้าบัญชีรับเงินของเทรนเนอร์ผ่าน Stripe ส่วนการจองแบบประจำยิมชำระเข้าบัญชีแพลตฟอร์ม และผู้ดูแลระบบที่มีสิทธิ์ดูการชำระเงินใช้สรุปรายได้และเงินเดือน</p>
       {error && <div role="alert"><p>{error}</p><Button variant="outline" disabled={busy} onClick={() => void load().then(() => setError("")).catch((reason: Error) => setError(reason.message))}>ลองโหลดใหม่</Button></div>}
       {notice && <p role="status">{notice}</p>}
       {!data && !error && <p role="status">กำลังโหลดสังกัดยิม…</p>}
@@ -54,7 +54,7 @@ export function PaymentRoutingSettings() {
             <option value="">เลือกตามข้อตกลงเดิม</option><option value="freelance">ฟรีแลนซ์</option><option value="gym">ประจำยิม</option>
           </select></label><Button type="submit" disabled={busy}>ยืนยันผู้รับผิดชอบ</Button></form>)}
         </details>}
-        {data.unresolved.length === 0 && <p>การจองทั้งหมดมีผู้ตรวจสลิปแล้ว</p>}
+        {data.unresolved.length === 0 && <p>การจองทั้งหมดระบุรูปแบบบริการแล้ว</p>}
       </>}
     </div>
   </details>;

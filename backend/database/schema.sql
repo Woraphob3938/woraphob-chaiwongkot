@@ -81,6 +81,9 @@ CREATE TABLE IF NOT EXISTS trainer_profiles (
   payment_account_name VARCHAR(190) NULL,
   promptpay_id VARCHAR(13) NULL,
   payment_qr_path VARCHAR(500) NULL,
+  -- Stripe Connect account that receives freelance bookings (destination charges).
+  stripe_account_id VARCHAR(64) NULL,
+  stripe_transfers_enabled TINYINT(1) NOT NULL DEFAULT 0,
   image_path VARCHAR(500) NULL,
   approval_status ENUM('pending', 'approved', 'rejected') NOT NULL DEFAULT 'pending',
   approval_note VARCHAR(1000) NULL,
@@ -91,6 +94,7 @@ CREATE TABLE IF NOT EXISTS trainer_profiles (
   updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
   UNIQUE KEY uq_trainer_user (user_id),
   UNIQUE KEY uq_trainer_slug (slug),
+  UNIQUE KEY uq_trainer_stripe_account (stripe_account_id),
   KEY idx_trainer_discovery (approval_status, updated_at),
   CONSTRAINT fk_trainer_user FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE,
   CONSTRAINT fk_trainer_gym FOREIGN KEY (gym_id) REFERENCES gyms(id) ON DELETE SET NULL,
@@ -238,19 +242,33 @@ CREATE TABLE IF NOT EXISTS payments (
   amount DECIMAL(10, 2) NULL,
   transaction_ref VARCHAR(64) NULL,
   window_ends_at DATETIME NULL,
-  slip_path VARCHAR(500) NOT NULL,
-  mime_type VARCHAR(100) NOT NULL,
-  status ENUM('reviewing', 'approved', 'rejected') NOT NULL DEFAULT 'reviewing',
+  -- Legacy bank-slip evidence; Stripe payments leave these empty.
+  slip_path VARCHAR(500) NULL,
+  mime_type VARCHAR(100) NULL,
+  stripe_checkout_session_id VARCHAR(255) NULL,
+  stripe_payment_intent_id VARCHAR(255) NULL,
+  stripe_destination_account VARCHAR(64) NULL,
+  application_fee DECIMAL(10, 2) NULL,
+  refunded_at DATETIME NULL,
+  status ENUM('pending', 'reviewing', 'approved', 'rejected', 'refunded') NOT NULL DEFAULT 'pending',
   review_note VARCHAR(1000) NULL,
   reviewed_by_user_id BIGINT UNSIGNED NULL,
   submitted_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
   reviewed_at DATETIME NULL,
   UNIQUE KEY uq_payment_transaction_ref (transaction_ref),
+  UNIQUE KEY uq_payment_checkout_session (stripe_checkout_session_id),
   KEY idx_payment_review (status, submitted_at),
   KEY idx_payment_booking (booking_id),
   CONSTRAINT fk_payment_booking FOREIGN KEY (booking_id) REFERENCES bookings(id) ON DELETE CASCADE,
   CONSTRAINT fk_payment_submitter FOREIGN KEY (submitted_by_user_id) REFERENCES users(id),
   CONSTRAINT fk_payment_reviewer FOREIGN KEY (reviewed_by_user_id) REFERENCES users(id) ON DELETE SET NULL
+) ENGINE=InnoDB;
+
+-- Stripe webhook events already applied, so a redelivery is a no-op.
+CREATE TABLE IF NOT EXISTS stripe_events (
+  id VARCHAR(255) PRIMARY KEY,
+  type VARCHAR(100) NOT NULL,
+  received_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
 ) ENGINE=InnoDB;
 
 CREATE TABLE IF NOT EXISTS notifications (

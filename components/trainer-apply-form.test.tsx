@@ -34,9 +34,6 @@ function profileWith(certificateStatus: "pending" | "verified" | "rejected" | nu
       priceFrom: 650,
       monthlyPrice: null,
       monthlySessionCount: null,
-      paymentAccountName: "สมชาย ใจดี",
-      promptPayId: "0812345678",
-      paymentQrUrl: null,
       trainingTypeIds: [1],
       approvalStatus: "pending",
       approvalNote: null,
@@ -73,8 +70,6 @@ async function fillRequiredFields() {
   fireEvent.change(screen.getByLabelText("ประโยคแนะนำตัวบนหน้าร้าน"), { target: { value: "วางรากฐานความแข็งแรง" } });
   fireEvent.change(screen.getByLabelText("เกี่ยวกับฉัน"), { target: { value: "ดูแลการฝึกเวทอย่างปลอดภัย" } });
   fireEvent.change(screen.getByLabelText("ค่าฝึกเริ่มต้น (บาท)"), { target: { value: "650" } });
-  fireEvent.change(screen.getByLabelText("ชื่อบัญชีรับเงิน"), { target: { value: "สมชาย ใจดี" } });
-  fireEvent.change(screen.getByLabelText("หมายเลขพร้อมเพย์"), { target: { value: "0812345678" } });
   fireEvent.change(screen.getByLabelText("ชื่อ-นามสกุลจริง"), { target: { value: "สมชาย ใจดี" } });
   // Waits for the types request because the checkboxes only exist once it lands.
   fireEvent.click(await screen.findByLabelText("เวทเทรนนิง"));
@@ -108,7 +103,8 @@ describe("TrainerApplyForm", () => {
     expect(body.get("headline")).toBe("วางรากฐานความแข็งแรง");
     expect(body.get("bio")).toBe("ดูแลการฝึกเวทอย่างปลอดภัย");
     expect(body.get("priceFrom")).toBe("650");
-    expect(body.get("paymentAccountName")).toBe("สมชาย ใจดี");
+    expect(body.get("paymentAccountName")).toBeNull();
+    expect(body.get("promptPayId")).toBeNull();
     expect(body.get("birthDate")).toBe("1990-05-20");
     expect(body.get("education")).toBe("ปริญญาตรี วิทยาศาสตร์การกีฬา");
     expect(body.getAll("trainingTypeIds[]")).toEqual(["1"]);
@@ -249,7 +245,7 @@ describe("TrainerApplyForm", () => {
 
     await waitFor(() => expect(screen.getByLabelText("ชื่อ-นามสกุลจริง")).toHaveValue("สมชาย ใจดี"));
     expect(screen.getByLabelText("ค่าฝึกเริ่มต้น (บาท)")).toHaveValue(650);
-    expect(screen.getByLabelText("หมายเลขพร้อมเพย์")).toHaveValue("0812345678");
+    expect(screen.queryByLabelText("หมายเลขพร้อมเพย์")).not.toBeInTheDocument();
     expect(screen.getByLabelText("เวทเทรนนิง")).toBeChecked();
   });
 
@@ -258,7 +254,7 @@ describe("TrainerApplyForm", () => {
       if (path === "/v1/training-types") return Promise.resolve(trainingTypes) as never;
       if (path === "/v1/profile") return Promise.reject(new ApiError("ยังไม่มีโปรไฟล์", 409)) as never;
       return Promise.reject(new ApiError("ข้อมูลไม่ถูกต้อง", 422, "VALIDATION_FAILED", {
-        promptPayId: "กรอกเบอร์พร้อมเพย์ 10 หลักหรือเลขประจำตัว 13 หลัก",
+        phone: "เบอร์โทรศัพท์ไม่ถูกต้อง",
       })) as never;
     });
 
@@ -284,7 +280,7 @@ describe("TrainerApplyForm", () => {
     fireEvent.click(screen.getByRole("button", { name: /^ถัดไป/ }));
     expect(await screen.findByText("กรุณากรอกชื่อที่แสดง")).toBeInTheDocument();
     // Fields of later steps are not flagged yet.
-    expect(screen.queryByText("กรอกชื่อบัญชีผู้รับเงิน")).not.toBeInTheDocument();
+    expect(screen.queryByText("กรุณากรอกชื่อจริง")).not.toBeInTheDocument();
     expect(within(steps).getByRole("button", { name: /หน้าร้าน/ })).toHaveAttribute("aria-current", "step");
 
     await fillRequiredFields();

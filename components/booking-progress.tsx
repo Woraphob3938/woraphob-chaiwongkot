@@ -4,15 +4,15 @@ import type { Booking } from "@/lib/types";
 /**
  * The booking path the system actually runs (บทที่ 1 ขั้นตอนที่ 1–5):
  * the member sends a request, the trainer accepts it and the system confirms
- * it to the member at the 12:00 or 18:00 round,
+ * it to the member right away,
  * the member pays within 10 minutes, the trainer confirms the slip, and the
  * session happens. Every booking surface shows the same four steps.
  */
 export const bookingSteps = [
   { title: "ส่งคำขอ", detail: "เลือกเวลาที่ต้องการ" },
-  { title: "เทรนเนอร์ตอบรับ", detail: "แจ้งผลรอบ 12:00 หรือ 18:00 น." },
-  { title: "รอการชำระเงิน", detail: "ส่งสลิปภายใน 10 นาที" },
-  { title: "จองสำเร็จ", detail: "เทรนเนอร์ยืนยันสลิป" },
+  { title: "เทรนเนอร์ตอบรับ", detail: "แจ้งผลทันที" },
+  { title: "รอการชำระเงิน", detail: "ชำระออนไลน์ภายใน 10 นาที" },
+  { title: "จองสำเร็จ", detail: "ระบบยืนยันเมื่อชำระสำเร็จ" },
 ] as const;
 
 /** Index of the step the booking is waiting on; 4 means every step is done. */

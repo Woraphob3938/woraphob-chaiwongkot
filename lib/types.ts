@@ -105,9 +105,6 @@ export type TrainerAccountProfile = {
     priceFrom: number | null;
     monthlyPrice?: number | null;
     monthlySessionCount?: number | null;
-    paymentAccountName?: string;
-    promptPayId?: string;
-    paymentQrUrl?: string | null;
     trainingTypeIds: number[];
     approvalStatus: TrainerApprovalStatus;
     approvalNote: string | null;
@@ -198,25 +195,6 @@ export type AdminQueue = {
     certificates: AdminCertificate[];
     demo?: boolean;
   }>;
-  payments: Array<{
-    id: number;
-    bookingId: string;
-    bookingType?: "single" | "monthly";
-    memberName: string;
-    trainerName: string;
-    startsAt: string;
-    endsAt: string;
-    quotedPrice: number | null;
-    amount: number | null;
-    difference: number | null;
-    submittedAt: string;
-    /** `bank:reference` from the slip QR, or null when it could not be read. */
-    slipReference?: string | null;
-    /** End of the ten-minute window the transfer had to fall in. */
-    windowEndsAt?: string | null;
-    fileUrl: string;
-    demo?: boolean;
-  }>;
 };
 
 export type Trainer = {
@@ -234,7 +212,6 @@ export type Trainer = {
   priceFrom?: number | null;
   monthlyPrice?: number | null;
   monthlySessionCount?: number | null;
-  paymentQrUrl?: string | null;
   rating?: number;
   reviewCount: number;
   reviews?: PublicTrainerReview[];
@@ -341,14 +318,6 @@ export type Booking = {
   /** True for a pre-booking chat room opened from a trainer's profile. */
   inquiry?: boolean;
   paymentServiceMode?: "freelance" | "gym" | null;
-  paymentRecipient?: {
-    accountName: string;
-    promptPayId: string;
-    /** The QR image the trainer uploaded; null falls back to a generated one. */
-    paymentQrUrl?: string | null;
-    /** The trainer's default bank account, for a member who transfers instead. */
-    bankAccount?: BankAccountDetails | null;
-  } | null;
   id: string;
   trainer: Pick<Trainer, "id" | "displayName" | "slug"> & { imageUrl?: string | null };
   startsAt: string;
@@ -356,8 +325,6 @@ export type Booking = {
   /** Trainer-confirmed window, or null while still `pending_trainer`. */
   confirmedStartsAt?: string | null;
   confirmedEndsAt?: string | null;
-  /** Trainer view only: the 12:00 / 18:00 round at which an accepted request reaches the member. */
-  confirmationReleaseAt?: string | null;
   /** The originally requested window (`startsAt` before any confirmation change). */
   requestedStartsAt?: string | null;
   cancellationReason?: string | null;
@@ -506,18 +473,6 @@ export type TrainerStats = {
   totals: { bookings: number; income: number };
   /** Only for `serviceMode` gym/both; null for freelance trainers. */
   salarySummary: Array<{ month: MonthKey; sessions: number; amount: number }> | null;
-};
-
-export type BankAccountDetails = {
-  bankName: string;
-  accountName: string;
-  accountNumber: string;
-};
-
-export type TrainerBankAccount = BankAccountDetails & {
-  id: number;
-  isDefault: boolean;
-  createdAt: string;
 };
 
 export type TrainerPhoto = { id: number; url: string };

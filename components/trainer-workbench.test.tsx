@@ -124,9 +124,9 @@ describe("TrainerWorkbench", () => {
   it("counts an accepted request as waiting on the member, not on the trainer", async () => {
     const accepted = bookingFixture({
       id: "BK-HELD",
-      status: "pending_trainer",
-      confirmationReleaseAt: "2026-08-12T11:00:00.000Z",
-      actions: { ...bookingFixture().actions, canAccept: false, canReject: true },
+      status: "awaiting_payment",
+      paymentDeadlineAt: "2099-08-12T11:00:00.000Z",
+      actions: { ...bookingFixture().actions, canAccept: false, canReject: false },
     });
     vi.mocked(authenticatedRequest)
       .mockResolvedValueOnce(approvedWorkspace)
@@ -138,14 +138,9 @@ describe("TrainerWorkbench", () => {
     expect(within(requests).getByText("รอสมาชิก 1")).toBeInTheDocument();
     expect(within(requests).queryByText(/รอคุณ/)).not.toBeInTheDocument();
     expect(document.getElementById("request-BK-HELD")).toHaveClass("is-waiting");
-    // Nothing to answer, so the KPI and the tab stay calm.
+    // Nothing to answer, so the KPI stays calm.
     expect(screen.getByRole("link", { name: /คำขอรอตอบรับ/ })).toHaveTextContent("0");
-    expect(screen.getByRole("tab", { name: "งานและตาราง" })).toBeInTheDocument();
-    // An accepted request is withdrawn, not rejected.
-    expect(screen.queryByRole("button", { name: "ปฏิเสธ BK-HELD" })).not.toBeInTheDocument();
-    fireEvent.click(screen.getByRole("button", { name: "ยกเลิกการตอบรับ BK-HELD" }));
-    expect(screen.getByRole("dialog", { name: "ยกเลิกการตอบรับ" })).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: "ยืนยันยกเลิกการตอบรับ" })).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "ตอบรับ BK-HELD" })).not.toBeInTheDocument();
   });
 
   it("shows availability and confirmed appointments in a seven-day weekly workspace", async () => {
@@ -255,8 +250,7 @@ describe("TrainerWorkbench", () => {
     ];
     vi.mocked(authenticatedRequest)
       .mockResolvedValueOnce(approvedWorkspace)
-      .mockResolvedValueOnce(bookings)
-      .mockResolvedValueOnce({ trainers: [], payments: [] });
+      .mockResolvedValueOnce(bookings);
 
     const { container } = render(<TrainerWorkbench />);
 
@@ -277,21 +271,6 @@ describe("TrainerWorkbench", () => {
     expect(screen.getByRole("dialog", { name: "รายละเอียดนัดหมาย" })).toBeInTheDocument();
   });
 
-  it("leads with the slip queue when a slip waits for the trainer's own review", async () => {
-    vi.mocked(authenticatedRequest)
-      .mockResolvedValueOnce(approvedWorkspace)
-      .mockResolvedValueOnce([])
-      .mockResolvedValueOnce({ trainers: [], payments: [{ id: 9, bookingId: "BK-SLIP" }] });
-
-    render(<TrainerWorkbench />);
-
-    expect(await screen.findByRole("heading", { name: "ตรวจสลิปที่รออยู่" })).toBeInTheDocument();
-    expect(screen.getByRole("link", { name: "เปิดคิวตรวจสลิป" })).toHaveAttribute("href", "/trainer#payment-review");
-    const deskSummary = screen.getByText("ตรวจสลิปการจองของฉัน").closest("summary");
-    if (!deskSummary) throw new Error("slip disclosure is missing");
-    expect(within(deskSummary).getByText("1 สลิป")).toBeInTheDocument();
-  });
-
   it("shows one page of appointments and appends the next page on request", async () => {
     const finishedSession = (daysAgo: number) => {
       const start = new Date();
@@ -302,8 +281,7 @@ describe("TrainerWorkbench", () => {
     const pending = [1, 2, 3, 4, 5, 6, 7, 8].map((day) => bookingFixture({ id: `BK-P${day}`, status: "confirmed", ...finishedSession(day) }));
     vi.mocked(authenticatedRequest)
       .mockResolvedValueOnce({ ...approvedWorkspace, slots: [] })
-      .mockResolvedValueOnce(pending)
-      .mockResolvedValueOnce({ trainers: [], payments: [] });
+      .mockResolvedValueOnce(pending);
 
     render(<TrainerWorkbench />);
 
@@ -325,8 +303,7 @@ describe("TrainerWorkbench", () => {
     });
     vi.mocked(authenticatedRequest)
       .mockResolvedValueOnce(approvedWorkspace)
-      .mockResolvedValueOnce([booking])
-      .mockResolvedValueOnce({ trainers: [], payments: [] });
+      .mockResolvedValueOnce([booking]);
 
     window.location.hash = "#booking-BK-TARGET";
     render(<TrainerWorkbench />);
@@ -345,8 +322,7 @@ describe("TrainerWorkbench", () => {
     });
     vi.mocked(authenticatedRequest)
       .mockResolvedValueOnce(approvedWorkspace)
-      .mockResolvedValueOnce([booking])
-      .mockResolvedValueOnce({ trainers: [], payments: [] });
+      .mockResolvedValueOnce([booking]);
 
     render(<TrainerWorkbench />);
     fireEvent.click(await screen.findByRole("link", { name: "บันทึกผลการฝึก" }));
@@ -357,8 +333,7 @@ describe("TrainerWorkbench", () => {
   it("keeps the money on its own tab", async () => {
     vi.mocked(authenticatedRequest)
       .mockResolvedValueOnce(approvedWorkspace)
-      .mockResolvedValueOnce([])
-      .mockResolvedValueOnce({ trainers: [], payments: [] });
+      .mockResolvedValueOnce([]);
 
     render(<TrainerWorkbench />);
 
@@ -388,8 +363,7 @@ describe("TrainerWorkbench", () => {
     });
     vi.mocked(authenticatedRequest)
       .mockResolvedValueOnce(approvedWorkspace)
-      .mockResolvedValueOnce([booking])
-      .mockResolvedValueOnce({ trainers: [], payments: [] });
+      .mockResolvedValueOnce([booking]);
 
     render(<TrainerWorkbench />);
 
@@ -614,7 +588,6 @@ describe("TrainerWorkbench", () => {
     vi.mocked(authenticatedRequest)
       .mockRejectedValueOnce(new Error("โหลดสถานะเทรนเนอร์ไม่ได้"))
       .mockResolvedValueOnce([bookingFixture()])
-      .mockResolvedValueOnce({ trainers: [], payments: [] })
       .mockResolvedValueOnce(approvedWorkspace);
 
     render(<TrainerWorkbench />);
@@ -635,7 +608,6 @@ describe("TrainerWorkbench", () => {
     vi.mocked(authenticatedRequest)
       .mockResolvedValueOnce(approvedWorkspace)
       .mockRejectedValueOnce(new Error("โหลดคำขอจองไม่ได้"))
-      .mockResolvedValueOnce({ trainers: [], payments: [] })
       .mockResolvedValueOnce([bookingFixture()]);
 
     render(<TrainerWorkbench />);
@@ -687,7 +659,6 @@ describe("TrainerWorkbench", () => {
     vi.mocked(authenticatedRequest)
       .mockResolvedValueOnce(approvedWorkspace)
       .mockResolvedValueOnce([booking])
-      .mockResolvedValueOnce({ trainers: [], payments: [] })
       .mockResolvedValueOnce({ id: "BK-DONE", status: "completed" })
       .mockResolvedValueOnce([]);
 
@@ -729,7 +700,6 @@ describe("TrainerWorkbench", () => {
     vi.mocked(authenticatedRequest)
       .mockResolvedValueOnce(approvedWorkspace)
       .mockResolvedValueOnce([booking])
-      .mockResolvedValueOnce({ trainers: [], payments: [] })
       .mockResolvedValueOnce({ id: "BK-REFRESH", status: "completed" })
       .mockRejectedValueOnce(new Error("โหลดรายการนัดล่าสุดไม่ได้"));
 
@@ -763,7 +733,6 @@ describe("TrainerWorkbench", () => {
     vi.mocked(authenticatedRequest)
       .mockResolvedValueOnce(approvedWorkspace)
       .mockResolvedValueOnce([booking])
-      .mockResolvedValueOnce({ trainers: [], payments: [] })
       .mockResolvedValueOnce({ id: "BK-RETRY-OK", status: "completed" })
       .mockRejectedValueOnce(new Error("โหลดรายการนัดล่าสุดไม่ได้"))
       .mockImplementationOnce(() => pendingRetry);
@@ -804,7 +773,6 @@ describe("TrainerWorkbench", () => {
     vi.mocked(authenticatedRequest)
       .mockResolvedValueOnce(approvedWorkspace)
       .mockResolvedValueOnce([booking])
-      .mockResolvedValueOnce({ trainers: [], payments: [] })
       .mockResolvedValueOnce({ id: "BK-RETRY-FAIL", status: "completed" })
       .mockRejectedValueOnce(new Error("โหลดรายการนัดล่าสุดไม่ได้"))
       .mockImplementationOnce(() => pendingRetry);
@@ -831,7 +799,7 @@ describe("TrainerWorkbench", () => {
     expect(within(refreshAlert).getByRole("button", { name: "ลองโหลดใหม่" })).toBeEnabled();
   });
 
-  it("offers a pending request with accept and reject and previews every confirmed time", async () => {
+  it("offers a pending request with accept and reject and shows the unchanged training time", async () => {
     const pending = bookingFixture({
       id: "BK-ACCEPT",
       status: "pending_trainer",
@@ -842,8 +810,7 @@ describe("TrainerWorkbench", () => {
     });
     vi.mocked(authenticatedRequest)
       .mockResolvedValueOnce(approvedWorkspace)
-      .mockResolvedValueOnce([pending])
-      .mockResolvedValueOnce({ trainers: [], payments: [] });
+      .mockResolvedValueOnce([pending]);
 
     render(<TrainerWorkbench />);
 
@@ -855,14 +822,13 @@ describe("TrainerWorkbench", () => {
 
     fireEvent.click(within(row).getByRole("button", { name: "ตอบรับ BK-ACCEPT" }));
     const dialog = screen.getByRole("dialog", { name: "ตอบรับคำขอจอง" });
-    // The training time never moves; the rounds only decide when the member hears back.
     expect(within(dialog).getByText("เวลาฝึก (ไม่เปลี่ยน)")).toBeInTheDocument();
     expect(within(dialog).getByText(/09:00 น\. – 10:00 น\./)).toBeInTheDocument();
-    expect(within(dialog).getByText("รอบ 12:00 น.")).toBeInTheDocument();
-    expect(within(dialog).getByText("รอบ 18:00 น.")).toBeInTheDocument();
+    // No rounds any more: accepting tells the member at once.
+    expect(within(dialog).queryByRole("radio")).not.toBeInTheDocument();
   });
 
-  it("accepts a pending request and releases it to the member at the round the trainer picks", async () => {
+  it("accepts a pending request and opens the member's payment window at once", async () => {
     const pending = bookingFixture({
       id: "BK-ACCEPT",
       status: "pending_trainer",
@@ -874,29 +840,40 @@ describe("TrainerWorkbench", () => {
     vi.mocked(authenticatedRequest).mockImplementation((path) => {
       if (path === "/v1/trainer/me") return Promise.resolve(approvedWorkspace);
       if (path === "/v1/bookings") return Promise.resolve([pending]);
-      if (path === "/v1/trainer/review-queue") return Promise.resolve({ trainers: [], payments: [] });
       return Promise.resolve({ id: "BK-ACCEPT", status: "awaiting_payment" });
     });
 
     render(<TrainerWorkbench />);
     fireEvent.click(await screen.findByRole("button", { name: "ตอบรับ BK-ACCEPT" }));
     const dialog = screen.getByRole("dialog", { name: "ตอบรับคำขอจอง" });
-    const options = within(dialog).getAllByRole("radio");
-    expect(options.map((option) => option.textContent)).toEqual([
-      expect.stringContaining("12:00 น."),
-      expect.stringContaining("18:00 น."),
-    ]);
-    // Now is 09:00 on 12 Aug: the 18:00 round reaches the member that evening.
-    expect(options[1]).toHaveTextContent("แจ้งสมาชิก พุธ 12 ส.ค. 2569 · 18:00 น.");
-    fireEvent.click(options[1]);
-    expect(options[1]).toHaveAttribute("aria-checked", "true");
     fireEvent.click(within(dialog).getByRole("button", { name: "ยืนยันตอบรับ" }));
 
     await waitFor(() => expect(authenticatedRequest).toHaveBeenCalledWith(
       "/v1/bookings/BK-ACCEPT/status",
-      { method: "PATCH", body: JSON.stringify({ status: "awaiting_payment", confirmedTime: "18:00" }) },
+      { method: "PATCH", body: JSON.stringify({ status: "awaiting_payment" }) },
     ));
-    await waitFor(() => expect(screen.getByRole("status")).toHaveTextContent("ตอบรับคำขอ BK-ACCEPT แล้ว ระบบจะแจ้งสมาชิก พุธ 12 ส.ค. 2569 · 18:00 น."));
+    await waitFor(() => expect(screen.getByRole("status")).toHaveTextContent("ตอบรับคำขอ BK-ACCEPT แล้ว สมาชิกได้รับแจ้งและชำระเงินได้ภายใน 10 นาที"));
+  });
+
+  it("will not accept a request that starts before the member could pay", async () => {
+    const soon = new Date(Date.now() + 5 * 60 * 1000).toISOString();
+    const pending = bookingFixture({
+      id: "BK-SOON",
+      status: "pending_trainer",
+      startsAt: soon,
+      endsAt: new Date(Date.now() + 65 * 60 * 1000).toISOString(),
+      requestedStartsAt: soon,
+      actions: { ...bookingFixture().actions, canAccept: true, canReject: true },
+    });
+    vi.mocked(authenticatedRequest)
+      .mockResolvedValueOnce(approvedWorkspace)
+      .mockResolvedValueOnce([pending]);
+
+    render(<TrainerWorkbench />);
+    fireEvent.click(await screen.findByRole("button", { name: "ตอบรับ BK-SOON" }));
+    const dialog = screen.getByRole("dialog", { name: "ตอบรับคำขอจอง" });
+    expect(within(dialog).getByRole("alert")).toHaveTextContent("ใกล้เวลาฝึกเกินไป");
+    expect(within(dialog).getByRole("button", { name: "ยืนยันตอบรับ" })).toBeDisabled();
   });
 
   it("rejects a pending request only with a reason and sends it as the note", async () => {
@@ -910,7 +887,6 @@ describe("TrainerWorkbench", () => {
     vi.mocked(authenticatedRequest).mockImplementation((path) => {
       if (path === "/v1/trainer/me") return Promise.resolve(approvedWorkspace);
       if (path === "/v1/bookings") return Promise.resolve([pending]);
-      if (path === "/v1/trainer/review-queue") return Promise.resolve({ trainers: [], payments: [] });
       return Promise.resolve({ id: "BK-REJECT", status: "cancelled" });
     });
 
@@ -943,7 +919,6 @@ describe("TrainerWorkbench", () => {
     vi.mocked(authenticatedRequest).mockImplementation((path) => {
       if (path === "/v1/trainer/me") return Promise.resolve(approvedWorkspace);
       if (path === "/v1/bookings") return Promise.resolve([booking]);
-      if (path === "/v1/trainer/review-queue") return Promise.resolve({ trainers: [], payments: [] });
       return Promise.resolve({ id: "BK-CANCEL", status: "cancelled" });
     });
 
@@ -976,8 +951,7 @@ describe("TrainerWorkbench", () => {
     });
     vi.mocked(authenticatedRequest)
       .mockResolvedValueOnce(approvedWorkspace)
-      .mockResolvedValueOnce([booking])
-      .mockResolvedValueOnce({ trainers: [], payments: [] });
+      .mockResolvedValueOnce([booking]);
 
     render(<TrainerWorkbench />);
     fireEvent.click(await screen.findByRole("button", { name: "ดูรายละเอียด" }));
@@ -993,7 +967,6 @@ describe("TrainerWorkbench", () => {
     vi.mocked(authenticatedRequest).mockImplementation((path) => {
       if (path === "/v1/trainer/me") return Promise.resolve({ ...approvedWorkspace, slots: [availableSlot, bookedSlot] });
       if (path === "/v1/bookings") return Promise.resolve([]);
-      if (path === "/v1/trainer/review-queue") return Promise.resolve({ trainers: [], payments: [] });
       return Promise.resolve({ id: 72, startsAt: "", endsAt: "", state: "available" });
     });
 
@@ -1027,7 +1000,6 @@ describe("TrainerWorkbench", () => {
     vi.mocked(authenticatedRequest).mockImplementation((path) => {
       if (path === "/v1/trainer/me") return Promise.resolve({ ...approvedWorkspace, slots: [availableSlot] });
       if (path === "/v1/bookings") return Promise.resolve([]);
-      if (path === "/v1/trainer/review-queue") return Promise.resolve({ trainers: [], payments: [] });
       return Promise.reject(new Error("ช่วงเวลานี้ถูกจองแล้ว แก้ไขไม่ได้"));
     });
 
@@ -1058,7 +1030,6 @@ describe("TrainerWorkbench", () => {
     vi.mocked(authenticatedRequest).mockImplementation((path) => {
       if (path === "/v1/trainer/me") return Promise.resolve(approvedWorkspace);
       if (path === "/v1/bookings") return Promise.resolve([]);
-      if (path === "/v1/trainer/review-queue") return Promise.resolve({ trainers: [], payments: [] });
       if (path.startsWith("/v1/trainer/stats")) return Promise.resolve(statsPayload);
       return Promise.reject(new Error(`unexpected request: ${path}`));
     });

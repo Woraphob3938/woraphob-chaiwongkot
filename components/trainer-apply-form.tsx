@@ -35,8 +35,6 @@ const emptyForm = {
   priceFrom: "",
   monthlyPrice: "",
   monthlySessionCount: "",
-  paymentAccountName: "",
-  promptPayId: "",
 };
 
 type FormValues = typeof emptyForm;
@@ -64,8 +62,6 @@ const fieldIdByKey: Record<string, string> = {
   priceFrom: "apply-price",
   monthlyPrice: "apply-monthly-price",
   monthlySessionCount: "apply-monthly-sessions",
-  paymentAccountName: "apply-payment-account",
-  promptPayId: "apply-promptpay",
   trainingTypeIds: "apply-training-types",
   certificate: "apply-certificate",
 };
@@ -78,7 +74,7 @@ const fieldIdByKey: Record<string, string> = {
 const APPLY_STEPS = [
   { id: "storefront", title: "หน้าร้าน", hint: "ชื่อ คำแนะนำตัว ความเชี่ยวชาญ", fields: ["displayName", "nickname", "headline", "bio", "yearsExperience", "trainingTypeIds"] },
   { id: "service", title: "บริการและราคา", hint: "รูปแบบงานและค่าฝึก", fields: ["serviceMode", "priceFrom", "monthlyPrice", "monthlySessionCount"] },
-  { id: "private", title: "ข้อมูลส่วนตัว", hint: "ตัวตนและบัญชีรับเงิน", fields: ["legalName", "phone", "birthDate", "education", "paymentAccountName", "promptPayId"] },
+  { id: "private", title: "ข้อมูลส่วนตัว", hint: "ตัวตนและการติดต่อ", fields: ["legalName", "phone", "birthDate", "education"] },
   { id: "certificate", title: "ใบรับรองและส่ง", hint: "แนบ PDF และตรวจทาน", fields: ["certificate"] },
 ] as const;
 
@@ -103,8 +99,6 @@ function fromProfile(profile: TrainerAccountProfile): FormValues {
     priceFrom: profile.trainer.priceFrom?.toString() ?? "",
     monthlyPrice: profile.trainer.monthlyPrice?.toString() ?? "",
     monthlySessionCount: profile.trainer.monthlySessionCount?.toString() ?? "",
-    paymentAccountName: profile.trainer.paymentAccountName ?? "",
-    promptPayId: profile.trainer.promptPayId ?? "",
   };
 }
 
@@ -270,10 +264,6 @@ export function TrainerApplyForm({ embedded = false, onDirtyChange, onSaved, onC
     if (!values.bio.trim()) nextFields.bio = "เขียนเกี่ยวกับฉันสั้น ๆ";
     if (!typeError && selectedTypes.length === 0) nextFields.trainingTypeIds = "เลือกหมวดหมู่ความเชี่ยวชาญอย่างน้อยหนึ่งหมวด";
     if (!values.priceFrom.trim() || Number(values.priceFrom) <= 0) nextFields.priceFrom = "กรอกค่าฝึกเริ่มต้นที่มากกว่าศูนย์";
-    if (!values.paymentAccountName.trim()) nextFields.paymentAccountName = "กรอกชื่อบัญชีผู้รับเงิน";
-    if (!/^(?:0\d{9}|\d{13})$/.test(values.promptPayId.replace(/\D/g, ""))) {
-      nextFields.promptPayId = "กรอกเบอร์พร้อมเพย์ 10 หลักหรือเลขประจำตัว 13 หลัก";
-    }
     if (!Number.isInteger(Number(values.yearsExperience)) || Number(values.yearsExperience) < 0) {
       nextFields.yearsExperience = "กรอกจำนวนปีตั้งแต่ศูนย์ขึ้นไป";
     }
@@ -309,7 +299,7 @@ export function TrainerApplyForm({ embedded = false, onDirtyChange, onSaved, onC
     setStep(index);
     window.setTimeout(() => {
       document.getElementById(`apply-step-${APPLY_STEPS[index].id}`)?.closest("section")?.querySelector<HTMLElement>("input:not([type=hidden]), textarea")?.focus({ preventScroll: true });
-      document.querySelector(".apply-wizard")?.scrollIntoView({ block: "start", behavior: "smooth" });
+      document.querySelector(".apply-wizard")?.scrollIntoView?.({ block: "start", behavior: "smooth" });
     }, 0);
   }
 
@@ -367,8 +357,6 @@ export function TrainerApplyForm({ embedded = false, onDirtyChange, onSaved, onC
     body.set("priceFrom", values.priceFrom);
     body.set("monthlyPrice", values.monthlyPrice);
     body.set("monthlySessionCount", values.monthlySessionCount);
-    body.set("paymentAccountName", values.paymentAccountName.trim());
-    body.set("promptPayId", values.promptPayId.replace(/\D/g, ""));
     for (const typeId of selectedTypes) body.append("trainingTypeIds[]", String(typeId));
     if (certificate) body.set("certificate", certificate);
     const submittedValues = { ...values };
@@ -534,7 +522,7 @@ export function TrainerApplyForm({ embedded = false, onDirtyChange, onSaved, onC
             {values.serviceMode !== "freelance" && values.serviceMode !== "gym" && (
               <small className="profile-field-error">ข้อมูลเดิมตั้งไว้ทั้งสองรูปแบบ กรุณาเลือกหนึ่งรูปแบบก่อนบันทึก</small>
             )}
-            <small>ทั้งสองแบบ คุณเป็นผู้ตรวจสลิปของสมาชิกเอง</small>
+            <small>สมาชิกชำระผ่านระบบทั้งสองแบบ แบบฟรีแลนซ์รับเงินเข้าบัญชีรับเงินที่เชื่อมไว้ในแท็บการเงิน</small>
           </fieldset>
 
           <div className="apply-grid">
@@ -604,22 +592,6 @@ export function TrainerApplyForm({ embedded = false, onDirtyChange, onSaved, onC
               {fieldError("education")}
             </div>
           </div>
-          <div className="apply-subgroup">
-            <h3>บัญชีรับเงิน</h3>
-            <div className="apply-grid">
-              <div className="field">
-                <label htmlFor="apply-payment-account">ชื่อบัญชีรับเงิน</label>
-                <Input id="apply-payment-account" value={values.paymentAccountName} aria-required="true" aria-invalid={Boolean(fields.paymentAccountName)} aria-describedby={fieldDescribedBy("apply-payment-account", fields.paymentAccountName)} onChange={(event) => change("paymentAccountName", event.target.value)} />
-                {fieldError("paymentAccountName")}
-              </div>
-              <div className="field">
-                <label htmlFor="apply-promptpay">หมายเลขพร้อมเพย์</label>
-                <Input id="apply-promptpay" inputMode="numeric" autoComplete="off" value={values.promptPayId} placeholder="เบอร์ 10 หลัก หรือเลขบัตร 13 หลัก" aria-required="true" aria-invalid={Boolean(fields.promptPayId)} aria-describedby={fieldDescribedBy("apply-promptpay", fields.promptPayId) ?? "apply-promptpay-hint"} onChange={(event) => change("promptPayId", event.target.value)} />
-                <small id="apply-promptpay-hint">ใช้สร้าง QR ให้สมาชิกโอนหลังคุณตอบรับการจอง</small>
-                {fieldError("promptPayId")}
-              </div>
-            </div>
-          </div>
         </section>
 
         {/* Step 4: evidence and a last look */}
@@ -661,7 +633,6 @@ export function TrainerApplyForm({ embedded = false, onDirtyChange, onSaved, onC
           <dl className="apply-review" aria-label="สรุปข้อมูลก่อนส่ง">
             <div><dt>หน้าร้าน</dt><dd>{values.displayName || "—"}{selectedTypeNames.length > 0 && ` · ${selectedTypeNames.join(", ")}`}</dd><button type="button" onClick={() => goToStep(0)}>แก้ไข</button></div>
             <div><dt>บริการและราคา</dt><dd>{serviceLabel}{values.priceFrom && ` · ฿${values.priceFrom} ต่อครั้ง`}{packageOpen && values.monthlyPrice && ` · แพ็กเกจ ฿${values.monthlyPrice}`}</dd><button type="button" onClick={() => goToStep(1)}>แก้ไข</button></div>
-            <div><dt>รับเงิน</dt><dd>{values.paymentAccountName || "—"}{values.promptPayId && ` · พร้อมเพย์ ${values.promptPayId.replace(/\D/g, "").replace(/^(\d{3})\d+(\d{3})$/, "$1•••$2")}`}</dd><button type="button" onClick={() => goToStep(2)}>แก้ไข</button></div>
           </dl>
           <p className="apply-note">ส่งแล้วโปรไฟล์จะเข้าคิวให้ผู้ดูแลระบบตรวจ และเปิดให้สมาชิกจองเมื่อผ่านการตรวจ</p>
         </section>

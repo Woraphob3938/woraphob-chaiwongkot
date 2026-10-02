@@ -2,20 +2,19 @@ import type { Booking, BookingStatus } from "@/lib/types";
 
 /**
  * One Thai label per status, shared by every surface that reports it. Three
- * copies of this table had drifted apart: the administrator queue said a slip
- * was "อนุมัติแล้ว" while the member's own ledger said "ตรวจสลิปแล้ว".
+ * copies of this table had drifted apart, so every surface reads it from here.
  */
 export const paymentStatusCopy: Record<Booking["paymentStatus"], string> = {
-  not_submitted: "ยังไม่ส่งหลักฐาน",
-  reviewing: "รอตรวจสลิป",
-  approved: "ตรวจสลิปแล้ว",
-  rejected: "ต้องส่งหลักฐานใหม่",
+  not_submitted: "ยังไม่ชำระ",
+  reviewing: "รอตรวจสอบการชำระ",
+  approved: "ชำระสำเร็จ",
+  rejected: "ชำระไม่สำเร็จ",
 };
 
 export const bookingStatusCopy: Record<BookingStatus, string> = {
   pending_trainer: "รอเทรนเนอร์ตอบรับ",
   awaiting_payment: "รอชำระเงิน",
-  payment_review: "รอตรวจสลิป",
+  payment_review: "รอตรวจสอบการชำระ",
   confirmed: "ชำระแล้ว",
   completed: "เสร็จสิ้น",
   cancelled: "ยกเลิก",
@@ -34,15 +33,8 @@ export function bookingStatusLabel(value: BookingStatus | string): string {
   return labelFrom(bookingStatusCopy, value);
 }
 
-/** Baht amounts carry satang on every surface that shows what was transferred. */
+/** Baht amounts carry satang on every surface that shows what was paid. */
 export function formatAmount(amount: number | null): string {
   if (amount === null) return "ไม่มียอดที่บันทึก";
   return `${new Intl.NumberFormat("th-TH", { minimumFractionDigits: 2, maximumFractionDigits: 2 }).format(amount)} บาท`;
-}
-
-/** 1234567890 → 123-4-56789-0, the grouping Thai bank books print. */
-export function formatBankAccountNumber(value: string): string {
-  const digits = value.replace(/\D/g, "");
-  if (digits.length !== 10) return digits;
-  return `${digits.slice(0, 3)}-${digits.slice(3, 4)}-${digits.slice(4, 9)}-${digits.slice(9)}`;
 }

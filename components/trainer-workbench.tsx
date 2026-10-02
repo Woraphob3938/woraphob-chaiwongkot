@@ -5,8 +5,8 @@ import { useRouter } from "next/navigation";
 import { CSSProperties, FormEvent, KeyboardEvent, MouseEvent as ReactMouseEvent, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { BadgeCheck, CalendarCheck2, CalendarDays, CalendarPlus, ChevronLeft, ChevronRight, ClipboardList, ExternalLink, Inbox, MessageSquareText, ReceiptText, RefreshCw, Star, Trash2, UsersRound, Wallet } from "lucide-react";
 import { NextActionCard } from "@/components/dashboard-primitives";
-import { TrainerPaymentReview } from "@/components/admin-review-queue";
 import { TrainerMembersPanel, TrainerReviewsPanel } from "@/components/trainer-members-panel";
+import { StripePayoutsCard } from "@/components/stripe-payouts-card";
 import { StatusBadge } from "@/components/status-badge";
 import { Button } from "@/components/ui/button";
 import {
@@ -20,9 +20,9 @@ import {
 } from "@/components/ui/dialog";
 import { ApiError, authenticatedRequest } from "@/lib/api";
 import { getTrainerNextAction, hasValidBookingPeriod } from "@/lib/dashboard-actions";
-import { CONFIRMATION_TIMES, confirmationRelease, formatDateTime, formatMoney, formatTime, initials, type ConfirmationTime } from "@/lib/format";
+import { acceptanceTooLate, formatDateTime, formatMoney, formatTime, initials } from "@/lib/format";
 import { leaveExpiredSession } from "@/lib/session";
-import type { AdminQueue, Booking, SlotState, TrainerAvailabilitySlot, TrainerWorkspace } from "@/lib/types";
+import type { Booking, SlotState, TrainerAvailabilitySlot, TrainerWorkspace } from "@/lib/types";
 
 const slotStateCopy: Record<SlotState, string> = {
   available: "พร้อมจอง",
@@ -51,13 +51,11 @@ function decisionView(booking: Booking): BookingDecisionView {
   return booking as unknown as BookingDecisionView;
 }
 
-/** reject: an unanswered request · withdraw: a request already accepted but
- *  not yet released to the member · cancel: a booking past the request. */
-type DecisionKind = "reject" | "withdraw" | "cancel";
+/** reject: an unanswered request · cancel: a booking past the request. */
+type DecisionKind = "reject" | "cancel";
 
 const decisionCopy: Record<DecisionKind, { title: string; verb: string; confirm: string; done: string }> = {
   reject: { title: "ปฏิเสธคำขอจอง", verb: "ปฏิเสธ", confirm: "ยืนยันปฏิเสธ", done: "ปฏิเสธคำขอ" },
-  withdraw: { title: "ยกเลิกการตอบรับ", verb: "ยกเลิกการตอบรับ", confirm: "ยืนยันยกเลิกการตอบรับ", done: "ยกเลิกการตอบรับคำขอ" },
   cancel: { title: "ยกเลิกการจอง", verb: "ยกเลิก", confirm: "ยืนยันยกเลิกการจอง", done: "ยกเลิกการจอง" },
 };
 
@@ -65,10 +63,9 @@ function isPendingTrainer(booking: { status: string }) {
   return booking.status === "pending_trainer";
 }
 
-/** A request the trainer has not answered yet. An accepted one waits for its
- *  release round and asks nothing more of the trainer. */
+/** A request the trainer has not answered yet. */
 function isUnanswered(booking: Booking) {
-  return isPendingTrainer(booking) && !booking.confirmationReleaseAt;
+  return isPendingTrainer(booking);
 }
 
 /** Whether the trainer is the one who has to act next on this booking. */
@@ -96,12 +93,9 @@ function canRejectBooking(booking: Booking) {
 
 /** One line telling the trainer what this request is waiting on. */
 function requestHint(booking: Booking): string {
-  if (booking.status === "pending_trainer" && booking.confirmationReleaseAt) {
-    return `ตอบรับแล้ว ระบบจะแจ้งสมาชิก ${formatDateTime(booking.confirmationReleaseAt)} แล้วสมาชิกมีเวลาชำระเงิน 10 นาที`;
-  }
-  if (booking.status === "pending_trainer") return "ตอบรับแล้วเลือกรอบแจ้งสมาชิก 12:00 หรือ 18:00 น. เวลาฝึกยังเป็นเวลาที่สมาชิกขอ";
-  if (booking.status === "awaiting_payment") return "รอสมาชิกโอนเงินและส่งสลิปภายใน 10 นาทีหลังคุณตอบรับ";
-  if (booking.status === "payment_review") return "สมาชิกส่งสลิปแล้ว ตรวจในคิวตรวจสลิปด้านล่าง";
+  if (booking.status === "pending_trainer") return "ตอบรับแล้วสมาชิกชำระเงินได้ทันทีภายใน 10 นาที เวลาฝึกยังเป็นเวลาที่สมาชิกขอ";
+  if (booking.status === "awaiting_payment") return "รอสมาชิกชำระเงินออนไลน์ภายใน 10 นาทีหลังคุณตอบรับ";
+  if (booking.status === "payment_review") return "รายการชำระเงินเดิมรอตรวจสอบ";
   return "";
 }
 
@@ -346,7 +340,10 @@ export function TrainerWorkbench({ onIncompleteProfile }: { onIncompleteProfile?
   const [bookingToComplete, setBookingToComplete] = useState<Booking | null>(null);
   const [appointmentLimit, setAppointmentLimit] = useState(APPOINTMENTS_PER_PAGE);
   const [requestLimit, setRequestLimit] = useState(REQUESTS_PER_PAGE);
-  const [activeTab, setActiveTab] = useState<TrainerTab>("work");
+  // Coming back from Stripe onboarding (?stripe=return|refresh) lands on the
+  // finance tab, where the payout account card lives.
+  const [activeTab, setActiveTab] = useState<TrainerTab>(() =>
+    typeof window !== "undefined" && new URLSearchParams(window.location.search).has("stripe") ? "finance" : "work");
   const [selectedBooking, setSelectedBooking] = useState<Booking | null>(null);
   const [weekOffset, setWeekOffset] = useState(0);
   // On a phone the week collapses to one day column; this is the day shown.
@@ -355,19 +352,12 @@ export function TrainerWorkbench({ onIncompleteProfile }: { onIncompleteProfile?
   // A minute clock for the calendar only: the red "now" line and which hours
   // may still take a new slot move with real time while the page stays open.
   const [clock, setClock] = useState(() => new Date());
-  // The slip queue is a long form; it stays folded until the trainer asks for
-  // it (the next-action card, the KPI, or a #payment-review link).
-  const [slipQueueRequested, setSlipQueueRequested] = useState(() => typeof window !== "undefined" && window.location.hash === "#payment-review");
   const [loading, setLoading] = useState(true);
   const [workspaceReady, setWorkspaceReady] = useState(false);
   const [bookingsReady, setBookingsReady] = useState(false);
-  // Slips waiting for this trainer's own review. `null` means the count could
-  // not be read, which never invents work that is not there.
-  const [pendingSlips, setPendingSlips] = useState<number | null>(null);
   // Trainer decisions on a booking: accept picks the confirmed time, reject and
   // cancel both require a reason the member can read.
   const [bookingToAccept, setBookingToAccept] = useState<Booking | null>(null);
-  const [confirmationTime, setConfirmationTime] = useState<ConfirmationTime>("12:00");
   const [bookingToDecide, setBookingToDecide] = useState<Booking | null>(null);
   const [decisionKind, setDecisionKind] = useState<DecisionKind>("reject");
   const [decisionReason, setDecisionReason] = useState("");
@@ -440,9 +430,8 @@ export function TrainerWorkbench({ onIncompleteProfile }: { onIncompleteProfile?
     const initialLoad = Promise.allSettled([
       authenticatedRequest<TrainerWorkspace>("/v1/trainer/me"),
       authenticatedRequest<Booking[]>("/v1/bookings"),
-      authenticatedRequest<AdminQueue>("/v1/trainer/review-queue"),
     ]);
-    void initialLoad.then(([workspaceResult, bookingResult, queueResult]) => {
+    void initialLoad.then(([workspaceResult, bookingResult]) => {
       if (workspaceResult.status === "fulfilled") {
         setWorkspace(workspaceResult.value);
         setWorkspaceError("");
@@ -462,8 +451,6 @@ export function TrainerWorkbench({ onIncompleteProfile }: { onIncompleteProfile?
         setBookingError(bookingResult.reason instanceof Error ? bookingResult.reason.message : "โหลดคำขอจองไม่สำเร็จ");
       }
 
-      const queue = queueResult.status === "fulfilled" ? queueResult.value : null;
-      setPendingSlips(Array.isArray(queue?.payments) ? queue.payments.length : null);
       setLoading(false);
     });
   }, [navigate]);
@@ -475,14 +462,6 @@ export function TrainerWorkbench({ onIncompleteProfile }: { onIncompleteProfile?
   useEffect(() => {
     const timer = window.setInterval(() => setClock(new Date()), 60_000);
     return () => window.clearInterval(timer);
-  }, []);
-
-  useEffect(() => {
-    function openRequestedQueue() {
-      if (window.location.hash === "#payment-review") setSlipQueueRequested(true);
-    }
-    window.addEventListener("hashchange", openRequestedQueue);
-    return () => window.removeEventListener("hashchange", openRequestedQueue);
   }, []);
 
   useEffect(() => {
@@ -553,10 +532,11 @@ export function TrainerWorkbench({ onIncompleteProfile }: { onIncompleteProfile?
     : [];
   const requestsForTrainer = decisionBookings.filter(needsTrainer).length;
   const requestsForMember = decisionBookings.length - requestsForTrainer;
+  const awaitingPaymentCount = bookingsReady ? bookings.filter((booking) => booking.status === "awaiting_payment").length : 0;
   const visibleRequests = decisionBookings.slice(0, requestLimit);
   const completedBookings = bookingsReady ? bookings.filter((booking) => booking.status === "completed") : [];
-  // Money is only claimed where the review that makes it real has happened, so
-  // the ledger keeps settled amounts apart from slips still under review.
+  // Money is only claimed once the payment has settled, so the ledger keeps
+  // paid amounts apart from anything still unsettled.
   const approvedEarned = completedBookings
     .filter((booking) => booking.paymentStatus === "approved")
     .reduce((sum, b) => sum + (b.quotedPrice ?? 0), 0);
@@ -565,7 +545,7 @@ export function TrainerWorkbench({ onIncompleteProfile }: { onIncompleteProfile?
     .filter((booking) => booking.paymentStatus === "reviewing")
     .reduce((sum, b) => sum + (b.quotedPrice ?? 0), 0);
   const upcomingEarned = confirmedBookings.reduce((sum, b) => sum + (b.quotedPrice ?? 0), 0);
-  const nextAction = workspaceReady && bookingsReady ? getTrainerNextAction(workspace, bookings, pendingSlips ?? 0) : null;
+  const nextAction = workspaceReady && bookingsReady ? getTrainerNextAction(workspace, bookings) : null;
   const actionBookingId = nextAction?.href.match(/(?:booking-|booking=|request-)([^&#]+)/)?.[1];
   const orderedConfirmedBookings = confirmedBookings.slice().sort((left, right) => new Date(left.startsAt).getTime() - new Date(right.startsAt).getTime());
   const urgentBooking = orderedConfirmedBookings.find((booking) => booking.id === actionBookingId && booking.actions.canComplete && hasValidBookingPeriod(booking));
@@ -840,9 +820,7 @@ export function TrainerWorkbench({ onIncompleteProfile }: { onIncompleteProfile?
             <h3>{booking.member?.displayName ?? "สมาชิก FitConnect"}</h3>
             <span className="trainer-booking-card__meta"><span>{booking.id}</span><span>{booking.bookingType === "monthly" ? `แพ็กเกจ ${booking.sessionCount} ครั้ง` : "รายครั้ง"}</span></span>
           </div>
-          {booking.status === "pending_trainer" && booking.confirmationReleaseAt
-            ? <span className="trainer-accepted-chip">ตอบรับแล้ว · รอแจ้งสมาชิก</span>
-            : <StatusBadge status={booking.status} />}
+          <StatusBadge status={booking.status} />
         </div>
         <p className="trainer-booking-card__hint">{requestHint(booking)}</p>
         <dl>
@@ -868,8 +846,6 @@ export function TrainerWorkbench({ onIncompleteProfile }: { onIncompleteProfile?
               aria-label={`ตอบรับ ${booking.id}`}
               onClick={(event) => {
                 rememberDialogTrigger(event);
-                const firstOpen = CONFIRMATION_TIMES.find((time) => !confirmationRelease(time, requestedStart(booking)).tooLate);
-                setConfirmationTime(firstOpen ?? "12:00");
                 setBookingToAccept(booking);
               }}
             >
@@ -877,25 +853,14 @@ export function TrainerWorkbench({ onIncompleteProfile }: { onIncompleteProfile?
             </button>
           )}
           {pending && canRejectBooking(booking) && (
-            booking.confirmationReleaseAt ? (
-              <button
-                type="button"
-                disabled={isBusy}
-                aria-label={`ยกเลิกการตอบรับ ${booking.id}`}
-                onClick={(event) => { openDecisionDialog(booking, "withdraw", event); }}
-              >
-                ยกเลิกการตอบรับ
-              </button>
-            ) : (
-              <button
-                type="button"
-                disabled={isBusy}
-                aria-label={`ปฏิเสธ ${booking.id}`}
-                onClick={(event) => { openDecisionDialog(booking, "reject", event); }}
-              >
-                ปฏิเสธ
-              </button>
-            )
+            <button
+              type="button"
+              disabled={isBusy}
+              aria-label={`ปฏิเสธ ${booking.id}`}
+              onClick={(event) => { openDecisionDialog(booking, "reject", event); }}
+            >
+              ปฏิเสธ
+            </button>
           )}
           {!pending && canTrainerCancel(booking) && (
             <button
@@ -1012,8 +977,8 @@ export function TrainerWorkbench({ onIncompleteProfile }: { onIncompleteProfile?
     if (!booking) return;
     void patchBookingDecision(
       booking,
-      { status: "awaiting_payment", confirmedTime: confirmationTime },
-      `ตอบรับคำขอ ${booking.id} แล้ว ระบบจะแจ้งสมาชิก ${formatDateTime(confirmationRelease(confirmationTime, requestedStart(booking)).releaseAt)} จากนั้นสมาชิกชำระเงินภายใน 10 นาที`,
+      { status: "awaiting_payment" },
+      `ตอบรับคำขอ ${booking.id} แล้ว สมาชิกได้รับแจ้งและชำระเงินได้ภายใน 10 นาที`,
     );
   }
 
@@ -1233,7 +1198,6 @@ export function TrainerWorkbench({ onIncompleteProfile }: { onIncompleteProfile?
         <NextActionCard
           action={nextAction}
           onFollow={() => {
-            if (nextAction.href.endsWith("#payment-review")) setSlipQueueRequested(true);
             // After Next has pushed the hash, land the caret on the record's own
             // button so the card's promise is kept in one click.
             if (!actionBookingId) return;
@@ -1271,11 +1235,11 @@ export function TrainerWorkbench({ onIncompleteProfile }: { onIncompleteProfile?
                 <span>คำขอรอตอบรับ</span>
               </a>
             </li>
-            <li className={(pendingSlips ?? 0) > 0 ? "is-attention" : undefined}>
-              <a href="#payment-review" onClick={() => { setActiveTab("work"); setSlipQueueRequested(true); }}>
+            <li>
+              <a href="#trainer-requests" onClick={() => setActiveTab("work")}>
                 <span className="trainer-kpis__icon" aria-hidden="true"><ReceiptText size={16} /></span>
-                <strong>{pendingSlips ?? "–"}</strong>
-                <span>สลิปรอตรวจ</span>
+                <strong>{bookingsReady ? awaitingPaymentCount : "–"}</strong>
+                <span>รอสมาชิกชำระเงิน</span>
               </a>
             </li>
             <li>
@@ -1321,7 +1285,6 @@ export function TrainerWorkbench({ onIncompleteProfile }: { onIncompleteProfile?
         <NextActionCard
           action={nextAction}
           onFollow={() => {
-            if (nextAction.href.endsWith("#payment-review")) setSlipQueueRequested(true);
             // After Next has pushed the hash, land the caret on the record's own
             // button so the card's promise is kept in one click.
             if (!actionBookingId) return;
@@ -1428,18 +1391,6 @@ export function TrainerWorkbench({ onIncompleteProfile }: { onIncompleteProfile?
           )}
         </section>
       )}
-
-      {/* The trainer's own slip queue sits right under the requests as a
-          disclosure, and only exists when a slip is actually waiting: freelance
-          trainers are the reviewers of their own slips, and an empty desk is
-          noise the next-action card already accounts for. */}
-      {(pendingSlips !== null && pendingSlips > 0) || nextAction?.href === "/trainer#payment-review" ? (
-        <TrainerPaymentReview
-          pendingSlips={pendingSlips}
-          open={slipQueueRequested}
-          onQueueLoaded={(queue) => setPendingSlips(queue.payments.length)}
-        />
-      ) : null}
 
       {/* The calendar is the page: one hour grid for the week, with the list of
           who is next beside it. Slots are managed by clicking them, and a click
@@ -1689,6 +1640,7 @@ export function TrainerWorkbench({ onIncompleteProfile }: { onIncompleteProfile?
 
       {approved && (
         <div id="trainer-finance-panel" role="tabpanel" aria-labelledby="trainer-finance-tab" hidden={activeTab !== "finance"}>
+          {activeTab === "finance" && <StripePayoutsCard />}
           <section className="trainer-finance" aria-labelledby="trainer-finance-title">
             <header className="section-line-heading">
               <div>
@@ -1697,12 +1649,12 @@ export function TrainerWorkbench({ onIncompleteProfile }: { onIncompleteProfile?
               <span className="queue-count">{bookingsReady ? `รับแล้ว ${formatMoney(approvedEarned)}` : "—"}</span>
             </header>
             <dl className="trainer-money-cards">
-              <div className="is-primary"><dt>รับแล้ว (ตรวจหลักฐานผ่าน)</dt><dd><strong>{bookingsReady ? formatMoney(approvedEarned) : "—"}</strong><small>{approvedCompletedCount} การจอง</small></dd></div>
-              <div><dt>รอตรวจหลักฐาน</dt><dd><strong>{bookingsReady ? formatMoney(reviewEarned) : "—"}</strong><small>ยังไม่นับเป็นรายได้</small></dd></div>
+              <div className="is-primary"><dt>รับแล้ว (ชำระผ่านระบบ)</dt><dd><strong>{bookingsReady ? formatMoney(approvedEarned) : "—"}</strong><small>{approvedCompletedCount} การจอง</small></dd></div>
+              <div><dt>รอตรวจสอบการชำระ (รายการเดิม)</dt><dd><strong>{bookingsReady ? formatMoney(reviewEarned) : "—"}</strong><small>ยังไม่นับเป็นรายได้</small></dd></div>
               <div><dt>นัดยืนยันแล้ว ยังไม่บันทึกผล</dt><dd><strong>{bookingsReady ? formatMoney(upcomingEarned) : "—"}</strong><small>{confirmedBookings.length} การจอง</small></dd></div>
               <div><dt>ช่วงเวลาที่เปิดรับจอง</dt><dd><strong>{slots.filter((slot) => slot.state === "available").length}</strong><small>จาก {slots.length} ช่วงเวลา</small></dd></div>
             </dl>
-            <p className="profile-group__hint">ตัวเลขคิดจากค่าฝึกที่บันทึกไว้ในแต่ละการจอง และนับเป็นรายได้เฉพาะการจองที่หลักฐานการชำระเงินผ่านการตรวจแล้ว</p>
+            <p className="profile-group__hint">ตัวเลขคิดจากค่าฝึกที่บันทึกไว้ในแต่ละการจอง และนับเป็นรายได้เฉพาะการจองที่สมาชิกชำระเงินสำเร็จแล้ว ยอดที่เข้าบัญชีจริงหักค่าธรรมเนียมแพลตฟอร์มและค่าธรรมเนียม Stripe แล้ว ดูได้ใน Stripe Dashboard</p>
           </section>
 
           {/* The statistics panel answers two questions — how busy the year is
@@ -1890,7 +1842,7 @@ export function TrainerWorkbench({ onIncompleteProfile }: { onIncompleteProfile?
             <DialogTitle>ตอบรับคำขอจอง</DialogTitle>
             <DialogDescription className="grid gap-1">
               <span>{bookingToAccept?.member?.displayName ?? "สมาชิก FitConnect"} · คำขอ {bookingToAccept?.id}</span>
-              <span>เวลาฝึกเป็นเวลาที่สมาชิกขอ เลือกรอบที่ระบบจะแจ้งยืนยันให้สมาชิก แล้วสมาชิกจะมีเวลา 10 นาทีสำหรับชำระเงิน</span>
+              <span>เวลาฝึกเป็นเวลาที่สมาชิกขอ เมื่อยืนยัน ระบบแจ้งสมาชิกทันทีและสมาชิกมีเวลา 10 นาทีสำหรับชำระเงิน</span>
             </DialogDescription>
           </DialogHeader>
           {bookingToAccept && (
@@ -1899,29 +1851,9 @@ export function TrainerWorkbench({ onIncompleteProfile }: { onIncompleteProfile?
                 <span>เวลาฝึก (ไม่เปลี่ยน)</span>
                 <strong>{requestedPeriodLabel(bookingToAccept)}</strong>
               </p>
-              <div className="confirm-time-picker__options" role="radiogroup" aria-label="เลือกรอบแจ้งยืนยันสมาชิก">
-                {CONFIRMATION_TIMES.map((time) => {
-                  const round = confirmationRelease(time, requestedStart(bookingToAccept));
-                  const selected = confirmationTime === time;
-                  return (
-                    <button
-                      key={time}
-                      type="button"
-                      role="radio"
-                      aria-checked={selected}
-                      disabled={round.tooLate}
-                      className={`confirm-time-option${selected ? " confirm-time-option--active" : ""}`}
-                      onClick={() => setConfirmationTime(time)}
-                    >
-                      <span className="confirm-time-option__time">รอบ {time} น.</span>
-                      <span className="confirm-time-option__range">
-                        {round.tooLate ? "ถึงหลังเวลาฝึก สมาชิกชำระไม่ทัน" : `แจ้งสมาชิก ${formatDateTime(round.releaseAt)}`}
-                      </span>
-                      <span className="confirm-time-option__label">{time === "12:00" ? "รอบกลางวัน" : "รอบเย็น"}</span>
-                    </button>
-                  );
-                })}
-              </div>
+              {acceptanceTooLate(requestedStart(bookingToAccept)) && (
+                <p className="row-error" role="alert">ใกล้เวลาฝึกเกินไป สมาชิกจะชำระเงินไม่ทัน</p>
+              )}
             </div>
           )}
           {decisionError && <p className="row-error" role="alert">{decisionError}</p>}
@@ -1930,7 +1862,7 @@ export function TrainerWorkbench({ onIncompleteProfile }: { onIncompleteProfile?
             <Button
               className="button button--accent"
               type="button"
-              disabled={!bookingToAccept || busy === `booking-${bookingToAccept.id}` || confirmationRelease(confirmationTime, requestedStart(bookingToAccept)).tooLate}
+              disabled={!bookingToAccept || busy === `booking-${bookingToAccept.id}` || acceptanceTooLate(requestedStart(bookingToAccept))}
               onClick={() => acceptBooking()}
             >
               {busy === `booking-${bookingToAccept?.id}` ? "กำลังบันทึก…" : "ยืนยันตอบรับ"}
@@ -1953,9 +1885,6 @@ export function TrainerWorkbench({ onIncompleteProfile }: { onIncompleteProfile?
             <DialogTitle>{decisionCopy[decisionKind].title}</DialogTitle>
             <DialogDescription className="grid gap-1">
               <span>{bookingToDecide?.member?.displayName ?? "สมาชิก FitConnect"} · คำขอ {bookingToDecide?.id}</span>
-              {decisionKind === "withdraw" && bookingToDecide?.confirmationReleaseAt && (
-                <span>คำขอนี้คุณตอบรับไว้แล้ว และจะแจ้งสมาชิก {formatDateTime(bookingToDecide.confirmationReleaseAt)} ถ้ายกเลิกตอนนี้ คำขอจะปิดแทน</span>
-              )}
               <span>ช่วงเวลาจะถูกคืนให้สมาชิกทันที</span>
               <span>สมาชิกจะเห็นเหตุผลที่คุณ{decisionCopy[decisionKind].verb}</span>
             </DialogDescription>

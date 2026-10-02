@@ -147,38 +147,19 @@ function utc(string $value): DateTimeImmutable
     return new DateTimeImmutable($value, new DateTimeZone('UTC'));
 }
 
-test('releases an acceptance at the next 12:00 or 18:00 Bangkok round', function (): void {
-    // Now 09:30 Bangkok (02:30 UTC) on 20 Aug; the session is 09:00 on 22 Aug.
-    $session = utc('2026-08-22 02:00:00');
-    $noon = WorkflowRules::confirmationRelease('12:00', utc('2026-08-20 02:30:00'), $session);
-    assertSameValue('2026-08-20 05:00:00', $noon->format('Y-m-d H:i:s'));
-    $evening = WorkflowRules::confirmationRelease('18:00', utc('2026-08-20 02:30:00'), $session);
-    assertSameValue('2026-08-20 11:00:00', $evening->format('Y-m-d H:i:s'));
+test('accepting opens a ten minute payment window at once', function (): void {
+    $deadline = WorkflowRules::acceptancePaymentDeadline(utc('2026-08-20 02:30:00'), utc('2026-08-22 02:00:00'));
+    assertSameValue('2026-08-20 02:40:00', $deadline->format('Y-m-d H:i:s'));
 });
 
-test('rolls a round that already passed today over to tomorrow', function (): void {
-    // Now 13:00 Bangkok (06:00 UTC): today's 12:00 round is gone.
-    $release = WorkflowRules::confirmationRelease('12:00', utc('2026-08-20 06:00:00'), utc('2026-08-22 02:00:00'));
-    assertSameValue('2026-08-21 05:00:00', $release->format('Y-m-d H:i:s'));
-});
-
-test('refuses a round the member could not pay in before the session', function (): void {
-    // Session 12:05 Bangkok today: the 12:00 round leaves only five minutes.
+test('refuses an acceptance the member could not pay for before the session', function (): void {
     expectHttp(
         422,
-        'CONFIRMATION_ROUND_TOO_LATE',
-        fn() => WorkflowRules::confirmationRelease('12:00', utc('2026-08-20 02:30:00'), utc('2026-08-20 05:05:00'))
+        'ACCEPTANCE_TOO_LATE',
+        fn() => WorkflowRules::acceptancePaymentDeadline(utc('2026-08-20 02:30:00'), utc('2026-08-20 02:35:00'))
     );
     // Exactly ten minutes before the session is still allowed.
-    WorkflowRules::confirmationRelease('12:00', utc('2026-08-20 02:30:00'), utc('2026-08-20 05:10:00'));
-});
-
-test('rejects an unknown confirmation round', function (): void {
-    expectHttp(
-        422,
-        'VALIDATION_FAILED',
-        fn() => WorkflowRules::confirmationRelease('09:30', utc('2026-08-20 02:30:00'), utc('2026-08-22 02:00:00'))
-    );
+    WorkflowRules::acceptancePaymentDeadline(utc('2026-08-20 02:30:00'), utc('2026-08-20 02:40:00'));
 });
 
 test('trainer cancellation covers every stage before completion', function (): void {

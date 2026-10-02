@@ -36,7 +36,7 @@ export default async function LoginPage({
             <Zap aria-hidden="true" size={20} />
             <div>
               <strong>ยืนยันก่อนชำระเงิน</strong>
-              <span>ระบบแจ้งการตอบรับในรอบ 12:00 หรือ 18:00 น. แล้วสมาชิกชำระเงินภายใน 10 นาที</span>
+              <span>เทรนเนอร์ตอบรับแล้วสมาชิกชำระเงินออนไลน์ภายใน 10 นาที</span>
             </div>
           </li>
           <li className="auth-feature-item">

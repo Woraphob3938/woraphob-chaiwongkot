@@ -47,7 +47,7 @@ final class NotificationRules
                 'booking_accepted',
                 'booking',
                 'เทรนเนอร์ตอบรับการจองแล้ว',
-                "เทรนเนอร์ตอบรับการจอง {$booking} เวลาฝึก " . self::confirmedRangeLabel($context) . " กรุณาชำระเงินและส่งสลิปภายใน 10 นาที",
+                "เทรนเนอร์ตอบรับการจอง {$booking} เวลาฝึก " . self::confirmedRangeLabel($context) . " กรุณาชำระเงินออนไลน์ภายใน 10 นาที",
                 self::MEMBER_BOOKINGS,
                 true
             )],
@@ -75,7 +75,7 @@ final class NotificationRules
                     'payment_approved_member',
                     'payment',
                     'ยืนยันการจองแล้ว',
-                    "หลักฐานการชำระของการจอง {$booking} ผ่านแล้ว และนัดหมายได้รับการยืนยัน",
+                    "ชำระเงินการจอง {$booking} สำเร็จ นัดหมายได้รับการยืนยันแล้ว",
                     self::MEMBER_BOOKINGS,
                     true
                 ),
@@ -84,7 +84,7 @@ final class NotificationRules
                     'payment_approved_trainer',
                     'booking',
                     'มีนัดหมายที่ยืนยันแล้ว',
-                    "การจอง {$booking} ชำระเงินผ่านแล้วและเพิ่มในตารางนัดหมายของคุณ",
+                    "สมาชิกชำระเงินการจอง {$booking} แล้ว นัดหมายถูกเพิ่มในตารางของคุณ",
                     self::TRAINER_WORKSPACE,
                     true
                 ),
@@ -112,7 +112,7 @@ final class NotificationRules
                 'booking_expired',
                 'booking',
                 'หมดเวลาชำระเงิน',
-                "การจอง {$booking} ถูกยกเลิกเพราะไม่ได้ส่งหลักฐานภายใน 10 นาที",
+                "การจอง {$booking} ถูกยกเลิกเพราะไม่ได้ชำระเงินภายใน 10 นาที",
                 self::TRAINER_SEARCH,
                 true
             )],

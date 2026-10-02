@@ -10,7 +10,7 @@ type HomeOverviewProps = {
 };
 
 // บทที่ 1: the member sends a request, the trainer accepts, the system
-// confirms it to the member at the 12:00 or 18:00 round,
+// confirms it to the member right away,
 // the member transfers within 10 minutes and the trainer checks the slip.
 const journeySteps = [
   {
@@ -25,12 +25,12 @@ const journeySteps = [
   },
   {
     title: "เทรนเนอร์ตอบรับ",
-    description: "ระบบแจ้งผลการตอบรับให้คุณในรอบ 12:00 หรือ 18:00 น. เวลาฝึกยังเป็นเวลาที่คุณเลือก",
+    description: "ระบบแจ้งผลการตอบรับให้คุณทันที เวลาฝึกยังเป็นเวลาที่คุณเลือก",
     icon: BadgeCheck,
   },
   {
     title: "ชำระเงินภายใน 10 นาที",
-    description: "โอนเงินตามบัญชีหรือ QR ของเทรนเนอร์ แล้วอัปโหลดสลิปให้เทรนเนอร์ตรวจ",
+    description: "ชำระออนไลน์ด้วยบัตรหรือพร้อมเพย์ ระบบยืนยันการจองให้ทันทีเมื่อชำระสำเร็จ",
     icon: ReceiptText,
   },
   {
@@ -83,7 +83,7 @@ export function HomeOverview({ trainers, trainingTypes }: HomeOverviewProps) {
           </div>
           <div className="home-intro__note home-intro__note--top">
             <BadgeCheck size={18} />
-            <span><strong>เทรนเนอร์ตอบรับแล้ว</strong><small>แจ้งผลรอบ 18:00 น.</small></span>
+            <span><strong>เทรนเนอร์ตอบรับแล้ว</strong><small>ชำระเงินภายใน 10 นาที</small></span>
           </div>
           <div className="home-intro__note home-intro__note--bottom">
             <MessagesSquare size={18} />
@@ -143,7 +143,7 @@ export function HomeOverview({ trainers, trainingTypes }: HomeOverviewProps) {
       <section className="home-journey" aria-labelledby="journey-title">
         <div className="home-journey__intro">
           <h2 id="journey-title">ตั้งแต่ค้นหาจนจบการฝึก</h2>
-          <p>ดูเส้นทางตั้งแต่เลือกเทรนเนอร์ ส่งคำขอ อัปโหลดสลิป จนถึงเขียนรีวิวหลังการฝึก</p>
+          <p>ดูเส้นทางตั้งแต่เลือกเทรนเนอร์ ส่งคำขอ ชำระเงินออนไลน์ จนถึงเขียนรีวิวหลังการฝึก</p>
         </div>
         <ol className="home-journey__steps">
           {journeySteps.map((step, index) => {
@@ -165,7 +165,7 @@ export function HomeOverview({ trainers, trainingTypes }: HomeOverviewProps) {
       <section className="home-trust" aria-labelledby="trust-title">
         <h2 id="trust-title">ตรวจโดยคน เห็นสถานะชัดเจน</h2>
         <div>
-          <p>ผู้ดูแลระบบตรวจใบรับรอง ส่วนสลิปการชำระเงินเทรนเนอร์ของการจองเป็นผู้ยืนยัน ทั้งแบบฟรีแลนซ์และประจำยิม</p>
+          <p>ผู้ดูแลระบบตรวจใบรับรอง ส่วนการชำระเงินยืนยันอัตโนมัติผ่าน Stripe ทั้งแบบฟรีแลนซ์และประจำยิม</p>
           <p>FitConnect แสดงผลการตรวจตามสถานะจริง ไม่ได้อนุมัติเอกสารหรือการชำระเงินอัตโนมัติ</p>
         </div>
       </section>

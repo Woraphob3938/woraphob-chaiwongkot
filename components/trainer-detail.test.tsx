@@ -25,7 +25,7 @@ describe("TrainerDetail", () => {
   });
 
   it("uses a commerce-detail hierarchy with media, identity evidence, and booking panel", () => {
-    const trainer = { ...trainers[0], demo: false, paymentQrUrl: "/v1/trainer-payment-qr/1" };
+    const trainer = { ...trainers[0], demo: false };
     render(<TrainerDetail trainer={trainer} />);
 
     const summary = screen.getByRole("region", { name: trainer.displayName });
@@ -41,7 +41,7 @@ describe("TrainerDetail", () => {
     expect(credentials).not.toHaveAttribute("open");
     expect(appearsBefore(summary, bookingPanel)).toBe(true);
     expect(
-      within(bookingPanel).getByText(/รอบ 12:00 หรือ 18:00 น\..*เทรนเนอร์ตรวจและยืนยัน/),
+      within(bookingPanel).getByText(/คุณมีเวลา 10 นาทีชำระเงินออนไลน์.*ระบบยืนยันการจองทันทีเมื่อชำระสำเร็จ/),
     ).toBeInTheDocument();
     // No payment QR before a booking exists: a scan here would leave the system
     // (no hold, no slip, no record), and the amount is not known yet.
