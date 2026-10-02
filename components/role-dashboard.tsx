@@ -50,31 +50,14 @@ const roleCopy = {
   admin: { index: "ผู้ดูแลระบบ", title: "พื้นที่ผู้ดูแลระบบ", lead: "จัดการบัญชี ตรวจเทรนเนอร์ ติดตามการจอง การชำระเงิน และสิทธิ์ของผู้ดูแลระบบ" },
 };
 
-const paymentCopy = paymentStatusCopy;
-
-// The trainer-decision fields arrive in lib/types.ts in parallel with this
-// surface, so they are read through one narrow view that works before and
-// after that change instead of editing the shared file here.
-type BookingDecisionView = {
-  status: string;
-  confirmedStartsAt?: string | null;
-  confirmedEndsAt?: string | null;
-  cancellationReason?: string | null;
-};
-
-function decisionView(booking: Booking): BookingDecisionView {
-  return booking as unknown as BookingDecisionView;
-}
-
 function isPendingTrainer(booking: { status: string }) {
   return booking.status === "pending_trainer";
 }
 
 /** "ช่วงเวลาที่ยืนยัน" as one readable range, or null before the trainer answered. */
 function confirmedPeriodLabel(booking: Booking): string | null {
-  const view = decisionView(booking);
-  if (!view.confirmedStartsAt) return null;
-  return `${formatDateTime(view.confirmedStartsAt)} – ${formatTime(view.confirmedEndsAt ?? view.confirmedStartsAt)} น.`;
+  const start = booking.confirmedStartsAt;
+  return start ? `${formatDateTime(start)} – ${formatTime(booking.confirmedEndsAt ?? start)} น.` : null;
 }
 
 function nextStepCopy(booking: Booking): string {
@@ -156,23 +139,12 @@ function rowHint(booking: Booking): string {
  */
 function ignoreExpiry() {}
 
-function bookingIdFromActionHref(href: string): string | null {
-  const marker = "#booking-";
-  const markerIndex = href.indexOf(marker);
-  return markerIndex === -1 ? null : href.slice(markerIndex + marker.length);
+/** The booking a "#booking-…" link or hash points at. */
+function bookingIdFromHref(href: string): string | null {
+  return href.includes("#booking-") ? href.split("#booking-")[1] : null;
 }
 
-function bookingIdFromHash(hash: string): string | null {
-  return hash.startsWith("#booking-") ? hash.slice("#booking-".length) : null;
-}
-
-function BookingCancellationAction({
-  booking,
-  onUpdated,
-}: {
-  booking: Booking;
-  onUpdated: () => Promise<void>;
-}) {
+function BookingCancellationAction({ booking, onUpdated }: { booking: Booking; onUpdated: () => Promise<void> }) {
   const [open, setOpen] = useState(false);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
@@ -246,13 +218,7 @@ function BookingCancellationAction({
   );
 }
 
-export function RoleDashboard({
-  role,
-  navigate,
-}: {
-  role: UserRole;
-  navigate?: (href: string) => void;
-}) {
+export function RoleDashboard({ role, navigate }: { role: UserRole; navigate?: (href: string) => void }) {
   const router = useRouter();
   const goTo = navigate ?? router.push;
   const copy = roleCopy[role];
@@ -373,10 +339,7 @@ export function RoleDashboard({
   useEffect(() => {
     if (role !== "member") return;
     const revealTargetedBooking = () => {
-      const hashId = bookingIdFromHash(window.location.hash);
-      const searchParams = typeof window !== "undefined" ? new URLSearchParams(window.location.search) : null;
-      const queryId = searchParams?.get("booking") ?? null;
-      const targetId = hashId || queryId;
+      const targetId = bookingIdFromHref(window.location.hash) || new URLSearchParams(window.location.search).get("booking");
       if (targetId) {
         setBookingFilter("all");
         setSelectedBookingId(targetId);
@@ -391,7 +354,7 @@ export function RoleDashboard({
     const sessions = booking.sessions ?? [];
     const showSessions = booking.bookingType === "monthly" && sessions.length > 0;
     const confirmedLabel = confirmedPeriodLabel(booking);
-    const cancellationReason = decisionView(booking).cancellationReason;
+    const cancellationReason = booking.cancellationReason;
 
     return (
       <>
@@ -429,14 +392,14 @@ export function RoleDashboard({
         )}
         {/* The requested time is only worth a second row when the confirmed
             one differs from it. */}
-        {!showSessions && (!confirmedLabel || decisionView(booking).confirmedStartsAt !== booking.startsAt) && (
+        {!showSessions && (!confirmedLabel || booking.confirmedStartsAt !== booking.startsAt) && (
           <div className="ledger-row"><span>{isPendingTrainer(booking) ? "เวลาที่ขอ" : confirmedLabel ? "เวลาที่ขอไว้" : "เวลาฝึก"}</span><strong>{formatDateTime(booking.startsAt)}</strong></div>
         )}
         {cancellationReason && (
           <div className="ledger-row"><span>เหตุผลที่ยกเลิก</span><strong>{cancellationReason}</strong></div>
         )}
         <div className="ledger-row"><span>{booking.bookingType === "monthly" ? "ราคาแพ็กเกจ" : "ค่าฝึกต่อครั้ง"}</span><strong>{formatAmount(booking.quotedPrice)}</strong></div>
-        <div className="ledger-row"><span>การชำระ</span><strong>{paymentCopy[booking.paymentStatus]}</strong></div>
+        <div className="ledger-row"><span>การชำระ</span><strong>{paymentStatusCopy[booking.paymentStatus]}</strong></div>
         {booking.payment && (
           <div className="ledger-row"><span>ยอดที่โอน</span><strong>{formatAmount(booking.payment.amount)}</strong></div>
         )}
@@ -502,7 +465,7 @@ export function RoleDashboard({
   );
 
   const memberNextAction = getMemberNextAction(bookings);
-  const actionBookingId = bookingIdFromActionHref(memberNextAction.href);
+  const actionBookingId = bookingIdFromHref(memberNextAction.href);
   const actionBooking = bookings.find((booking) => booking.id === actionBookingId);
   const availableFilters = bookingFilters.filter((filter) => filter.id === "all" || bookings.some(filter.match));
   const selectedFilter = availableFilters.some((filter) => filter.id === bookingFilter) ? bookingFilter : "all";
@@ -661,25 +624,11 @@ export function RoleDashboard({
                 <nav className="member-booking-pager" aria-label="แบ่งหน้าการจอง">
                   <span>รายการ {pageStart + 1}–{Math.min(pageStart + bookingsPerPage, rankedBookings.length)} จาก {rankedBookings.length}</span>
                   <div>
-                    <Button
-                      type="button"
-                      variant="outline"
-                      size="icon"
-                      aria-label="หน้าก่อนหน้า"
-                      disabled={currentPage === 0}
-                      onClick={() => setBookingPage(currentPage - 1)}
-                    >
+                    <Button type="button" variant="outline" size="icon" aria-label="หน้าก่อนหน้า" disabled={currentPage === 0} onClick={() => setBookingPage(currentPage - 1)}>
                       <ChevronLeft aria-hidden="true" />
                     </Button>
                     <strong>หน้า {currentPage + 1} / {pageCount}</strong>
-                    <Button
-                      type="button"
-                      variant="outline"
-                      size="icon"
-                      aria-label="หน้าถัดไป"
-                      disabled={currentPage === pageCount - 1}
-                      onClick={() => setBookingPage(currentPage + 1)}
-                    >
+                    <Button type="button" variant="outline" size="icon" aria-label="หน้าถัดไป" disabled={currentPage === pageCount - 1} onClick={() => setBookingPage(currentPage + 1)}>
                       <ChevronRight aria-hidden="true" />
                     </Button>
                   </div>

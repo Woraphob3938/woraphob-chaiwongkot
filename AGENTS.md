@@ -18,7 +18,7 @@ Read `PRODUCT.md` for what the product must do and `DESIGN.md` for how it must l
 
 - `app/`, `components/`, `lib/` — Next.js front end (TypeScript, Tailwind, `app/globals.css`, tokens in `tokens.css`).
 - `backend/` — plain PHP REST API. Routes in `backend/index.php`, handlers in `backend/src/Handlers.php`, business rules in `backend/src/*Rules.php` and `PaymentRouting.php`.
-- `backend/database/` — `schema.sql`, `seed.sql` (demo data), `manual-migrations/`. Existing databases are upgraded with the `npm run migrate:*` scripts, never by editing `schema.sql` alone.
+- `backend/database/` — `schema.sql` (the only source of the schema; change it together with the live database) and `seed.sql` (demo data).
 - `.kilo/worktrees/` — a stale copy of the project left by another tool. Never edit it, and keep it out of test runs.
 
 ## Local environment

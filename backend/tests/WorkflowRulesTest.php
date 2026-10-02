@@ -116,24 +116,6 @@ test('payment expires exactly at the deadline', function () use ($deadline): voi
     assertSameValue(true, WorkflowRules::isPaymentDeadlineExpired($deadline, $deadline));
 });
 
-test('first rejected payment opens one ten minute retry', function (): void {
-    $rejectedAt = new DateTimeImmutable('2026-08-10T04:00:00.000Z');
-    $result = WorkflowRules::paymentRejectionTransition(0, $rejectedAt);
-    assertSameValue('awaiting_payment', $result['bookingStatus']);
-    assertSameValue('held', $result['slotState']);
-    assertSameValue('2026-08-10T04:10:00+00:00', $result['paymentDeadlineAt']->format(DateTimeInterface::ATOM));
-});
-
-test('second rejected payment expires and releases the slot', function (): void {
-    $result = WorkflowRules::paymentRejectionTransition(
-        1,
-        new DateTimeImmutable('2026-08-10T04:00:00.000Z')
-    );
-    assertSameValue('expired', $result['bookingStatus']);
-    assertSameValue('available', $result['slotState']);
-    assertSameValue(null, $result['paymentDeadlineAt']);
-});
-
 test('accepts or rejects only while the trainer decision is pending', function (): void {
     WorkflowRules::assertTrainerDecision('pending_trainer', 'accept');
     WorkflowRules::assertTrainerDecision('pending_trainer', 'reject');
@@ -232,14 +214,6 @@ test('accepts a remaining monthly appointment only after approved payment and in
         new DateTimeImmutable('2026-08-10 02:00:00', new DateTimeZone('UTC')),
         new DateTimeImmutable('2026-08-10 03:00:00', new DateTimeZone('UTC')),
     );
-});
-
-test('requires a payment rejection note', function (): void {
-    expectHttp(422, 'VALIDATION_FAILED', fn() => WorkflowRules::assertPaymentDecision('reviewing', 'payment_review', 'reject', ''));
-});
-
-test('payment decisions require a reviewing payment and payment review booking', function (): void {
-    expectHttp(409, 'PAYMENT_ALREADY_REVIEWED', fn() => WorkflowRules::assertPaymentDecision('rejected', 'awaiting_payment', 'approve', ''));
 });
 
 test('blocks chat after an unpaid booking expires', function (): void {

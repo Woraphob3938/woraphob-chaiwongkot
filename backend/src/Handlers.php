@@ -50,26 +50,17 @@ final class Handlers
 
     public function trainers(): never
     {
-        $rows = $this->database->fetchAll(
-            'SELECT tp.id, tp.user_id, tp.slug, tp.nickname, tp.headline, tp.bio, tp.years_experience, tp.service_mode,
-                    tp.gym_name, tp.price_from, tp.monthly_price, tp.monthly_session_count, tp.approval_status, tp.image_path, tp.is_demo,
-                    u.display_name,
-                    AVG(CASE WHEN review_booking.id IS NOT NULL THEN r.rating END) AS rating,
-                    COUNT(review_booking.id) AS review_count
-             FROM trainer_profiles tp
-             JOIN users u ON u.id = tp.user_id
-             LEFT JOIN reviews r ON r.trainer_profile_id = tp.id AND r.status = "published"
-             LEFT JOIN bookings review_booking ON review_booking.id = r.booking_id AND review_booking.status = "completed"
-             WHERE tp.approval_status = "approved" AND u.status = "active" AND tp.price_from > 0
-             GROUP BY tp.id
-             ORDER BY tp.is_demo ASC, tp.updated_at DESC'
+        $rows = $this->trainerRows(
+            'tp.approval_status = "approved" AND u.status = "active" AND tp.price_from > 0',
+            [],
+            'ORDER BY tp.is_demo ASC, tp.updated_at DESC'
         );
         Http::json(array_map(fn(array $row): array => $this->trainerPayload($row), $rows), 200, ['count' => count($rows)]);
     }
 
     public function trainer(string $slug): never
     {
-        $row = $this->trainerRow('tp.slug = ? AND u.status = "active"', [$slug]);
+        $row = $this->trainerRows('tp.slug = ? AND u.status = "active"', [$slug], 'LIMIT 1')[0] ?? null;
         $currentUser = $this->auth->currentUser();
         $isOwner = $currentUser !== null && $row && (int) $currentUser['id'] === (int) ($row['user_id'] ?? 0);
         if (!$row || ($row['approval_status'] !== 'approved' && !$isOwner)) {
@@ -138,13 +129,7 @@ final class Handlers
                 'approvalStatus' => $profile['approval_status'],
                 'approvalNote' => $profile['approval_note'],
             ],
-            'certificates' => array_map(fn(array $item): array => [
-                'id' => (int) $item['id'],
-                'name' => $item['name'],
-                'issuer' => $item['issuer'],
-                'issuedYear' => $item['issued_year'] === null ? null : (int) $item['issued_year'],
-                'status' => $item['status'],
-            ], $certificates),
+            'certificates' => array_map(self::certificatePayload(...), $certificates),
             'slots' => array_map(fn(array $slot): array => [
                 'id' => (int) $slot['id'],
                 'startsAt' => $this->iso($slot['starts_at']),
@@ -284,84 +269,74 @@ final class Handlers
         Http::requireFields($input, ['startsAt']);
         $startsAt = WorkflowRules::parseUtc(Http::stringField($input, 'startsAt'), 'startsAt');
         $endsAt = WorkflowRules::availabilityEnd($startsAt);
-        WorkflowRules::assertAvailabilityWindow(
-            new DateTimeImmutable('now', new DateTimeZone('UTC')),
-            $startsAt,
-            $endsAt
-        );
+        WorkflowRules::assertAvailabilityWindow(self::utc(), $startsAt, $endsAt);
 
-        $slot = $this->database->transaction(function (PDO $pdo) use ($user, $startsAt, $endsAt): array {
-            $profileStatement = $pdo->prepare(
-                'SELECT id, approval_status FROM trainer_profiles WHERE user_id = ? FOR UPDATE'
+        $slotId = $this->database->transaction(function (PDO $pdo) use ($user, $startsAt, $endsAt): int {
+            $profile = $this->database->fetchOne(
+                'SELECT id, approval_status FROM trainer_profiles WHERE user_id = ? FOR UPDATE',
+                [$user['id']]
             );
-            $profileStatement->execute([$user['id']]);
-            $profile = $profileStatement->fetch();
             if (!$profile || $profile['approval_status'] !== 'approved') {
-                throw new HttpException(
-                    403,
-                    'เทรนเนอร์ต้องได้รับการอนุมัติก่อนสร้างตาราง',
-                    'TRAINER_NOT_APPROVED'
-                );
+                throw new HttpException(403, 'เทรนเนอร์ต้องได้รับการอนุมัติก่อนสร้างตาราง', 'TRAINER_NOT_APPROVED');
             }
-
-            $overlap = $pdo->prepare(
-                'SELECT id FROM availability_slots
-                 WHERE trainer_profile_id = ? AND starts_at < ? AND ends_at > ?
-                 LIMIT 1'
-            );
-            $overlap->execute([
-                (int) $profile['id'],
-                $endsAt->format('Y-m-d H:i:s'),
-                $startsAt->format('Y-m-d H:i:s'),
-            ]);
-            if ($overlap->fetch()) {
-                throw new HttpException(409, 'ช่วงเวลานี้ทับกับตารางที่มีอยู่', 'SLOT_OVERLAP');
-            }
-
-            $insert = $pdo->prepare(
-                'INSERT INTO availability_slots (trainer_profile_id, starts_at, ends_at, state)
-                 VALUES (?, ?, ?, "available")'
-            );
-            $insert->execute([
-                (int) $profile['id'],
-                $startsAt->format('Y-m-d H:i:s'),
-                $endsAt->format('Y-m-d H:i:s'),
-            ]);
-            return [
-                'id' => (int) $pdo->lastInsertId(),
-                'startsAt' => $startsAt->format('Y-m-d\TH:i:s.000\Z'),
-                'endsAt' => $endsAt->format('Y-m-d\TH:i:s.000\Z'),
-                'state' => 'available',
-            ];
+            $this->assertSlotFree((int) $profile['id'], $startsAt, $endsAt);
+            $pdo->prepare('INSERT INTO availability_slots (trainer_profile_id, starts_at, ends_at, state) VALUES (?, ?, ?, "available")')
+                ->execute([(int) $profile['id'], $startsAt->format('Y-m-d H:i:s'), $endsAt->format('Y-m-d H:i:s')]);
+            return (int) $pdo->lastInsertId();
         });
 
-        Http::json($slot, 201);
+        Http::json(self::slotPayload($slotId, $startsAt, $endsAt), 201);
+    }
+
+    /** The trainer's own slot, locked for the running transaction. */
+    private function ownSlotForUpdate(string $slotId, array $user): array
+    {
+        $slot = $this->database->fetchOne(
+            'SELECT s.id, s.trainer_profile_id, s.starts_at, s.state, tp.approval_status
+             FROM availability_slots s
+             JOIN trainer_profiles tp ON tp.id = s.trainer_profile_id
+             WHERE s.id = ? AND tp.user_id = ? FOR UPDATE',
+            [(int) $slotId, $user['id']]
+        );
+        if (!$slot) {
+            throw new HttpException(404, 'ไม่พบช่วงเวลาว่าง', 'SLOT_NOT_FOUND');
+        }
+        if ($slot['approval_status'] !== 'approved') {
+            throw new HttpException(403, 'เทรนเนอร์ยังไม่ได้รับการอนุมัติ', 'TRAINER_NOT_APPROVED');
+        }
+        return $slot;
+    }
+
+    /** Refuses a window that overlaps another slot of the same trainer. */
+    private function assertSlotFree(int $profileId, DateTimeImmutable $startsAt, DateTimeImmutable $endsAt, int $exceptSlotId = 0): void
+    {
+        $overlap = $this->database->fetchOne(
+            'SELECT id FROM availability_slots
+             WHERE trainer_profile_id = ? AND id <> ? AND starts_at < ? AND ends_at > ? LIMIT 1',
+            [$profileId, $exceptSlotId, $endsAt->format('Y-m-d H:i:s'), $startsAt->format('Y-m-d H:i:s')]
+        );
+        if ($overlap) {
+            throw new HttpException(409, 'ช่วงเวลานี้ทับกับตารางที่มีอยู่', 'SLOT_OVERLAP');
+        }
+    }
+
+    private static function slotPayload(int $id, DateTimeImmutable $startsAt, DateTimeImmutable $endsAt): array
+    {
+        return [
+            'id' => $id,
+            'startsAt' => $startsAt->format('Y-m-d\TH:i:s.000\Z'),
+            'endsAt' => $endsAt->format('Y-m-d\TH:i:s.000\Z'),
+            'state' => 'available',
+        ];
     }
 
     public function deleteAvailabilitySlot(string $slotId): never
     {
         $user = $this->auth->requireUser(['trainer']);
         $this->database->transaction(function (PDO $pdo) use ($slotId, $user): void {
-            $statement = $pdo->prepare(
-                'SELECT s.id, s.starts_at, s.state, tp.approval_status
-                 FROM availability_slots s
-                 JOIN trainer_profiles tp ON tp.id = s.trainer_profile_id
-                 WHERE s.id = ? AND tp.user_id = ? FOR UPDATE'
-            );
-            $statement->execute([(int) $slotId, $user['id']]);
-            $slot = $statement->fetch();
-            if (!$slot) {
-                throw new HttpException(404, 'ไม่พบช่วงเวลาว่าง', 'SLOT_NOT_FOUND');
-            }
-            if ($slot['approval_status'] !== 'approved') {
-                throw new HttpException(403, 'เทรนเนอร์ยังไม่ได้รับการอนุมัติ', 'TRAINER_NOT_APPROVED');
-            }
+            $slot = $this->ownSlotForUpdate($slotId, $user);
             if ($slot['state'] !== 'available' || strtotime($slot['starts_at'] . ' UTC') <= time()) {
-                throw new HttpException(
-                    409,
-                    'ลบได้เฉพาะช่วงเวลาในอนาคตที่ยังว่าง',
-                    'SLOT_NOT_DELETABLE'
-                );
+                throw new HttpException(409, 'ลบได้เฉพาะช่วงเวลาในอนาคตที่ยังว่าง', 'SLOT_NOT_DELETABLE');
             }
             $pdo->prepare('DELETE FROM availability_slots WHERE id = ?')->execute([(int) $slot['id']]);
         });
@@ -376,56 +351,18 @@ final class Handlers
         Http::requireFields($input, ['startsAt']);
         $startsAt = WorkflowRules::parseUtc(Http::stringField($input, 'startsAt'), 'startsAt');
         $endsAt = WorkflowRules::availabilityEnd($startsAt);
-        $now = new DateTimeImmutable('now', new DateTimeZone('UTC'));
 
-        $slot = $this->database->transaction(function (PDO $pdo) use ($slotId, $user, $startsAt, $endsAt, $now): array {
-            $statement = $pdo->prepare(
-                'SELECT s.id, s.trainer_profile_id, s.starts_at, s.state, tp.approval_status
-                 FROM availability_slots s
-                 JOIN trainer_profiles tp ON tp.id = s.trainer_profile_id
-                 WHERE s.id = ? AND tp.user_id = ? FOR UPDATE'
-            );
-            $statement->execute([(int) $slotId, $user['id']]);
-            $slot = $statement->fetch();
-            if (!$slot) {
-                throw new HttpException(404, 'ไม่พบช่วงเวลาว่าง', 'SLOT_NOT_FOUND');
-            }
-            if ($slot['approval_status'] !== 'approved') {
-                throw new HttpException(403, 'เทรนเนอร์ยังไม่ได้รับการอนุมัติ', 'TRAINER_NOT_APPROVED');
-            }
-            WorkflowRules::assertSlotEditable(
-                (string) $slot['state'],
-                new DateTimeImmutable((string) $slot['starts_at'], new DateTimeZone('UTC')),
-                $now
-            );
+        $this->database->transaction(function (PDO $pdo) use ($slotId, $user, $startsAt, $endsAt): void {
+            $slot = $this->ownSlotForUpdate($slotId, $user);
+            $now = self::utc();
+            WorkflowRules::assertSlotEditable((string) $slot['state'], self::utc((string) $slot['starts_at']), $now);
             WorkflowRules::assertAvailabilityWindow($now, $startsAt, $endsAt);
-
-            $overlap = $pdo->prepare(
-                'SELECT id FROM availability_slots
-                 WHERE trainer_profile_id = ? AND id <> ? AND starts_at < ? AND ends_at > ?
-                 LIMIT 1'
-            );
-            $overlap->execute([
-                (int) $slot['trainer_profile_id'],
-                (int) $slot['id'],
-                $endsAt->format('Y-m-d H:i:s'),
-                $startsAt->format('Y-m-d H:i:s'),
-            ]);
-            if ($overlap->fetch()) {
-                throw new HttpException(409, 'ช่วงเวลานี้ทับกับตารางที่มีอยู่', 'SLOT_OVERLAP');
-            }
-
+            $this->assertSlotFree((int) $slot['trainer_profile_id'], $startsAt, $endsAt, (int) $slot['id']);
             $pdo->prepare('UPDATE availability_slots SET starts_at = ?, ends_at = ? WHERE id = ?')
                 ->execute([$startsAt->format('Y-m-d H:i:s'), $endsAt->format('Y-m-d H:i:s'), (int) $slot['id']]);
-            return [
-                'id' => (int) $slot['id'],
-                'startsAt' => $startsAt->format('Y-m-d\TH:i:s.000\Z'),
-                'endsAt' => $endsAt->format('Y-m-d\TH:i:s.000\Z'),
-                'state' => 'available',
-            ];
         });
 
-        Http::json($slot);
+        Http::json(self::slotPayload((int) $slotId, $startsAt, $endsAt));
     }
 
     public function register(): never
@@ -590,51 +527,31 @@ final class Handlers
             ]);
             $profile = ProfileRules::trainer($input);
             $this->database->transaction(function (PDO $pdo) use ($user, $profile): void {
-                $profileStatement = $pdo->prepare('SELECT id FROM trainer_profiles WHERE user_id = ? FOR UPDATE');
-                $profileStatement->execute([$user['id']]);
-                $trainerProfile = $profileStatement->fetch();
+                $trainerProfile = $this->database->fetchOne('SELECT id FROM trainer_profiles WHERE user_id = ? FOR UPDATE', [$user['id']]);
                 if (!$trainerProfile) {
                     throw new HttpException(409, 'กรอกข้อมูลสมัครเทรนเนอร์ก่อนแก้โปรไฟล์', 'TRAINER_PROFILE_REQUIRED');
                 }
 
                 $typeIds = $profile['trainingTypeIds'];
-                $placeholders = implode(',', array_fill(0, count($typeIds), '?'));
-                $typeStatement = $pdo->prepare(
-                    "SELECT id FROM training_types WHERE active = 1 AND id IN ($placeholders)"
-                );
-                $typeStatement->execute($typeIds);
-                if (count($typeStatement->fetchAll()) !== count($typeIds)) {
-                    throw new HttpException(422, 'ประเภทการฝึกไม่ถูกต้อง', 'VALIDATION_FAILED', [
-                        'trainingTypeIds' => 'เลือกประเภทการฝึกที่เปิดใช้งาน',
-                    ]);
-                }
+                $this->assertActiveTrainingTypes($typeIds);
 
-                $pdo->prepare('UPDATE trainer_profiles SET nickname = ? WHERE id = ?')
-                    ->execute([self::blankToNull($profile['nickname']), (int) $trainerProfile['id']]);
                 $pdo->prepare('UPDATE users SET display_name = ?, updated_at = UTC_TIMESTAMP() WHERE id = ?')
                     ->execute([$profile['displayName'], $user['id']]);
                 $pdo->prepare(
                     'UPDATE trainer_profiles
-                     SET legal_name = ?, phone = ?, birth_date = ?, education = ?, headline = ?, bio = ?, years_experience = ?,
+                     SET legal_name = ?, nickname = ?, phone = ?, birth_date = ?, education = ?, headline = ?, bio = ?, years_experience = ?,
                          service_mode = ?, gym_name = ?, price_from = ?, monthly_price = ?, monthly_session_count = ?,
                          updated_at = UTC_TIMESTAMP()
                      WHERE id = ?'
                 )->execute([
-                    $profile['legalName'], self::blankToNull($profile['phone']), $profile['birthDate'],
+                    $profile['legalName'], self::blankToNull($profile['nickname']), self::blankToNull($profile['phone']), $profile['birthDate'],
                     self::blankToNull($profile['education']), self::blankToNull($profile['headline']),
                     self::blankToNull($profile['bio']), $profile['yearsExperience'], $profile['serviceMode'],
                     $profile['serviceMode'] === 'freelance' ? null : $profile['gymName'], $profile['priceFrom'],
                     $profile['monthlyPrice'], $profile['monthlySessionCount'],
                     (int) $trainerProfile['id'],
                 ]);
-                $pdo->prepare('DELETE FROM trainer_training_types WHERE trainer_profile_id = ?')
-                    ->execute([(int) $trainerProfile['id']]);
-                $insertType = $pdo->prepare(
-                    'INSERT INTO trainer_training_types (trainer_profile_id, training_type_id) VALUES (?, ?)'
-                );
-                foreach ($typeIds as $typeId) {
-                    $insertType->execute([(int) $trainerProfile['id'], $typeId]);
-                }
+                $this->replaceTrainingTypes($pdo, (int) $trainerProfile['id'], $typeIds);
             });
         }
 
@@ -670,9 +587,7 @@ final class Handlers
         }
 
         $this->database->transaction(function (PDO $pdo) use ($user, $input): void {
-            $statement = $pdo->prepare('SELECT password_hash FROM users WHERE id = ? AND status = "active" FOR UPDATE');
-            $statement->execute([$user['id']]);
-            $account = $statement->fetch();
+            $account = $this->database->fetchOne('SELECT password_hash FROM users WHERE id = ? AND status = "active" FOR UPDATE', [$user['id']]);
             if (!$account || !password_verify(Http::stringField($input, 'currentPassword'), $account['password_hash'])) {
                 throw new HttpException(401, 'รหัสผ่านปัจจุบันไม่ถูกต้อง', 'INVALID_CREDENTIALS', [
                     'currentPassword' => 'ตรวจสอบรหัสผ่านแล้วลองอีกครั้ง',
@@ -694,40 +609,9 @@ final class Handlers
     {
         $user = $this->auth->requireUser(['member', 'trainer']);
         $this->rateLimiter->hit(RateLimiter::PROFILE_IMAGE, 'user:' . $user['id']);
+        $upload = $this->saveImageUpload('profile-images');
         try {
-            $upload = $this->saveUpload(
-                'image',
-                ['image/jpeg', 'image/png', 'image/webp'],
-                5 * 1024 * 1024,
-                'profile-images'
-            );
-        } catch (HttpException $error) {
-            if (in_array($error->status, [413, 415], true)) {
-                throw new HttpException(422, $error->getMessage(), 'VALIDATION_FAILED', [
-                    'image' => $error->getMessage(),
-                ]);
-            }
-            throw $error;
-        }
-        if ($upload === null) {
-            throw new HttpException(422, 'กรุณาเลือกรูปโปรไฟล์', 'FILE_REQUIRED', [
-                'image' => 'จำเป็นต้องเลือกรูป',
-            ]);
-        }
-
-        $table = $user['role'] === 'member' ? 'member_profiles' : 'trainer_profiles';
-        try {
-            $oldPath = $this->database->transaction(function (PDO $pdo) use ($user, $upload, $table): ?string {
-                $statement = $pdo->prepare("SELECT image_path FROM {$table} WHERE user_id = ? FOR UPDATE");
-                $statement->execute([$user['id']]);
-                $row = $statement->fetch();
-                if (!$row) {
-                    throw new HttpException(404, 'ไม่พบโปรไฟล์สำหรับบันทึกรูป', 'PROFILE_NOT_FOUND');
-                }
-                $pdo->prepare("UPDATE {$table} SET image_path = ?, updated_at = UTC_TIMESTAMP() WHERE user_id = ?")
-                    ->execute([$upload['path'], $user['id']]);
-                return $row['image_path'] === null ? null : (string) $row['image_path'];
-            });
+            $oldPath = $this->swapProfileImage($user, $upload['path']);
         } catch (Throwable $error) {
             $this->removeUpload($upload['path']);
             throw $error;
@@ -736,9 +620,35 @@ final class Handlers
             $this->removeUpload($oldPath);
         }
 
-        Http::json([
-            'imageUrl' => '/v1/profile-images/' . $user['role'] . '/' . $user['id'],
-        ]);
+        Http::json(['imageUrl' => '/v1/profile-images/' . $user['role'] . '/' . $user['id']]);
+    }
+
+    /** An uploaded picture; size and type problems are reported against the `image` field. */
+    private function saveImageUpload(string $directory): array
+    {
+        try {
+            return $this->saveUpload('image', ['image/jpeg', 'image/png', 'image/webp'], 5 * 1024 * 1024, $directory);
+        } catch (HttpException $error) {
+            if (in_array($error->status, [413, 415], true)) {
+                throw new HttpException(422, $error->getMessage(), 'VALIDATION_FAILED', ['image' => $error->getMessage()]);
+            }
+            throw $error;
+        }
+    }
+
+    /** Stores the caller's profile picture path (null removes it) and returns the one it replaced. */
+    private function swapProfileImage(array $user, ?string $path): ?string
+    {
+        $table = $user['role'] === 'member' ? 'member_profiles' : 'trainer_profiles';
+        return $this->database->transaction(function (PDO $pdo) use ($user, $path, $table): ?string {
+            $row = $this->database->fetchOne("SELECT image_path FROM {$table} WHERE user_id = ? FOR UPDATE", [$user['id']]);
+            if (!$row) {
+                throw new HttpException(404, 'ไม่พบโปรไฟล์', 'PROFILE_NOT_FOUND');
+            }
+            $pdo->prepare("UPDATE {$table} SET image_path = ?, updated_at = UTC_TIMESTAMP() WHERE user_id = ?")
+                ->execute([$path, $user['id']]);
+            return $row['image_path'];
+        });
     }
 
     public const MAX_TRAINER_PHOTOS = 6;
@@ -755,19 +665,10 @@ final class Handlers
     public function uploadTrainerPhoto(): never
     {
         $user = $this->auth->requireUser(['trainer']);
-        try {
-            $upload = $this->saveUpload('image', ['image/jpeg', 'image/png', 'image/webp'], 5 * 1024 * 1024, 'trainer-photos');
-        } catch (HttpException $error) {
-            if (in_array($error->status, [413, 415], true)) {
-                throw new HttpException(422, $error->getMessage(), 'VALIDATION_FAILED', ['image' => $error->getMessage()]);
-            }
-            throw $error;
-        }
+        $upload = $this->saveImageUpload('trainer-photos');
         try {
             $profileId = $this->database->transaction(function (PDO $pdo) use ($user, $upload): int {
-                $statement = $pdo->prepare('SELECT id FROM trainer_profiles WHERE user_id = ? FOR UPDATE');
-                $statement->execute([$user['id']]);
-                $profile = $statement->fetch();
+                $profile = $this->database->fetchOne('SELECT id FROM trainer_profiles WHERE user_id = ? FOR UPDATE', [$user['id']]);
                 if (!$profile) throw new HttpException(404, 'ไม่พบโปรไฟล์เทรนเนอร์', 'PROFILE_NOT_FOUND');
                 $count = $pdo->prepare('SELECT COUNT(*), COALESCE(MAX(sort_order), 0) FROM trainer_photos WHERE trainer_profile_id = ?');
                 $count->execute([$profile['id']]);
@@ -790,13 +691,12 @@ final class Handlers
     {
         $user = $this->auth->requireUser(['trainer']);
         [$profileId, $path] = $this->database->transaction(function (PDO $pdo) use ($user, $photoId): array {
-            $statement = $pdo->prepare(
+            $photo = $this->database->fetchOne(
                 'SELECT p.id, p.path, p.trainer_profile_id FROM trainer_photos p
                  JOIN trainer_profiles tp ON tp.id = p.trainer_profile_id
-                 WHERE p.id = ? AND tp.user_id = ? FOR UPDATE'
+                 WHERE p.id = ? AND tp.user_id = ? FOR UPDATE',
+                [(int) $photoId, $user['id']]
             );
-            $statement->execute([(int) $photoId, $user['id']]);
-            $photo = $statement->fetch();
             if (!$photo) throw new HttpException(404, 'ไม่พบรูปนี้', 'PHOTO_NOT_FOUND');
             $pdo->prepare('DELETE FROM trainer_photos WHERE id = ?')->execute([$photo['id']]);
             return [(int) $photo['trainer_profile_id'], (string) $photo['path']];
@@ -856,18 +756,7 @@ final class Handlers
     public function deleteProfileImage(): never
     {
         $user = $this->auth->requireUser(['member', 'trainer']);
-        $table = $user['role'] === 'member' ? 'member_profiles' : 'trainer_profiles';
-        $oldPath = $this->database->transaction(function (PDO $pdo) use ($table, $user): ?string {
-            $statement = $pdo->prepare("SELECT image_path FROM {$table} WHERE user_id = ? FOR UPDATE");
-            $statement->execute([$user['id']]);
-            $row = $statement->fetch();
-            if (!$row) {
-                throw new HttpException(404, 'ไม่พบโปรไฟล์สำหรับลบรูป', 'PROFILE_NOT_FOUND');
-            }
-            $pdo->prepare("UPDATE {$table} SET image_path = NULL, updated_at = UTC_TIMESTAMP() WHERE user_id = ?")
-                ->execute([$user['id']]);
-            return $row['image_path'] === null ? null : (string) $row['image_path'];
-        });
+        $oldPath = $this->swapProfileImage($user, null);
         if ($oldPath !== null) {
             $this->removeUpload($oldPath);
         }
@@ -956,9 +845,7 @@ final class Handlers
         $replacedCertificatePaths = [];
         try {
             $profileId = $this->database->transaction(function (PDO $pdo) use ($user, $profile, $certificate, &$replacedCertificatePaths): int {
-                $existing = $pdo->prepare('SELECT id FROM trainer_profiles WHERE user_id = ? FOR UPDATE');
-                $existing->execute([$user['id']]);
-                $stored = $existing->fetch();
+                $stored = $this->database->fetchOne('SELECT id FROM trainer_profiles WHERE user_id = ? FOR UPDATE', [$user['id']]);
 
                 $certificateStatement = $pdo->prepare('SELECT COUNT(*) AS total FROM trainer_certificates WHERE trainer_profile_id = ?');
                 $hasStoredCertificate = false;
@@ -973,14 +860,7 @@ final class Handlers
                 }
 
                 $typeIds = $profile['trainingTypeIds'];
-                $placeholders = implode(',', array_fill(0, count($typeIds), '?'));
-                $typeStatement = $pdo->prepare("SELECT id FROM training_types WHERE active = 1 AND id IN ($placeholders)");
-                $typeStatement->execute($typeIds);
-                if (count($typeStatement->fetchAll()) !== count($typeIds)) {
-                    throw new HttpException(422, 'ประเภทการฝึกไม่ถูกต้อง', 'VALIDATION_FAILED', [
-                        'trainingTypeIds' => 'เลือกประเภทการฝึกที่เปิดใช้งาน',
-                    ]);
-                }
+                $this->assertActiveTrainingTypes($typeIds);
 
                 if ($stored) {
                     $profileId = (int) $stored['id'];
@@ -995,30 +875,22 @@ final class Handlers
                 // leaves the storefront until an administrator approves it again.
                 $pdo->prepare(
                     'UPDATE trainer_profiles
-                     SET legal_name = ?, phone = ?, birth_date = ?, education = ?, headline = ?, bio = ?, years_experience = ?,
+                     SET legal_name = ?, nickname = ?, phone = ?, birth_date = ?, education = ?, headline = ?, bio = ?, years_experience = ?,
                          service_mode = ?, gym_name = ?, price_from = ?, monthly_price = ?, monthly_session_count = ?,
                          approval_status = "pending", approval_note = NULL, reviewed_by_user_id = NULL, reviewed_at = NULL,
                          updated_at = UTC_TIMESTAMP()
                      WHERE id = ?'
                 )->execute([
-                    $profile['legalName'], self::blankToNull($profile['phone']), $profile['birthDate'],
+                    $profile['legalName'], self::blankToNull($profile['nickname']), self::blankToNull($profile['phone']), $profile['birthDate'],
                     self::blankToNull($profile['education']), self::blankToNull($profile['headline']),
                     self::blankToNull($profile['bio']), $profile['yearsExperience'], $profile['serviceMode'],
                     $profile['serviceMode'] === 'freelance' ? null : self::blankToNull($profile['gymName']),
                     $profile['priceFrom'], $profile['monthlyPrice'], $profile['monthlySessionCount'], $profileId,
                 ]);
-                $pdo->prepare('UPDATE trainer_profiles SET nickname = ? WHERE id = ?')
-                    ->execute([self::blankToNull($profile['nickname']), $profileId]);
                 $pdo->prepare('UPDATE users SET display_name = ?, updated_at = UTC_TIMESTAMP() WHERE id = ?')
                     ->execute([$profile['displayName'], $user['id']]);
 
-                $pdo->prepare('DELETE FROM trainer_training_types WHERE trainer_profile_id = ?')->execute([$profileId]);
-                $insertType = $pdo->prepare(
-                    'INSERT INTO trainer_training_types (trainer_profile_id, training_type_id) VALUES (?, ?)'
-                );
-                foreach ($typeIds as $typeId) {
-                    $insertType->execute([$profileId, $typeId]);
-                }
+                $this->replaceTrainingTypes($pdo, $profileId, $typeIds);
 
                 if ($certificate !== null) {
                     // The application owns exactly one certificate. Replacing the set
@@ -1107,7 +979,7 @@ final class Handlers
         $sessionsByBooking = [];
         if ($rows !== []) {
             $bookingIds = array_map(fn(array $row): int => (int) $row['booking_db_id'], $rows);
-            $placeholders = implode(',', array_fill(0, count($bookingIds), '?'));
+            $placeholders = self::marks($bookingIds);
             $sessions = $this->database->fetchAll(
                 'SELECT booking_id, availability_slot_id, starts_at, ends_at
                  FROM booking_sessions
@@ -1159,8 +1031,8 @@ final class Handlers
 
         $booking = $this->database->transaction(function (PDO $pdo) use ($user, $input, $publicId, $bookingType, $slotIds, &$notificationIds): array {
             $this->expireAwaitingPaymentsInTransaction($pdo, null, $notificationIds);
-            $placeholders = implode(',', array_fill(0, count($slotIds), '?'));
-            $statement = $pdo->prepare(
+            $placeholders = self::marks($slotIds);
+            $slots = $this->database->fetchAll(
                 'SELECT s.id, s.trainer_profile_id, s.starts_at, s.ends_at, s.state,
                         tp.approval_status, tp.price_from, tp.monthly_price, tp.monthly_session_count, tp.service_mode,
                         trainer_user.status AS trainer_user_status
@@ -1168,10 +1040,9 @@ final class Handlers
                  JOIN trainer_profiles tp ON tp.id = s.trainer_profile_id
                  JOIN users trainer_user ON trainer_user.id = tp.user_id
                  WHERE s.id IN (' . $placeholders . ') AND s.trainer_profile_id = ?
-                 ORDER BY s.starts_at, s.id FOR UPDATE'
+                 ORDER BY s.starts_at, s.id FOR UPDATE',
+                [...$slotIds, (int) $input['trainerId']]
             );
-            $statement->execute([...$slotIds, (int) $input['trainerId']]);
-            $slots = $statement->fetchAll();
             // A slot that is not in this trainer's list does not exist as far as
             // this request is concerned: that is a 404, not the 409 a slot that
             // is merely taken deserves. Conflating them told a member a time was
@@ -1200,7 +1071,7 @@ final class Handlers
                 }
                 $quotedPrice = $firstSlot['monthly_price'];
                 $periodStart = $firstSlot['starts_at'];
-                $periodEnd = (new DateTimeImmutable((string) $periodStart, new DateTimeZone('UTC')))
+                $periodEnd = (self::utc((string) $periodStart))
                     ->modify('+30 days')->format('Y-m-d H:i:s');
             } else {
                 $sessionCount = 1;
@@ -1235,14 +1106,9 @@ final class Handlers
             $historyNote = $bookingType === 'monthly'
                 ? "สมาชิกจองแพ็กเกจ {$sessionCount} ครั้ง รอเทรนเนอร์ตอบรับ"
                 : 'สมาชิกส่งคำขอจอง รอเทรนเนอร์ตอบรับ';
-            $pdo->prepare('INSERT INTO booking_status_history (booking_id, from_status, to_status, changed_by_user_id, note) VALUES (?, NULL, "pending_trainer", ?, ?)')
-                ->execute([$bookingId, $user['id'], $historyNote]);
+            $this->history($pdo, $bookingId, null, 'pending_trainer', $user['id'], $historyNote);
             $pdo->prepare('INSERT INTO chat_rooms (booking_id) VALUES (?)')->execute([$bookingId]);
-            $notificationIds = array_merge($notificationIds, $this->notifications->recordEvent(
-                $pdo,
-                NotificationRules::BOOKING_CREATED,
-                $this->bookingNotificationContext($pdo, $bookingId, 'created', 'pending_trainer')
-            ));
+            $this->notify($pdo, $notificationIds, NotificationRules::BOOKING_CREATED, $this->bookingNotificationContext($pdo, $bookingId, 'created', 'pending_trainer'));
             return [
                 'id' => $publicId,
                 'status' => 'pending_trainer',
@@ -1269,14 +1135,13 @@ final class Handlers
         }
 
         $result = $this->database->transaction(function (PDO $pdo) use ($publicId, $slotId, $user): array {
-            $statement = $pdo->prepare(
+            $booking = $this->database->fetchOne(
                 'SELECT b.id, b.member_user_id, b.trainer_profile_id, b.booking_type, b.status,
                         b.payment_status, b.session_count, b.period_start, b.period_end,
                         (SELECT COUNT(*) FROM booking_sessions bs WHERE bs.booking_id = b.id) AS scheduled_count
-                 FROM bookings b WHERE b.public_id = ? FOR UPDATE'
+                 FROM bookings b WHERE b.public_id = ? FOR UPDATE',
+                [$publicId]
             );
-            $statement->execute([$publicId]);
-            $booking = $statement->fetch();
             if (!$booking || (int) $booking['member_user_id'] !== (int) $user['id']) {
                 throw new HttpException(404, 'ไม่พบการจองนี้', 'BOOKING_NOT_FOUND');
             }
@@ -1284,12 +1149,11 @@ final class Handlers
                 throw new HttpException(409, 'การจองนี้ไม่ใช่แพ็กเกจรายเดือน', 'NOT_MONTHLY_BOOKING');
             }
 
-            $slotStatement = $pdo->prepare(
+            $slot = $this->database->fetchOne(
                 'SELECT id, trainer_profile_id, starts_at, ends_at, state
-                 FROM availability_slots WHERE id = ? FOR UPDATE'
+                 FROM availability_slots WHERE id = ? FOR UPDATE',
+                [$slotId]
             );
-            $slotStatement->execute([$slotId]);
-            $slot = $slotStatement->fetch();
             if (!$slot || (int) $slot['trainer_profile_id'] !== (int) $booking['trainer_profile_id']
                 || $slot['state'] !== 'available' || strtotime($slot['starts_at'] . ' UTC') <= time()) {
                 throw new HttpException(409, 'ช่วงเวลานี้ไม่พร้อมจองแล้ว', 'SLOT_UNAVAILABLE');
@@ -1300,10 +1164,10 @@ final class Handlers
                 (string) $booking['payment_status'],
                 (int) $booking['scheduled_count'],
                 (int) $booking['session_count'],
-                new DateTimeImmutable((string) $booking['period_start'], new DateTimeZone('UTC')),
-                new DateTimeImmutable((string) $booking['period_end'], new DateTimeZone('UTC')),
-                new DateTimeImmutable((string) $slot['starts_at'], new DateTimeZone('UTC')),
-                new DateTimeImmutable((string) $slot['ends_at'], new DateTimeZone('UTC')),
+                self::utc((string) $booking['period_start']),
+                self::utc((string) $booking['period_end']),
+                self::utc((string) $slot['starts_at']),
+                self::utc((string) $slot['ends_at']),
             );
 
             $pdo->prepare('INSERT INTO booking_sessions (booking_id, availability_slot_id, starts_at, ends_at) VALUES (?, ?, ?, ?)')
@@ -1336,13 +1200,12 @@ final class Handlers
 
         $result = $this->database->transaction(function (PDO $pdo) use ($publicId, $user, $memberReason, &$notificationIds): array {
             $this->expireAwaitingPaymentsInTransaction($pdo, null, $notificationIds);
-            $statement = $pdo->prepare(
+            $booking = $this->database->fetchOne(
                 'SELECT id, status, payment_status, availability_slot_id
                  FROM bookings
-                 WHERE public_id = ? AND member_user_id = ? FOR UPDATE'
+                 WHERE public_id = ? AND member_user_id = ? FOR UPDATE',
+                [$publicId, $user['id']]
             );
-            $statement->execute([$publicId, $user['id']]);
-            $booking = $statement->fetch();
             if (!$booking) {
                 throw new HttpException(404, 'ไม่พบคำขอจอง', 'BOOKING_NOT_FOUND');
             }
@@ -1363,17 +1226,9 @@ final class Handlers
                  WHERE id = ?'
             )->execute([$reason, $booking['id']]);
             $this->setBookingSlotsState($pdo, (int) $booking['id'], $booking['availability_slot_id'], 'available');
-            $pdo->prepare(
-                'INSERT INTO booking_status_history
-                 (booking_id, from_status, to_status, changed_by_user_id, note)
-                 VALUES (?, ?, "cancelled", ?, ?)'
-            )->execute([$booking['id'], $booking['status'], $user['id'], $reason]);
+            $this->history($pdo, $booking['id'], $booking['status'], 'cancelled', $user['id'], $reason);
 
-            $notificationIds = array_merge($notificationIds, $this->notifications->recordEvent(
-                $pdo,
-                NotificationRules::BOOKING_CANCELLED,
-                $this->bookingNotificationContext($pdo, (int) $booking['id'], (string) $booking['status'], 'cancelled', $reason)
-            ));
+            $this->notify($pdo, $notificationIds, NotificationRules::BOOKING_CANCELLED, $this->bookingNotificationContext($pdo, (int) $booking['id'], (string) $booking['status'], 'cancelled', $reason));
 
             return ['id' => $publicId, 'status' => 'cancelled', 'reason' => $reason];
         });
@@ -1394,16 +1249,15 @@ final class Handlers
 
         $chatFilesToRemove = [];
         $result = $this->database->transaction(function (PDO $pdo) use ($publicId, $input, $user, &$notificationIds, &$chatFilesToRemove): array {
-            $statement = $pdo->prepare(
+            $booking = $this->database->fetchOne(
                 'SELECT b.id, b.status, b.payment_status, b.quoted_price, b.starts_at, b.ends_at,
                         b.confirmed_starts_at, b.confirmed_ends_at,
                         b.booking_type, b.session_count, b.period_end,
                         (SELECT COUNT(*) FROM booking_sessions bs WHERE bs.booking_id = b.id) AS scheduled_count,
                         b.availability_slot_id, tp.user_id AS trainer_user_id
-                 FROM bookings b JOIN trainer_profiles tp ON tp.id = b.trainer_profile_id WHERE b.public_id = ? FOR UPDATE'
+                 FROM bookings b JOIN trainer_profiles tp ON tp.id = b.trainer_profile_id WHERE b.public_id = ? FOR UPDATE',
+                [$publicId]
             );
-            $statement->execute([$publicId]);
-            $booking = $statement->fetch();
             if (!$booking) {
                 throw new HttpException(404, 'ไม่พบคำขอจอง', 'BOOKING_NOT_FOUND');
             }
@@ -1418,7 +1272,7 @@ final class Handlers
                 'quotedPrice' => $booking['quoted_price'] === null ? null : (float) $booking['quoted_price'],
             ];
             $periodEnd = ($booking['period_end'] ?? null) !== null
-                ? new DateTimeImmutable((string) $booking['period_end'], new DateTimeZone('UTC'))
+                ? self::utc((string) $booking['period_end'])
                 : null;
 
             if ($user['role'] === 'trainer') {
@@ -1429,8 +1283,8 @@ final class Handlers
                     // Accept the requested period before starting the ten minute payment clock.
                     WorkflowRules::assertTrainerDecision($currentStatus, 'accept');
 $deadline = WorkflowRules::acceptancePaymentDeadline(
-                        new DateTimeImmutable('now', new DateTimeZone('UTC')),
-                        new DateTimeImmutable((string) $booking['starts_at'], new DateTimeZone('UTC'))
+                        self::utc(),
+                        self::utc((string) $booking['starts_at'])
                     );
                     // The training time stays as requested; the member hears
                     // about the acceptance now and has ten minutes to pay.
@@ -1440,13 +1294,8 @@ $deadline = WorkflowRules::acceptancePaymentDeadline(
                              payment_deadline_at = ?, updated_at = UTC_TIMESTAMP()
                          WHERE id = ?'
                     )->execute([$deadline->format('Y-m-d H:i:s'), $booking['id']]);
-                    $pdo->prepare('INSERT INTO booking_status_history (booking_id, from_status, to_status, changed_by_user_id, note) VALUES (?, "pending_trainer", "awaiting_payment", ?, "เทรนเนอร์ตอบรับ สมาชิกชำระเงินได้ภายใน 10 นาที")')
-                        ->execute([$booking['id'], $user['id']]);
-                    $notificationIds = array_merge($notificationIds, $this->notifications->recordEvent(
-                        $pdo,
-                        NotificationRules::BOOKING_ACCEPTED,
-                        $this->bookingNotificationContext($pdo, (int) $booking['id'], 'pending_trainer', 'awaiting_payment')
-                    ));
+                    $this->history($pdo, $booking['id'], 'pending_trainer', 'awaiting_payment', $user['id'], 'เทรนเนอร์ตอบรับ สมาชิกชำระเงินได้ภายใน 10 นาที');
+                    $this->notify($pdo, $notificationIds, NotificationRules::BOOKING_ACCEPTED, $this->bookingNotificationContext($pdo, (int) $booking['id'], 'pending_trainer', 'awaiting_payment'));
                     $result['paymentDeadlineAt'] = $this->iso($deadline->format('Y-m-d H:i:s'));
                     return $result;
                 } elseif ($newStatus === 'cancelled') {
@@ -1470,11 +1319,8 @@ $deadline = WorkflowRules::acceptancePaymentDeadline(
                         $currentStatus,
                         (string) $booking['payment_status'],
                         // The trainer-confirmed end rules once one exists.
-                        new DateTimeImmutable(
-                            (string) ($booking['confirmed_ends_at'] ?? $booking['ends_at']),
-                            new DateTimeZone('UTC')
-                        ),
-                        new DateTimeImmutable('now', new DateTimeZone('UTC')),
+                        self::utc((string) ($booking['confirmed_ends_at'] ?? $booking['ends_at'])),
+                        self::utc(),
                         (int) $booking['scheduled_count'],
                         (int) $booking['session_count'],
                         $periodEnd
@@ -1497,9 +1343,7 @@ $deadline = WorkflowRules::acceptancePaymentDeadline(
                         'INVALID_BOOKING_TRANSITION'
                     );
                 }
-                $slotState = $newStatus === 'confirmed'
-                    ? 'booked'
-                    : ($newStatus === 'cancelled' ? 'available' : null);
+                $slotState = 'available';
             }
 
             if ($newStatus !== 'awaiting_payment' || $user['role'] !== 'trainer') {
@@ -1512,8 +1356,7 @@ $deadline = WorkflowRules::acceptancePaymentDeadline(
                         $booking['id'],
                     ]);
             }
-            $pdo->prepare('INSERT INTO booking_status_history (booking_id, from_status, to_status, changed_by_user_id, note) VALUES (?, ?, ?, ?, ?)')
-                ->execute([$booking['id'], $currentStatus, $newStatus, $user['id'], $note]);
+            $this->history($pdo, $booking['id'], $currentStatus, $newStatus, $user['id'], $note);
             if ($slotState !== null) {
                 $this->setBookingSlotsState($pdo, (int) $booking['id'], $booking['availability_slot_id'], $slotState);
             }
@@ -1536,34 +1379,23 @@ $deadline = WorkflowRules::acceptancePaymentDeadline(
                 $pdo->prepare('DELETE FROM chat_rooms WHERE booking_id = ?')->execute([$booking['id']]);
             }
             if ($newStatus === 'cancelled') {
-                $cancelNote = $note;
                 // A paid booking is refunded in full (the trainer's transfer is
                 // reversed); an unpaid one has its open payment page closed.
                 if ($this->refundBookingPaymentInTransaction($pdo, (int) $booking['id'], $note === '' ? 'ยกเลิกการจอง' : $note)) {
-                    $pdo->prepare('INSERT INTO booking_status_history (booking_id, from_status, to_status, changed_by_user_id, note) VALUES (?, "cancelled", "cancelled", ?, "คืนเงินให้สมาชิกผ่านระบบชำระเงินแล้ว")')
-                        ->execute([$booking['id'], $user['id']]);
+                    $this->history($pdo, $booking['id'], 'cancelled', 'cancelled', $user['id'], 'คืนเงินให้สมาชิกผ่านระบบชำระเงินแล้ว');
                 }
                 $this->checkoutsToExpire = [...$this->checkoutsToExpire, ...$this->closePendingCheckoutsInTransaction($pdo, (int) $booking['id'])];
                 // An administrator can cancel while a slip is still queued. Close
                 // that payment out too, otherwise it stays "reviewing" forever and
                 // decidePayment answers PAYMENT_ALREADY_REVIEWED with no way back.
-                $closedPayments = $pdo->prepare(
+                $pdo->prepare(
                     'UPDATE payments
                      SET status = "rejected", review_note = ?, reviewed_by_user_id = ?, reviewed_at = UTC_TIMESTAMP()
                      WHERE booking_id = ? AND status = "reviewing"'
-                );
-                $closedPayments->execute([
-                    $cancelNote === '' ? 'คำขอจองถูกยกเลิกโดยผู้ดูแลระบบ' : $cancelNote,
-                    $user['id'],
-                    $booking['id'],
-                ]);
+                )->execute([$note === '' ? 'คำขอจองถูกยกเลิกโดยผู้ดูแลระบบ' : $note, $user['id'], $booking['id']]);
             }
             if ($event !== null) {
-                $notificationIds = array_merge($notificationIds, $this->notifications->recordEvent(
-                    $pdo,
-                    $event,
-                    $this->bookingNotificationContext($pdo, (int) $booking['id'], $currentStatus, $newStatus, $note)
-                ));
+                $this->notify($pdo, $notificationIds, $event, $this->bookingNotificationContext($pdo, (int) $booking['id'], $currentStatus, $newStatus, $note));
             }
             return $result;
         });
@@ -1590,7 +1422,7 @@ $deadline = WorkflowRules::acceptancePaymentDeadline(
         $notificationIds = [];
 
         $result = $this->database->transaction(function (PDO $pdo) use ($publicId, $user, $stripe, &$notificationIds): array {
-                $statement = $pdo->prepare(
+                $booking = $this->database->fetchOne(
                 'SELECT b.id, b.public_id, b.status, b.availability_slot_id, b.payment_deadline_at, b.quoted_price,
                         b.booking_type, b.payment_service_mode, u.email AS member_email,
                         tp.id AS trainer_profile_id, tp.stripe_account_id, tp.stripe_transfers_enabled,
@@ -1600,18 +1432,17 @@ $deadline = WorkflowRules::acceptancePaymentDeadline(
                  JOIN users u ON u.id = b.member_user_id
                  JOIN trainer_profiles tp ON tp.id = b.trainer_profile_id
                  JOIN users trainer_user ON trainer_user.id = tp.user_id
-                 WHERE b.public_id = ? AND b.member_user_id = ? FOR UPDATE'
+                 WHERE b.public_id = ? AND b.member_user_id = ? FOR UPDATE',
+                [$publicId, $user['id']]
             );
-            $statement->execute([$publicId, $user['id']]);
-            $booking = $statement->fetch();
             if (!$booking) {
                 throw new HttpException(404, 'ไม่พบคำขอจอง', 'BOOKING_NOT_FOUND');
             }
             if ($booking['status'] !== 'awaiting_payment' || $booking['payment_deadline_at'] === null) {
                 throw new HttpException(409, 'คำขอนี้ยังไม่อยู่ในขั้นชำระเงิน', 'PAYMENT_NOT_READY');
             }
-            $deadline = new DateTimeImmutable((string) $booking['payment_deadline_at'], new DateTimeZone('UTC'));
-            $databaseNow = new DateTimeImmutable((string) $booking['database_now'], new DateTimeZone('UTC'));
+            $deadline = self::utc((string) $booking['payment_deadline_at']);
+            $databaseNow = self::utc((string) $booking['database_now']);
             if (WorkflowRules::isPaymentDeadlineExpired($deadline, $databaseNow)) {
                 $slotId = $booking['availability_slot_id'] === null ? null : (int) $booking['availability_slot_id'];
                 $this->expireAwaitingPaymentsInTransaction($pdo, $slotId, $notificationIds);
@@ -1622,13 +1453,12 @@ $deadline = WorkflowRules::acceptancePaymentDeadline(
             }
 
             // A member who comes back to the page resumes the session already open.
-            $open = $pdo->prepare(
+            $existing = $this->database->fetchOne(
                 'SELECT id, stripe_checkout_session_id, stripe_destination_account FROM payments
                  WHERE booking_id = ? AND status = "pending" AND stripe_checkout_session_id IS NOT NULL
-                 ORDER BY id DESC LIMIT 1'
+                 ORDER BY id DESC LIMIT 1',
+                [$booking['id']]
             );
-            $open->execute([$booking['id']]);
-            $existing = $open->fetch();
             if ($existing) {
                 $session = $stripe->get(
                     '/v1/checkout/sessions/' . rawurlencode((string) $existing['stripe_checkout_session_id']),
@@ -1873,14 +1703,13 @@ $deadline = WorkflowRules::acceptancePaymentDeadline(
         $outcome = StripePayments::sessionOutcome($session);
         $notificationIds = [];
         $this->database->transaction(function (PDO $pdo) use ($session, $outcome, $account, &$notificationIds): void {
-            $statement = $pdo->prepare(
+            $payment = $this->database->fetchOne(
                 'SELECT pay.id, pay.status, pay.booking_id, pay.stripe_destination_account,
                         b.status AS booking_status, b.availability_slot_id
                  FROM payments pay JOIN bookings b ON b.id = pay.booking_id
-                 WHERE pay.stripe_checkout_session_id = ? FOR UPDATE'
+                 WHERE pay.stripe_checkout_session_id = ? FOR UPDATE',
+                [(string) ($session['id'] ?? '')]
             );
-            $statement->execute([(string) ($session['id'] ?? '')]);
-            $payment = $statement->fetch();
             if (!$payment || in_array($payment['status'], ['approved', 'refunded'], true) || $outcome === 'open') {
                 return;
             }
@@ -1900,8 +1729,7 @@ $deadline = WorkflowRules::acceptancePaymentDeadline(
                 $this->stripe()->post('/v1/refunds', $refund, 'refund-' . md5(StripeClient::encode($refund)), $chargeAccount);
                 $pdo->prepare('UPDATE payments SET status = "refunded", stripe_payment_intent_id = ?, refunded_at = UTC_TIMESTAMP(), review_note = "ชำระหลังหมดเวลาหรือหลังยกเลิก ระบบคืนเงินอัตโนมัติ", reviewed_at = UTC_TIMESTAMP() WHERE id = ?')
                     ->execute([$paymentIntent, $payment['id']]);
-                $pdo->prepare('INSERT INTO booking_status_history (booking_id, from_status, to_status, changed_by_user_id, note) VALUES (?, ?, ?, NULL, "ชำระเงินหลังการจองปิดแล้ว ระบบคืนเงินอัตโนมัติ")')
-                    ->execute([$payment['booking_id'], $payment['booking_status'], $payment['booking_status']]);
+                $this->history($pdo, $payment['booking_id'], $payment['booking_status'], $payment['booking_status'], null, 'ชำระเงินหลังการจองปิดแล้ว ระบบคืนเงินอัตโนมัติ');
                 return;
             }
 
@@ -1909,14 +1737,9 @@ $deadline = WorkflowRules::acceptancePaymentDeadline(
                 ->execute([$paymentIntent, $payment['id']]);
             $pdo->prepare('UPDATE bookings SET status = "confirmed", payment_status = "approved", payment_deadline_at = NULL, updated_at = UTC_TIMESTAMP() WHERE id = ?')
                 ->execute([$payment['booking_id']]);
-            $pdo->prepare('INSERT INTO booking_status_history (booking_id, from_status, to_status, changed_by_user_id, note) VALUES (?, "awaiting_payment", "confirmed", NULL, "ชำระเงินออนไลน์สำเร็จ")')
-                ->execute([$payment['booking_id']]);
+            $this->history($pdo, $payment['booking_id'], 'awaiting_payment', 'confirmed', null, 'ชำระเงินออนไลน์สำเร็จ');
             $this->setBookingSlotsState($pdo, (int) $payment['booking_id'], $payment['availability_slot_id'], 'booked');
-            $notificationIds = array_merge($notificationIds, $this->notifications->recordEvent(
-                $pdo,
-                NotificationRules::PAYMENT_APPROVED,
-                $this->bookingNotificationContext($pdo, (int) $payment['booking_id'], 'awaiting_payment', 'confirmed')
-            ));
+            $this->notify($pdo, $notificationIds, NotificationRules::PAYMENT_APPROVED, $this->bookingNotificationContext($pdo, (int) $payment['booking_id'], 'awaiting_payment', 'confirmed'));
         });
         $this->notifications->deliverByIds($notificationIds);
         return $outcome;
@@ -1993,59 +1816,37 @@ $deadline = WorkflowRules::acceptancePaymentDeadline(
         $user = $this->auth->requireUser();
         $room = $this->requireChatParticipant((int) $roomId, $user);
         $rawAfterId = $_GET['afterId'] ?? '0';
-        if (is_array($rawAfterId) || preg_match('/^\d+$/', (string) $rawAfterId) !== 1) {
-            throw new HttpException(422, 'ตัวชี้ข้อความไม่ถูกต้อง', 'VALIDATION_FAILED', ['afterId' => 'ต้องเป็นจำนวนเต็มตั้งแต่ 0 ขึ้นไป']);
-        }
-        $afterId = filter_var((string) $rawAfterId, FILTER_VALIDATE_INT, ['options' => ['min_range' => 0]]);
+        $afterId = is_array($rawAfterId) || preg_match('/^\d+$/', (string) $rawAfterId) !== 1
+            ? false
+            : filter_var((string) $rawAfterId, FILTER_VALIDATE_INT, ['options' => ['min_range' => 0]]);
         if ($afterId === false) {
             throw new HttpException(422, 'ตัวชี้ข้อความไม่ถูกต้อง', 'VALIDATION_FAILED', ['afterId' => 'ต้องเป็นจำนวนเต็มตั้งแต่ 0 ขึ้นไป']);
         }
 
         $rows = $this->database->transaction(function (PDO $pdo) use ($room, $afterId, $user): array {
-            $page = $pdo->prepare(
-                'SELECT m.id, m.message_text, m.attachment_path, m.attachment_mime, m.attachment_name,
-                        m.attachment_size, m.image_path, m.image_mime, m.image_name, m.image_size,
-                        m.read_at, m.created_at, u.id AS sender_id, u.display_name
-                 FROM messages m JOIN users u ON u.id = m.sender_user_id
-                 WHERE m.chat_room_id = ? AND m.id > ? ORDER BY m.id ASC LIMIT 500 FOR UPDATE'
-            );
-            $page->execute([$room['id'], $afterId]);
-            $selectedRows = $page->fetchAll();
-            if ($selectedRows === []) {
+            $select = 'SELECT m.id, m.message_text, m.attachment_path, m.attachment_mime, m.attachment_name,
+                              m.attachment_size, m.image_path, m.image_mime, m.image_name, m.image_size,
+                              m.read_at, m.created_at, u.id AS sender_id, u.display_name
+                       FROM messages m JOIN users u ON u.id = m.sender_user_id
+                       WHERE m.chat_room_id = ? AND m.id > ?';
+            $page = $this->database->fetchAll($select . ' ORDER BY m.id ASC LIMIT 500 FOR UPDATE', [$room['id'], $afterId]);
+            if ($page === []) {
                 return [];
             }
-
-            $maxId = (int) $selectedRows[count($selectedRows) - 1]['id'];
-            $markRead = $pdo->prepare(
+            $maxId = (int) $page[count($page) - 1]['id'];
+            $pdo->prepare(
                 'UPDATE messages SET read_at = UTC_TIMESTAMP()
                  WHERE chat_room_id = ? AND id > ? AND id <= ? AND sender_user_id <> ? AND read_at IS NULL'
-            );
-            $markRead->execute([$room['id'], $afterId, $maxId, $user['id']]);
-
-            $refreshedPage = $pdo->prepare(
-                'SELECT m.id, m.message_text, m.attachment_path, m.attachment_mime, m.attachment_name,
-                        m.attachment_size, m.image_path, m.image_mime, m.image_name, m.image_size,
-                        m.read_at, m.created_at, u.id AS sender_id, u.display_name
-                 FROM messages m JOIN users u ON u.id = m.sender_user_id
-                 WHERE m.chat_room_id = ? AND m.id > ? AND m.id <= ? ORDER BY m.id ASC'
-            );
-            $refreshedPage->execute([$room['id'], $afterId, $maxId]);
-            return $refreshedPage->fetchAll();
+            )->execute([$room['id'], $afterId, $maxId, $user['id']]);
+            // Read the page again so it carries the read_at just written.
+            return $this->database->fetchAll($select . ' AND m.id <= ? ORDER BY m.id ASC', [$room['id'], $afterId, $maxId]);
         });
         Http::json(array_map(fn(array $row): array => $this->messagePayload(
             (int) $row['id'],
             (int) $room['id'],
             (string) $row['message_text'],
-            $row['attachment_path'] === null ? null : [
-                'name' => $row['attachment_name'],
-                'mime' => $row['attachment_mime'],
-                'size' => (int) $row['attachment_size'],
-            ],
-            $row['image_path'] === null ? null : [
-                'name' => $row['image_name'],
-                'mime' => $row['image_mime'],
-                'size' => (int) $row['image_size'],
-            ],
+            $row['attachment_path'] === null ? null : ['name' => $row['attachment_name'], 'mime' => $row['attachment_mime'], 'size' => (int) $row['attachment_size']],
+            $row['image_path'] === null ? null : ['name' => $row['image_name'], 'mime' => $row['image_mime'], 'size' => (int) $row['image_size']],
             $row['read_at'] === null ? null : $this->iso($row['read_at']),
             $this->iso($row['created_at']),
             ['id' => (int) $row['sender_id'], 'displayName' => $row['display_name']]
@@ -2113,30 +1914,9 @@ $deadline = WorkflowRules::acceptancePaymentDeadline(
         }
         // One message can carry an image and a file at the same time; the two
         // live in separate column sets and render side by side in the bubble.
-        $image = $this->saveUpload(
-            'image',
-            ['image/jpeg', 'image/png', 'image/webp', 'image/gif'],
-            5 * 1024 * 1024,
-            'messages',
-            false
-        );
-        $file = $this->saveUpload(
-            'file',
-            ['image/jpeg', 'image/png', 'image/webp', 'image/gif', 'application/pdf'],
-            5 * 1024 * 1024,
-            'messages',
-            false
-        );
-        if ($file === null) {
-            // The pre-document-compliance client attached under `attachment`.
-            $file = $this->saveUpload(
-                'attachment',
-                ['image/jpeg', 'image/png', 'image/webp', 'image/gif', 'application/pdf'],
-                5 * 1024 * 1024,
-                'messages',
-                false
-            );
-        }
+        $imageTypes = ['image/jpeg', 'image/png', 'image/webp', 'image/gif'];
+        $image = $this->saveUpload('image', $imageTypes, 5 * 1024 * 1024, 'messages', false);
+        $file = $this->saveUpload('file', [...$imageTypes, 'application/pdf'], 5 * 1024 * 1024, 'messages', false);
         if ($message === '' && $image === null && $file === null) {
             throw new HttpException(422, 'กรุณาพิมพ์ข้อความหรือแนบไฟล์', 'VALIDATION_FAILED');
         }
@@ -2167,31 +1947,10 @@ $deadline = WorkflowRules::acceptancePaymentDeadline(
                     ? (int) $room['trainer_user_id']
                     : (int) $room['member_user_id'];
                 if ($room['booking_id'] === null) {
-                    $notificationIds = array_merge($notificationIds, $this->notifications->recordEvent(
-                        $pdo,
-                        NotificationRules::INQUIRY_MESSAGE_RECEIVED,
-                        [
-                            'recipientUserId' => $recipientId,
-                            'senderName' => (string) $user['displayName'],
-                            'roomId' => (int) $room['id'],
-                            'messageId' => $messageId,
-                        ]
-                    ));
+                    $this->notify($pdo, $notificationIds, NotificationRules::INQUIRY_MESSAGE_RECEIVED, ['recipientUserId' => $recipientId, 'senderName' => (string) $user['displayName'], 'roomId' => (int) $room['id'], 'messageId' => $messageId]);
                     return $messageId;
                 }
-                $notificationIds = array_merge($notificationIds, $this->notifications->recordEvent(
-                    $pdo,
-                    NotificationRules::MESSAGE_RECEIVED,
-                    [
-                        'bookingId' => (int) $room['booking_id'],
-                        'bookingPublicId' => (string) $room['booking_public_id'],
-                        'memberUserId' => (int) $room['member_user_id'],
-                        'trainerUserId' => (int) $room['trainer_user_id'],
-                        'recipientUserId' => $recipientId,
-                        'senderName' => (string) $user['displayName'],
-                        'messageId' => $messageId,
-                    ]
-                ));
+                $this->notify($pdo, $notificationIds, NotificationRules::MESSAGE_RECEIVED, ['bookingId' => (int) $room['booking_id'], 'bookingPublicId' => (string) $room['booking_public_id'], 'memberUserId' => (int) $room['member_user_id'], 'trainerUserId' => (int) $room['trainer_user_id'], 'recipientUserId' => $recipientId, 'senderName' => (string) $user['displayName'], 'messageId' => $messageId]);
                 return $messageId;
             });
         } catch (Throwable $error) {
@@ -2240,14 +1999,8 @@ $deadline = WorkflowRules::acceptancePaymentDeadline(
             throw new HttpException(404, 'ไม่พบไฟล์แนบ', 'FILE_NOT_FOUND');
         }
 
-        $uploadRoot = realpath(dirname(__DIR__) . '/uploads');
-        $target = realpath(dirname(__DIR__) . '/' . ltrim((string) $attachment['file_path'], '/\\'));
-        if ($uploadRoot === false || $target === false || !str_starts_with($target, $uploadRoot . DIRECTORY_SEPARATOR) || !is_file($target)) {
-            throw new HttpException(404, 'ไม่พบไฟล์แนบ', 'FILE_NOT_FOUND');
-        }
-
-        $finfo = new finfo(FILEINFO_MIME_TYPE);
-        $mime = $finfo->file($target);
+        $target = self::uploadPath((string) $attachment['file_path']);
+        $mime = $target === null ? false : (new finfo(FILEINFO_MIME_TYPE))->file($target);
         if ($mime === false) {
             throw new HttpException(404, 'ไม่พบไฟล์แนบ', 'FILE_NOT_FOUND');
         }
@@ -2472,7 +2225,7 @@ $deadline = WorkflowRules::acceptancePaymentDeadline(
             $historyByBooking = [];
             if ($rows !== []) {
                 $ids = array_map(fn(array $row): int => (int) $row['id'], $rows);
-                $placeholders = implode(',', array_fill(0, count($ids), '?'));
+                $placeholders = self::marks($ids);
                 $history = $this->database->fetchAll(
                     'SELECT h.booking_id, h.from_status, h.to_status, h.note, h.created_at,
                             u.display_name AS changed_by
@@ -2861,10 +2614,10 @@ $deadline = WorkflowRules::acceptancePaymentDeadline(
         $input = Http::body();
         $this->database->transaction(function (PDO $pdo) use ($input): void {
             if (isset($input['bookingId'])) {
-                $statement = $pdo->prepare('SELECT b.id, b.payment_service_mode
-                    FROM bookings b WHERE b.public_id = ? FOR UPDATE');
-                $statement->execute([Http::stringField($input, 'bookingId')]);
-                $booking = $statement->fetch();
+                $booking = $this->database->fetchOne('SELECT b.id, b.payment_service_mode
+                    FROM bookings b WHERE b.public_id = ? FOR UPDATE',
+                    [Http::stringField($input, 'bookingId')]
+                );
                 if (!$booking || $booking['payment_service_mode'] !== null) {
                     throw new HttpException(409, 'การจองนี้กำหนดผู้รับผิดชอบไว้แล้ว', 'PAYMENT_ROUTING_FIXED');
                 }
@@ -2951,7 +2704,7 @@ $deadline = WorkflowRules::acceptancePaymentDeadline(
             $permissionIds = [(int) $admin['id']];
             if ($target['role'] === 'admin' && (int) $target['id'] !== (int) $admin['id']) $permissionIds[] = (int) $target['id'];
             sort($permissionIds);
-            $permissionPlaceholders = implode(',', array_fill(0, count($permissionIds), '?'));
+            $permissionPlaceholders = self::marks($permissionIds);
             $permissionStatement = $pdo->prepare(
                 'SELECT user_id, manage_users, review_trainers, manage_bookings, review_payments
                  FROM admin_permissions WHERE user_id IN (' . $permissionPlaceholders . ')
@@ -3014,7 +2767,7 @@ $deadline = WorkflowRules::acceptancePaymentDeadline(
         $this->database->transaction(function (PDO $pdo) use ($admin, $target): void {
             $permissionIds = [(int) $admin['id'], (int) $target['id']];
             sort($permissionIds);
-            $permissionPlaceholders = implode(',', array_fill(0, count($permissionIds), '?'));
+            $permissionPlaceholders = self::marks($permissionIds);
             $permissionStatement = $pdo->prepare(
                 'SELECT user_id, manage_users
                  FROM admin_permissions WHERE user_id IN (' . $permissionPlaceholders . ')
@@ -3067,11 +2820,10 @@ $deadline = WorkflowRules::acceptancePaymentDeadline(
         $input = Http::body();
         $notificationIds = [];
         $result = $this->database->transaction(function (PDO $pdo) use ($trainerId, $decision, $input, $admin, &$notificationIds): array {
-            $statement = $pdo->prepare(
-                'SELECT id, user_id, approval_status FROM trainer_profiles WHERE id = ? FOR UPDATE'
+            $trainer = $this->database->fetchOne(
+                'SELECT id, user_id, approval_status FROM trainer_profiles WHERE id = ? FOR UPDATE',
+                [(int) $trainerId]
             );
-            $statement->execute([(int) $trainerId]);
-            $trainer = $statement->fetch();
             if (!$trainer) {
                 throw new HttpException(404, 'ไม่พบโปรไฟล์เทรนเนอร์', 'TRAINER_NOT_FOUND');
             }
@@ -3097,16 +2849,7 @@ $deadline = WorkflowRules::acceptancePaymentDeadline(
                  WHERE trainer_profile_id = ? AND status = "pending"'
             )->execute([$certificateStatus, $note, $admin['id'], (int) $trainer['id']]);
 
-            $notificationIds = array_merge($notificationIds, $this->notifications->recordEvent(
-                $pdo,
-                $status === 'approved'
-                    ? NotificationRules::TRAINER_APPLICATION_APPROVED
-                    : NotificationRules::TRAINER_APPLICATION_REJECTED,
-                [
-                    'trainerUserId' => (int) $trainer['user_id'],
-                    'reviewNote' => $note,
-                ]
-            ));
+            $this->notify($pdo, $notificationIds, $status === 'approved' ? NotificationRules::TRAINER_APPLICATION_APPROVED : NotificationRules::TRAINER_APPLICATION_REJECTED, ['trainerUserId' => (int) $trainer['user_id'], 'reviewNote' => $note]);
 
             return ['trainerId' => (int) $trainer['id'], 'status' => $status];
         });
@@ -3120,19 +2863,18 @@ $deadline = WorkflowRules::acceptancePaymentDeadline(
         // Payments settle through Stripe, so the queue holds trainer
         // applications only.
         $this->requireAdminPermission('review_trainers');
-        $permissions = ['reviewTrainers' => true];
-        $trainers = $permissions['reviewTrainers'] ? $this->database->fetchAll(
+        $trainers = $this->database->fetchAll(
             'SELECT tp.id, tp.slug, tp.created_at, tp.is_demo, u.display_name, COUNT(tc.id) AS certificate_count
              FROM trainer_profiles tp
              JOIN users u ON u.id = tp.user_id
              LEFT JOIN trainer_certificates tc ON tc.trainer_profile_id = tp.id
              WHERE tp.approval_status = "pending"
              GROUP BY tp.id ORDER BY tp.created_at ASC LIMIT 100'
-        ) : [];
+        );
         $certificatesByTrainer = [];
         if ($trainers !== []) {
             $trainerIds = array_map(fn(array $row): int => (int) $row['id'], $trainers);
-            $placeholders = implode(',', array_fill(0, count($trainerIds), '?'));
+            $placeholders = self::marks($trainerIds);
             $certificates = $this->database->fetchAll(
                 'SELECT id, trainer_profile_id, name, issuer, created_at
                  FROM trainer_certificates
@@ -3183,9 +2925,8 @@ $deadline = WorkflowRules::acceptancePaymentDeadline(
         if (!$record) {
             throw new HttpException(404, 'ไม่พบไฟล์', 'FILE_NOT_FOUND');
         }
-        $uploadRoot = realpath(dirname(__DIR__) . '/uploads');
-        $target = realpath(dirname(__DIR__) . '/' . ltrim((string) $record['file_path'], '/\\'));
-        if ($uploadRoot === false || $target === false || !str_starts_with($target, $uploadRoot . DIRECTORY_SEPARATOR) || !is_file($target)) {
+        $target = self::uploadPath((string) $record['file_path']);
+        if ($target === null) {
             throw new HttpException(404, 'ไม่พบไฟล์', 'FILE_NOT_FOUND');
         }
         header('Content-Type: ' . $record['mime_type']);
@@ -3293,17 +3034,14 @@ $deadline = WorkflowRules::acceptancePaymentDeadline(
         }
         $sql .= ' ORDER BY id FOR UPDATE';
 
-        $statement = $pdo->prepare($sql);
-        $statement->execute($params);
-        $expired = $statement->fetchAll();
+        $expired = $this->database->fetchAll($sql, $params);
 
         foreach ($expired as $booking) {
             $pdo->prepare('UPDATE bookings SET status = "expired", updated_at = UTC_TIMESTAMP() WHERE id = ?')
                 ->execute([$booking['id']]);
             $this->checkoutsToExpire = [...$this->checkoutsToExpire, ...$this->closePendingCheckoutsInTransaction($pdo, (int) $booking['id'])];
             $this->setBookingSlotsState($pdo, (int) $booking['id'], $booking['availability_slot_id'], 'available');
-            $pdo->prepare('INSERT INTO booking_status_history (booking_id, from_status, to_status, changed_by_user_id, note) VALUES (?, "awaiting_payment", "expired", NULL, "หมดเวลาชำระเงิน")')
-                ->execute([$booking['id']]);
+            $this->history($pdo, $booking['id'], 'awaiting_payment', 'expired', null, 'หมดเวลาชำระเงิน');
             $createdIds = $this->notifications->recordEvent(
                 $pdo,
                 NotificationRules::BOOKING_EXPIRED,
@@ -3338,7 +3076,7 @@ $deadline = WorkflowRules::acceptancePaymentDeadline(
         string $nextStatus,
         string $reviewNote = ''
     ): array {
-        $statement = $pdo->prepare(
+        $booking = $this->database->fetchOne(
             'SELECT b.id, b.public_id, b.member_user_id, tp.user_id AS trainer_user_id,
                     member.display_name AS member_name, trainer.display_name AS trainer_name,
                     b.starts_at, b.ends_at, b.confirmed_starts_at, b.confirmed_ends_at, b.quoted_price
@@ -3346,10 +3084,9 @@ $deadline = WorkflowRules::acceptancePaymentDeadline(
              JOIN trainer_profiles tp ON tp.id = b.trainer_profile_id
              JOIN users member ON member.id = b.member_user_id
              JOIN users trainer ON trainer.id = tp.user_id
-             WHERE b.id = ?'
+             WHERE b.id = ?',
+            [$bookingId]
         );
-        $statement->execute([$bookingId]);
-        $booking = $statement->fetch();
         if (!$booking) {
             throw new LogicException('Notification booking context is missing.');
         }
@@ -3450,14 +3187,47 @@ $deadline = WorkflowRules::acceptancePaymentDeadline(
                 'trainingTypeIds' => array_map(fn(array $type): int => (int) $type['training_type_id'], $types),
                 'approvalStatus' => $row['approval_status'],
                 'approvalNote' => $row['approval_note'],
-                'certificates' => array_map(fn(array $certificate): array => [
-                    'id' => (int) $certificate['id'],
-                    'name' => $certificate['name'],
-                    'issuer' => $certificate['issuer'],
-                    'issuedYear' => $certificate['issued_year'] === null ? null : (int) $certificate['issued_year'],
-                    'status' => $certificate['status'],
-                ], $certificates),
+                'certificates' => array_map(self::certificatePayload(...), $certificates),
             ],
+        ];
+    }
+
+    private function assertActiveTrainingTypes(array $typeIds): void
+    {
+        $active = $this->database->fetchAll(
+            'SELECT id FROM training_types WHERE active = 1 AND id IN (' . self::marks($typeIds) . ')',
+            $typeIds
+        );
+        if (count($active) !== count($typeIds)) {
+            throw new HttpException(422, 'ประเภทการฝึกไม่ถูกต้อง', 'VALIDATION_FAILED', [
+                'trainingTypeIds' => 'เลือกประเภทการฝึกที่เปิดใช้งาน',
+            ]);
+        }
+    }
+
+    private function replaceTrainingTypes(PDO $pdo, int $profileId, array $typeIds): void
+    {
+        $pdo->prepare('DELETE FROM trainer_training_types WHERE trainer_profile_id = ?')->execute([$profileId]);
+        $insert = $pdo->prepare('INSERT INTO trainer_training_types (trainer_profile_id, training_type_id) VALUES (?, ?)');
+        foreach ($typeIds as $typeId) {
+            $insert->execute([$profileId, $typeId]);
+        }
+    }
+
+    private function history(PDO $pdo, mixed $bookingId, ?string $from, string $to, mixed $byUserId, string $note): void
+    {
+        $pdo->prepare('INSERT INTO booking_status_history (booking_id, from_status, to_status, changed_by_user_id, note) VALUES (?, ?, ?, ?, ?)')
+            ->execute([$bookingId, $from, $to, $byUserId, $note]);
+    }
+
+    private static function certificatePayload(array $certificate): array
+    {
+        return [
+            'id' => (int) $certificate['id'],
+            'name' => $certificate['name'],
+            'issuer' => $certificate['issuer'],
+            'issuedYear' => $certificate['issued_year'] === null ? null : (int) $certificate['issued_year'],
+            'status' => $certificate['status'],
         ];
     }
 
@@ -3476,9 +3246,9 @@ $deadline = WorkflowRules::acceptancePaymentDeadline(
         return $path;
     }
 
-    private function trainerRow(string $where, array $params): ?array
+    private function trainerRows(string $where, array $params, string $tail): array
     {
-        return $this->database->fetchOne(
+        return $this->database->fetchAll(
             'SELECT tp.id, tp.user_id, tp.slug, tp.nickname, tp.headline, tp.bio, tp.years_experience, tp.service_mode,
                     tp.gym_name, tp.price_from, tp.monthly_price, tp.monthly_session_count, tp.approval_status, tp.image_path, tp.is_demo,
                     u.display_name,
@@ -3488,7 +3258,7 @@ $deadline = WorkflowRules::acceptancePaymentDeadline(
              JOIN users u ON u.id = tp.user_id
              LEFT JOIN reviews r ON r.trainer_profile_id = tp.id AND r.status = "published"
              LEFT JOIN bookings review_booking ON review_booking.id = r.booking_id AND review_booking.status = "completed"
-             WHERE ' . $where . ' GROUP BY tp.id LIMIT 1',
+             WHERE ' . $where . ' GROUP BY tp.id ' . $tail,
             $params
         );
     }
@@ -3531,10 +3301,7 @@ $deadline = WorkflowRules::acceptancePaymentDeadline(
             'rating' => $row['rating'] === null ? null : round((float) $row['rating'], 1),
             'reviewCount' => (int) $row['review_count'],
             'verification' => $row['approval_status'] === 'approved' ? 'verified' : $row['approval_status'],
-            'certificates' => array_map(fn(array $certificate): array => [
-                'id' => (int) $certificate['id'], 'name' => $certificate['name'], 'issuer' => $certificate['issuer'],
-                'issuedYear' => $certificate['issued_year'] === null ? null : (int) $certificate['issued_year'], 'status' => $certificate['status'],
-            ], $certificates),
+            'certificates' => array_map(self::certificatePayload(...), $certificates),
             'slots' => array_map(fn(array $slot): array => [
                 'id' => (int) $slot['id'], 'startsAt' => $this->iso($slot['starts_at']), 'endsAt' => $this->iso($slot['ends_at']),
                 'available' => true,
@@ -3839,26 +3606,25 @@ $deadline = WorkflowRules::acceptancePaymentDeadline(
 
     private function removeUpload(string $relativePath): void
     {
-        $uploadRoot = realpath(dirname(__DIR__) . '/uploads');
-        $target = realpath(dirname(__DIR__) . '/' . ltrim($relativePath, '/\\'));
-        if (
-            $uploadRoot !== false
-            && $target !== false
-            && str_starts_with($target, $uploadRoot . DIRECTORY_SEPARATOR)
-            && is_file($target)
-        ) {
+        $target = self::uploadPath($relativePath);
+        if ($target !== null) {
             unlink($target);
         }
     }
 
+    /** The real path of a stored upload, or null when it is missing or outside the uploads folder. */
+    private static function uploadPath(string $relativePath, string $directory = ''): ?string
+    {
+        $root = realpath(dirname(__DIR__) . '/uploads' . ($directory === '' ? '' : '/' . $directory));
+        $target = realpath(dirname(__DIR__) . '/' . ltrim($relativePath, '/\\'));
+        $inside = $root !== false && $target !== false && str_starts_with($target, $root . DIRECTORY_SEPARATOR);
+        return $inside && is_file($target) ? $target : null;
+    }
+
     private function serveUploadedImage(string $relativePath, string $directory, string $filename, bool $cache): never
     {
-        $uploadRoot = realpath(dirname(__DIR__) . '/uploads/' . $directory);
-        $target = realpath(dirname(__DIR__) . '/' . ltrim($relativePath, '/\\'));
-        if ($uploadRoot === false || $target === false || !str_starts_with($target, $uploadRoot . DIRECTORY_SEPARATOR) || !is_file($target)) {
-            throw new HttpException(404, 'ไม่พบรูปภาพ', 'IMAGE_NOT_FOUND');
-        }
-        $mime = (new finfo(FILEINFO_MIME_TYPE))->file($target);
+        $target = self::uploadPath($relativePath, $directory);
+        $mime = $target === null ? false : (new finfo(FILEINFO_MIME_TYPE))->file($target);
         if (!in_array($mime, ['image/jpeg', 'image/png', 'image/webp'], true)) {
             throw new HttpException(404, 'ไม่พบรูปภาพ', 'IMAGE_NOT_FOUND');
         }
@@ -3869,6 +3635,23 @@ $deadline = WorkflowRules::acceptancePaymentDeadline(
         header('X-Content-Type-Options: nosniff');
         readfile($target);
         exit;
+    }
+
+    private static function utc(string $value = 'now'): DateTimeImmutable
+    {
+        return new DateTimeImmutable($value, new DateTimeZone('UTC'));
+    }
+
+    /** One "?" per value, for an IN (...) list. */
+    private static function marks(array $values): string
+    {
+        return implode(',', array_fill(0, count($values), '?'));
+    }
+
+    /** Records an event; the ids are delivered after the transaction commits. */
+    private function notify(PDO $pdo, array &$ids, string $event, array $context): void
+    {
+        $ids = array_merge($ids, $this->notifications->recordEvent($pdo, $event, $context));
     }
 
     private function iso(string $value): string

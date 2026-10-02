@@ -22,7 +22,7 @@ import { ApiError, authenticatedRequest } from "@/lib/api";
 import { getTrainerNextAction, hasValidBookingPeriod } from "@/lib/dashboard-actions";
 import { acceptanceTooLate, formatDateTime, formatMoney, formatTime, initials } from "@/lib/format";
 import { leaveExpiredSession } from "@/lib/session";
-import type { Booking, SlotState, TrainerAvailabilitySlot, TrainerWorkspace } from "@/lib/types";
+import type { Booking, SlotState, TrainerAvailabilitySlot, TrainerStats, TrainerWorkspace } from "@/lib/types";
 
 const slotStateCopy: Record<SlotState, string> = {
   available: "พร้อมจอง",
@@ -30,26 +30,6 @@ const slotStateCopy: Record<SlotState, string> = {
   booked: "ยืนยันแล้ว",
   blocked: "ปิดช่วงเวลา",
 };
-
-// The trainer decision fields arrive in lib/types.ts in parallel with this
-// surface, so they are read through one narrow view that works before and
-// after that change instead of editing the shared file here.
-type BookingDecisionView = {
-  status: string;
-  confirmedStartsAt?: string | null;
-  confirmedEndsAt?: string | null;
-  requestedStartsAt?: string | null;
-  cancellationReason?: string | null;
-  actions?: {
-    canAccept?: boolean;
-    canReject?: boolean;
-    canCancelBooking?: boolean;
-  };
-};
-
-function decisionView(booking: Booking): BookingDecisionView {
-  return booking as unknown as BookingDecisionView;
-}
 
 /** reject: an unanswered request · cancel: a booking past the request. */
 type DecisionKind = "reject" | "cancel";
@@ -63,32 +43,16 @@ function isPendingTrainer(booking: { status: string }) {
   return booking.status === "pending_trainer";
 }
 
-/** A request the trainer has not answered yet. */
-function isUnanswered(booking: Booking) {
-  return isPendingTrainer(booking);
-}
-
 /** Whether the trainer is the one who has to act next on this booking. */
 function needsTrainer(booking: Booking) {
-  return isUnanswered(booking) || booking.status === "payment_review";
+  return isPendingTrainer(booking) || booking.status === "payment_review";
 }
 
 /** A trainer may cancel any booking that is not closed yet, per the workflow. */
 const TRAINER_CANCELLABLE_STATUSES = ["pending_trainer", "awaiting_payment", "payment_review", "confirmed"];
 
 function canTrainerCancel(booking: Booking) {
-  const view = decisionView(booking);
-  return view.actions?.canCancelBooking ?? TRAINER_CANCELLABLE_STATUSES.includes(view.status);
-}
-
-function canAcceptBooking(booking: Booking) {
-  const view = decisionView(booking);
-  return view.actions?.canAccept ?? isPendingTrainer(view);
-}
-
-function canRejectBooking(booking: Booking) {
-  const view = decisionView(booking);
-  return view.actions?.canReject ?? isPendingTrainer(view);
+  return booking.actions.canCancelBooking ?? TRAINER_CANCELLABLE_STATUSES.includes(booking.status);
 }
 
 /** One line telling the trainer what this request is waiting on. */
@@ -100,108 +64,34 @@ function requestHint(booking: Booking): string {
 }
 
 function requestedStart(booking: Booking) {
-  return decisionView(booking).requestedStartsAt ?? booking.startsAt;
-}
-
-function confirmedStart(booking: Booking) {
-  return decisionView(booking).confirmedStartsAt ?? null;
-}
-
-function confirmedEnd(booking: Booking) {
-  return decisionView(booking).confirmedEndsAt ?? null;
+  return booking.requestedStartsAt ?? booking.startsAt;
 }
 
 /** "ช่วงเวลาที่ยืนยัน" as one readable range, or null before the trainer answered. */
 function confirmedPeriodLabel(booking: Booking): string | null {
-  const start = confirmedStart(booking);
-  const end = confirmedEnd(booking);
-  if (!start) return null;
-  return `${formatDateTime(start)} – ${formatTime(end ?? start)} น.`;
+  const start = booking.confirmedStartsAt;
+  return start ? `${formatDateTime(start)} – ${formatTime(booking.confirmedEndsAt ?? start)} น.` : null;
 }
 
 const thaiMonthLabels = ["ม.ค.", "ก.พ.", "มี.ค.", "เม.ย.", "พ.ค.", "มิ.ย.", "ก.ค.", "ส.ค.", "ก.ย.", "ต.ค.", "พ.ย.", "ธ.ค."];
 
-/** Thai Buddhist Era runs 543 years ahead of the Gregorian year. */
-function buddhistEra(year: number) {
-  return year + 543;
-}
-
 type TrainerTab = "work" | "members" | "reviews" | "finance";
 const TRAINER_TABS: TrainerTab[] = ["work", "members", "reviews", "finance"];
+const tabCopy = {
+  work: { label: "งานและตาราง", Icon: ClipboardList },
+  members: { label: "สมาชิก", Icon: UsersRound },
+  reviews: { label: "รีวิว", Icon: Star },
+  finance: { label: "การเงิน", Icon: Wallet },
+};
 
 function requestedPeriodLabel(booking: Booking): string {
   return `${formatDateTime(requestedStart(booking))} – ${formatTime(booking.endsAt)} น.`;
 }
 
-// The stats endpoint shape is normalised defensively so a field rename on the
-// API degrades to a zero instead of a blank screen.
-type StatsRow = Record<string, unknown>;
-type TrainerStatsPayload = {
-  bookingsByMonth?: StatsRow[];
-  incomeByMonth?: StatsRow[];
-  totals?: StatsRow;
-  salarySummary?: StatsRow[];
-};
-
-function statsMonthLabel(value: unknown): string {
-  if (typeof value === "number" && value >= 1 && value <= 12) return thaiMonthLabels[value - 1];
-  if (typeof value === "string") {
-    const parsed = Number(value);
-    if (parsed >= 1 && parsed <= 12) return thaiMonthLabels[parsed - 1];
-    const match = value.match(/^\d{4}-(\d{2})/);
-    if (match) {
-      const month = Number(match[1]);
-      if (month >= 1 && month <= 12) return thaiMonthLabels[month - 1];
-    }
-    return value;
-  }
-  return value === null || value === undefined ? "" : String(value);
-}
-
-function statsNumber(row: StatsRow | undefined, keys: string[]): number {
-  if (!row) return 0;
-  for (const key of keys) {
-    const value = row[key];
-    if (typeof value === "number" && Number.isFinite(value)) return value;
-  }
-  return 0;
-}
-
-type StatsMonthLine = { label: string; bookings: number; income: number };
-
-function monthlyStats(stats: TrainerStatsPayload | null): StatsMonthLine[] {
-  return thaiMonthLabels.map((label) => {
-    const bookingsRow = (stats?.bookingsByMonth ?? []).find((row) => statsMonthLabel(row.month) === label);
-    const incomeRow = (stats?.incomeByMonth ?? []).find((row) => statsMonthLabel(row.month) === label);
-    return {
-      label,
-      bookings: statsNumber(bookingsRow, ["total", "count", "bookings", "bookingsCount"]),
-      income: statsNumber(incomeRow ?? bookingsRow, ["amount", "income", "total", "sum"]),
-    };
-  });
-}
-
-function yearlyStats(stats: TrainerStatsPayload | null): { bookings: number; income: number } {
-  const months = monthlyStats(stats);
-  const hasMonthly = months.some((line) => line.bookings !== 0 || line.income !== 0) || (stats?.bookingsByMonth?.length ?? 0) > 0;
-  if (hasMonthly) {
-    return {
-      bookings: months.reduce((sum, line) => sum + line.bookings, 0),
-      income: months.reduce((sum, line) => sum + line.income, 0),
-    };
-  }
-  return {
-    bookings: statsNumber(stats?.totals, ["bookings", "totalBookings", "count", "bookingsCount"]),
-    income: statsNumber(stats?.totals, ["income", "amount", "revenue", "total"]),
-  };
-}
-
-function salaryLines(stats: TrainerStatsPayload | null): Array<{ label: string; sessions: number; amount: number }> {
-  return (stats?.salarySummary ?? []).map((row) => ({
-    label: statsMonthLabel(row.month),
-    sessions: statsNumber(row, ["sessions", "count", "sessionCount"]),
-    amount: statsNumber(row, ["amount", "total", "income"]),
-  }));
+/** The API sends "YYYY-MM"; a bare month number reads the same way. */
+function monthLabel(month: string | number) {
+  const index = typeof month === "number" ? month : Number(String(month).slice(-2));
+  return thaiMonthLabels[index - 1] ?? String(month);
 }
 
 // Every visible date and time is pinned to Bangkok so a trainer's schedule reads
@@ -367,7 +257,7 @@ export function TrainerWorkbench({ onIncompleteProfile }: { onIncompleteProfile?
   const [editDate, setEditDate] = useState("");
   const [editTime, setEditTime] = useState("");
   const [editError, setEditError] = useState("");
-  const [stats, setStats] = useState<TrainerStatsPayload | null>(null);
+  const [stats, setStats] = useState<TrainerStats | null>(null);
   const [statsYear, setStatsYear] = useState(() => new Date().getFullYear());
   const [statsMode, setStatsMode] = useState<"monthly" | "yearly">("monthly");
   const [statsError, setStatsError] = useState("");
@@ -384,6 +274,10 @@ export function TrainerWorkbench({ onIncompleteProfile }: { onIncompleteProfile?
   const [dialogTrigger, setDialogTrigger] = useState<HTMLElement | null>(null);
   const rememberDialogTrigger = (event: { currentTarget: HTMLElement }) => {
     setDialogTrigger(event.currentTarget);
+  };
+  const restoreFocus = (event: Event) => {
+    event.preventDefault();
+    dialogTrigger?.focus();
   };
   const onIncompleteProfileRef = useRef(onIncompleteProfile);
 
@@ -427,33 +321,9 @@ export function TrainerWorkbench({ onIncompleteProfile }: { onIncompleteProfile?
   }, [navigate, refreshBookings]);
 
   useEffect(() => {
-    const initialLoad = Promise.allSettled([
-      authenticatedRequest<TrainerWorkspace>("/v1/trainer/me"),
-      authenticatedRequest<Booking[]>("/v1/bookings"),
-    ]);
-    void initialLoad.then(([workspaceResult, bookingResult]) => {
-      if (workspaceResult.status === "fulfilled") {
-        setWorkspace(workspaceResult.value);
-        setWorkspaceError("");
-        setWorkspaceReady(true);
-        if (workspaceResult.value.profile === null) onIncompleteProfileRef.current?.();
-      } else if (!leaveExpiredSession(workspaceResult.reason, navigate)) {
-        setWorkspaceReady(false);
-        setWorkspaceError(workspaceResult.reason instanceof Error ? workspaceResult.reason.message : "โหลดข้อมูลเทรนเนอร์ไม่สำเร็จ");
-      }
-
-      if (bookingResult.status === "fulfilled") {
-        setBookings(bookingResult.value);
-        setBookingError("");
-        setBookingsReady(true);
-      } else if (!leaveExpiredSession(bookingResult.reason, navigate)) {
-        setBookingsReady(false);
-        setBookingError(bookingResult.reason instanceof Error ? bookingResult.reason.message : "โหลดคำขอจองไม่สำเร็จ");
-      }
-
-      setLoading(false);
-    });
-  }, [navigate]);
+    // Started from a callback: the loaders set state, which an effect body may not do directly.
+    void Promise.resolve().then(() => Promise.all([loadWorkspace(), loadBookings()])).then(() => setLoading(false));
+  }, [loadWorkspace, loadBookings]);
 
   useEffect(() => {
     if (actionNotice) actionNoticeRef.current?.focus();
@@ -480,7 +350,7 @@ export function TrainerWorkbench({ onIncompleteProfile }: { onIncompleteProfile?
       setStatsError("");
       void (async () => {
         try {
-          const data = await authenticatedRequest<TrainerStatsPayload | null>(`/v1/trainer/stats?year=${statsYear}`);
+          const data = await authenticatedRequest<TrainerStats | null>(`/v1/trainer/stats?year=${statsYear}`);
           if (!cancelled) setStats(data ?? null);
         } catch (error) {
           if (cancelled) return;
@@ -557,7 +427,7 @@ export function TrainerWorkbench({ onIncompleteProfile }: { onIncompleteProfile?
   const upcomingBookings = orderedConfirmedBookings.filter((booking) => nextSession(booking))
     .sort((a, b) => new Date(nextSession(a)!.startsAt).getTime() - new Date(nextSession(b)!.startsAt).getTime());
   const pendingBookings = orderedConfirmedBookings.filter((booking) => !nextSession(booking));
-  const pendingRequestCount = bookingsReady ? bookings.filter(isUnanswered).length : 0;
+  const pendingRequestCount = bookingsReady ? bookings.filter(isPendingTrainer).length : 0;
   const openSlotCount = (workspace?.slots ?? []).filter((slot) => slot.state === "available" && new Date(slot.startsAt).getTime() > now.getTime()).length;
 
   // The next-action card names one record, so following its link has to land on
@@ -574,6 +444,16 @@ export function TrainerWorkbench({ onIncompleteProfile }: { onIncompleteProfile?
     return () => window.removeEventListener("hashchange", focusTargetedRow);
     // `bookingsReady` re-runs it once the rows are mounted and the hash can hit.
   }, [actionBookingId, bookingsReady]);
+  // After Next has pushed the hash, land the caret on the record's own button
+  // so the next-action card's promise is kept in one click.
+  function focusActionRecord() {
+    if (!actionBookingId) return;
+    window.setTimeout(() => {
+      (document.getElementById(`booking-${actionBookingId}`) ?? document.getElementById(`request-${actionBookingId}`))
+        ?.querySelector<HTMLElement>(".queue-actions button:not([disabled]), button:not([disabled])")
+        ?.focus();
+    }, 0);
+  }
   // One list owns every appointment: the records still owing a result first (the
   // actionable one on top), then the upcoming ones in date order. Two sections
   // made the page pay twice — a header, a count, an empty state and an expansion
@@ -582,22 +462,23 @@ export function TrainerWorkbench({ onIncompleteProfile }: { onIncompleteProfile?
     ...(urgentBooking ? [urgentBooking, ...pendingBookings.filter((booking) => booking.id !== urgentBooking.id)] : pendingBookings),
     ...upcomingBookings,
   ];
-  // The calendar answers "when"; the list only has to answer "who is next", so
-  // the search and date filters it used to carry are gone.
-  const filteredAppointments = appointments;
   // The tab badge counts what asks the trainer to act, not every record.
   const workAttention = requestsForTrainer
     + appointments.filter((booking) => booking.actions.canComplete && hasValidBookingPeriod(booking)).length;
   // "Show more" appends the next page; the row named by the next-action card is
   // always on screen, even when it sits deeper in the list.
-  const actionIndex = filteredAppointments.findIndex((booking) => booking.id === actionBookingId);
+  const actionIndex = appointments.findIndex((booking) => booking.id === actionBookingId);
   const appointmentLimitApplied = actionIndex >= appointmentLimit ? actionIndex + 1 : appointmentLimit;
-  const visibleAppointments = filteredAppointments.slice(0, appointmentLimitApplied);
-  const hiddenAppointmentCount = Math.max(0, filteredAppointments.length - visibleAppointments.length);
+  const visibleAppointments = appointments.slice(0, appointmentLimitApplied);
+  const hiddenAppointmentCount = Math.max(0, appointments.length - visibleAppointments.length);
   const slots = workspace?.slots ?? [];
-  const statsMonths = monthlyStats(stats).filter((line) => line.bookings !== 0 || line.income !== 0);
-  const statsYearTotal = yearlyStats(stats);
-  const statsSalary = salaryLines(stats);
+  const statsMonths = thaiMonthLabels.map((label) => ({
+    label,
+    bookings: stats?.bookingsByMonth.find((row) => monthLabel(row.month) === label)?.total ?? 0,
+    income: stats?.incomeByMonth.find((row) => monthLabel(row.month) === label)?.amount ?? 0,
+  })).filter((line) => line.bookings !== 0 || line.income !== 0);
+  const statsYearTotal = stats?.totals ?? { bookings: 0, income: 0 };
+  const statsSalary = stats?.salarySummary ?? [];
   const slotsOnSelectedDay = slotDate
     ? slots.filter((slot) => localDateKey(new Date(slot.startsAt)) === slotDate)
     : [];
@@ -838,7 +719,7 @@ export function TrainerWorkbench({ onIncompleteProfile }: { onIncompleteProfile?
           </div>
         )}
         <div className="queue-actions">
-          {pending && canAcceptBooking(booking) && (
+          {pending && (booking.actions.canAccept ?? true) && (
             <button
               type="button"
               className="queue-actions__primary"
@@ -852,7 +733,7 @@ export function TrainerWorkbench({ onIncompleteProfile }: { onIncompleteProfile?
               ตอบรับ
             </button>
           )}
-          {pending && canRejectBooking(booking) && (
+          {pending && (booking.actions.canReject ?? true) && (
             <button
               type="button"
               disabled={isBusy}
@@ -1094,7 +975,7 @@ export function TrainerWorkbench({ onIncompleteProfile }: { onIncompleteProfile?
     const isBusy = busy === `booking-${booking.id}`;
     const validPeriod = hasValidBookingPeriod(booking);
     const confirmedLabel = confirmedPeriodLabel(booking);
-    const cancellationReason = decisionView(booking).cancellationReason;
+    const cancellationReason = booking.cancellationReason;
     return (
       <article className="trainer-booking-card" key={booking.id} aria-busy={isBusy}>
         <div className="trainer-booking-card__identity"><span>{booking.id}</span><h3>{booking.member?.displayName ?? "สมาชิก FitConnect"}</h3></div>
@@ -1197,16 +1078,7 @@ export function TrainerWorkbench({ onIncompleteProfile }: { onIncompleteProfile?
         {nextAction && (
         <NextActionCard
           action={nextAction}
-          onFollow={() => {
-            // After Next has pushed the hash, land the caret on the record's own
-            // button so the card's promise is kept in one click.
-            if (!actionBookingId) return;
-            window.setTimeout(() => {
-              (document.getElementById(`booking-${actionBookingId}`) ?? document.getElementById(`request-${actionBookingId}`))
-                ?.querySelector<HTMLElement>(".queue-actions button:not([disabled]), button:not([disabled])")
-                ?.focus();
-            }, 0);
-          }}
+          onFollow={focusActionRecord}
         />
       )}
       </div>
@@ -1228,34 +1100,20 @@ export function TrainerWorkbench({ onIncompleteProfile }: { onIncompleteProfile?
             </div>
           </div>
           <ul className="trainer-kpis" aria-label="ภาพรวมวันนี้">
-            <li className={pendingRequestCount > 0 ? "is-attention" : undefined}>
-              <a href={pendingRequestCount > 0 ? "#trainer-requests" : "#appointments"} onClick={() => setActiveTab("work")}>
-                <span className="trainer-kpis__icon" aria-hidden="true"><Inbox size={16} /></span>
-                <strong>{bookingsReady ? pendingRequestCount : "–"}</strong>
-                <span>คำขอรอตอบรับ</span>
-              </a>
-            </li>
-            <li>
-              <a href="#trainer-requests" onClick={() => setActiveTab("work")}>
-                <span className="trainer-kpis__icon" aria-hidden="true"><ReceiptText size={16} /></span>
-                <strong>{bookingsReady ? awaitingPaymentCount : "–"}</strong>
-                <span>รอสมาชิกชำระเงิน</span>
-              </a>
-            </li>
-            <li>
-              <a href="#appointments" onClick={() => setActiveTab("work")}>
-                <span className="trainer-kpis__icon" aria-hidden="true"><CalendarCheck2 size={16} /></span>
-                <strong>{bookingsReady ? upcomingBookings.length : "–"}</strong>
-                <span>นัดที่กำลังจะถึง</span>
-              </a>
-            </li>
-            <li>
-              <a href="#schedule" onClick={() => setActiveTab("work")}>
-                <span className="trainer-kpis__icon" aria-hidden="true"><CalendarDays size={16} /></span>
-                <strong>{openSlotCount}</strong>
-                <span>ช่วงเวลาเปิดรับจอง</span>
-              </a>
-            </li>
+            {[
+              { href: pendingRequestCount > 0 ? "#trainer-requests" : "#appointments", Icon: Inbox, value: pendingRequestCount, label: "คำขอรอตอบรับ", always: false },
+              { href: "#trainer-requests", Icon: ReceiptText, value: awaitingPaymentCount, label: "รอสมาชิกชำระเงิน", always: false },
+              { href: "#appointments", Icon: CalendarCheck2, value: upcomingBookings.length, label: "นัดที่กำลังจะถึง", always: false },
+              { href: "#schedule", Icon: CalendarDays, value: openSlotCount, label: "ช่วงเวลาเปิดรับจอง", always: true },
+            ].map(({ href, Icon, value, label, always }, index) => (
+              <li key={label} className={index === 0 && value > 0 ? "is-attention" : undefined}>
+                <a href={href} onClick={() => setActiveTab("work")}>
+                  <span className="trainer-kpis__icon" aria-hidden="true"><Icon size={16} /></span>
+                  <strong>{always || bookingsReady ? value : "–"}</strong>
+                  <span>{label}</span>
+                </a>
+              </li>
+            ))}
           </ul>
           {workspaceError && <div className="workbench-error" role="alert"><span>{workspaceError}</span><button type="button" onClick={() => void loadWorkspace()}>ลองใหม่</button></div>}
         </section>
@@ -1284,16 +1142,7 @@ export function TrainerWorkbench({ onIncompleteProfile }: { onIncompleteProfile?
       {nextAction && nextAction.state !== "complete" && (
         <NextActionCard
           action={nextAction}
-          onFollow={() => {
-            // After Next has pushed the hash, land the caret on the record's own
-            // button so the card's promise is kept in one click.
-            if (!actionBookingId) return;
-            window.setTimeout(() => {
-              (document.getElementById(`booking-${actionBookingId}`) ?? document.getElementById(`request-${actionBookingId}`))
-                ?.querySelector<HTMLElement>(".queue-actions button:not([disabled]), button:not([disabled])")
-                ?.focus();
-            }, 0);
-          }}
+          onFollow={focusActionRecord}
         />
       )}
       {actionNotice && <p ref={actionNoticeRef} className="queue-notice workbench-success" role="status" tabIndex={-1}>{actionNotice}</p>}
@@ -1313,60 +1162,24 @@ export function TrainerWorkbench({ onIncompleteProfile }: { onIncompleteProfile?
           ledger used to sit in the work column as a fourth disclosure; as its own
           tab it stops competing with the records a trainer acts on. */}
       <div className="profile-tabs trainer-tabs" role="tablist" aria-label="มุมมองพื้นที่เทรนเนอร์">
-        <button
-          type="button"
-          role="tab"
-          id="trainer-work-tab"
-          aria-selected={activeTab === "work"}
-          aria-controls="trainer-work-panel"
-          tabIndex={activeTab === "work" ? 0 : -1}
-          onClick={() => setActiveTab("work")}
-          onKeyDown={onTrainerTabKeyDown}
-        >
-          <ClipboardList aria-hidden="true" size={17} /> งานและตาราง {workAttention > 0 && <span>{workAttention}</span>}
-        </button>
-        {approved && (
-          <button
-            type="button"
-            role="tab"
-            id="trainer-members-tab"
-            aria-selected={activeTab === "members"}
-            aria-controls="trainer-members-panel"
-            tabIndex={activeTab === "members" ? 0 : -1}
-            onClick={() => setActiveTab("members")}
-            onKeyDown={onTrainerTabKeyDown}
-          >
-            <UsersRound aria-hidden="true" size={17} /> สมาชิก
-          </button>
-        )}
-        {approved && (
-          <button
-            type="button"
-            role="tab"
-            id="trainer-reviews-tab"
-            aria-selected={activeTab === "reviews"}
-            aria-controls="trainer-reviews-panel"
-            tabIndex={activeTab === "reviews" ? 0 : -1}
-            onClick={() => setActiveTab("reviews")}
-            onKeyDown={onTrainerTabKeyDown}
-          >
-            <Star aria-hidden="true" size={17} /> รีวิว
-          </button>
-        )}
-        {approved && (
-          <button
-            type="button"
-            role="tab"
-            id="trainer-finance-tab"
-            aria-selected={activeTab === "finance"}
-            aria-controls="trainer-finance-panel"
-            tabIndex={activeTab === "finance" ? 0 : -1}
-            onClick={() => setActiveTab("finance")}
-            onKeyDown={onTrainerTabKeyDown}
-          >
-            <Wallet aria-hidden="true" size={17} /> การเงิน
-          </button>
-        )}
+        {TRAINER_TABS.filter((tab) => tab === "work" || approved).map((tab) => {
+          const { label, Icon } = tabCopy[tab];
+          return (
+            <button
+              type="button"
+              role="tab"
+              key={tab}
+              id={`trainer-${tab}-tab`}
+              aria-selected={activeTab === tab}
+              aria-controls={`trainer-${tab}-panel`}
+              tabIndex={activeTab === tab ? 0 : -1}
+              onClick={() => setActiveTab(tab)}
+              onKeyDown={onTrainerTabKeyDown}
+            >
+              <Icon aria-hidden="true" size={17} /> {label} {tab === "work" && workAttention > 0 && <span>{workAttention}</span>}
+            </button>
+          );
+        })}
       </div>
 
       <div id="trainer-work-panel" role="tabpanel" aria-labelledby="trainer-work-tab" hidden={activeTab !== "work"}>
@@ -1489,7 +1302,7 @@ export function TrainerWorkbench({ onIncompleteProfile }: { onIncompleteProfile?
               <h2 id="trainer-appointments-title">นัดของสมาชิก</h2>
             </div>
             <div className="trainer-booking-list__meta">
-              <span className="queue-count">{filteredAppointments.length} รายการ</span>
+              <span className="queue-count">{appointments.length} รายการ</span>
             </div>
           </header>
           {appointments.length === 0 && <div className="empty-state"><strong>ยังไม่มีนัดที่ยืนยันแล้ว</strong><p>เมื่อนัดได้รับการยืนยัน รายละเอียดสมาชิกจะมาอยู่ตรงนี้</p></div>}
@@ -1520,7 +1333,7 @@ export function TrainerWorkbench({ onIncompleteProfile }: { onIncompleteProfile?
       }}>
         <DialogContent
           className="slot-calendar-dialog availability-calendar-dialog"
-          onCloseAutoFocus={(event) => { event.preventDefault(); dialogTrigger?.focus(); }}
+          onCloseAutoFocus={restoreFocus}
         >
           <DialogHeader className="slot-calendar-dialog__header">
             <DialogTitle>เพิ่มช่วงเวลาว่าง</DialogTitle>
@@ -1549,11 +1362,7 @@ export function TrainerWorkbench({ onIncompleteProfile }: { onIncompleteProfile?
                     return (
                       <button key={key} type="button" className={`slot-calendar__day${selected ? " is-selected" : ""}`} disabled={!enabled} aria-pressed={selected} aria-label={`เลือกวันที่ ${calendarDateFormatter.format(date)}`} onClick={() => {
                         setSlotDate(key);
-                        setFieldErrors((current) => {
-                          const rest = { ...current };
-                          delete rest.startsAt;
-                          return rest;
-                        });
+                        setFieldErrors({});
                       }}>
                         <span>{date.getDate()}</span>
                       </button>
@@ -1585,11 +1394,7 @@ export function TrainerWorkbench({ onIncompleteProfile }: { onIncompleteProfile?
                                   ? current.filter((time) => time !== value)
                                   : [...current, value].sort()
                               ));
-                              setFieldErrors((current) => {
-                                const rest = { ...current };
-                                delete rest.startsAt;
-                                return rest;
-                              });
+                              setFieldErrors({});
                             }}
                           >
                             {value}
@@ -1676,7 +1481,7 @@ export function TrainerWorkbench({ onIncompleteProfile }: { onIncompleteProfile?
               <button type="button" aria-pressed={statsMode === "monthly"} onClick={() => setStatsMode("monthly")}>รายเดือน</button>
               <button type="button" aria-pressed={statsMode === "yearly"} onClick={() => setStatsMode("yearly")}>รายปี</button>
             </div>
-            <p className="booking-next-step">ปี พ.ศ. {buddhistEra(statsYear)}</p>
+            <p className="booking-next-step">ปี พ.ศ. {statsYear + 543}</p>
             {statsLoading && <p className="queue-loading" aria-live="polite">กำลังโหลดสถิติ…</p>}
             {statsError && (
               <div className="workbench-error" role="alert">
@@ -1693,7 +1498,7 @@ export function TrainerWorkbench({ onIncompleteProfile }: { onIncompleteProfile?
               <>
                 <dl className="trainer-money-cards trainer-money-cards--two">
                   <div><dt>การจองทั้งหมดในปี</dt><dd><strong>{statsYearTotal.bookings}</strong><small>การจอง</small></dd></div>
-                  <div><dt>รายได้รวมทั้งปี</dt><dd><strong>{formatMoney(statsYearTotal.income)}</strong><small>พ.ศ. {buddhistEra(statsYear)}</small></dd></div>
+                  <div><dt>รายได้รวมทั้งปี</dt><dd><strong>{formatMoney(statsYearTotal.income)}</strong><small>พ.ศ. {statsYear + 543}</small></dd></div>
                 </dl>
                 {statsMode === "monthly" ? (
                   statsMonths.length > 0 ? (
@@ -1723,7 +1528,7 @@ export function TrainerWorkbench({ onIncompleteProfile }: { onIncompleteProfile?
                     </thead>
                     <tbody>
                       <tr>
-                        <th scope="row">พ.ศ. {buddhistEra(statsYear)}</th>
+                        <th scope="row">พ.ศ. {statsYear + 543}</th>
                         <td>{statsYearTotal.bookings} การจอง</td>
                         <td>{formatMoney(statsYearTotal.income)}</td>
                       </tr>
@@ -1740,8 +1545,8 @@ export function TrainerWorkbench({ onIncompleteProfile }: { onIncompleteProfile?
                       </thead>
                       <tbody>
                         {statsSalary.map((line) => (
-                          <tr key={line.label}>
-                            <th scope="row">{line.label}</th>
+                          <tr key={line.month}>
+                            <th scope="row">{monthLabel(line.month)}</th>
                             <td>{line.sessions} ครั้ง</td>
                             <td>{formatMoney(line.amount)}</td>
                           </tr>
@@ -1759,7 +1564,7 @@ export function TrainerWorkbench({ onIncompleteProfile }: { onIncompleteProfile?
       <Dialog open={selectedBooking !== null} onOpenChange={(open) => { if (!open) setSelectedBooking(null); }}>
         <DialogContent
           className="trainer-appointment-dialog"
-          onCloseAutoFocus={(event) => { event.preventDefault(); dialogTrigger?.focus(); }}
+          onCloseAutoFocus={restoreFocus}
         >
           <DialogHeader><DialogTitle>รายละเอียดนัดหมาย</DialogTitle><DialogDescription>ข้อมูลสมาชิกและการฝึกในรายการจองนี้</DialogDescription></DialogHeader>
           {selectedBooking && (
@@ -1772,7 +1577,7 @@ export function TrainerWorkbench({ onIncompleteProfile }: { onIncompleteProfile?
         if (busy?.startsWith("slot-")) return;
         if (!open) setSlotToDelete(null);
       }}>
-        <DialogContent onCloseAutoFocus={(event) => { event.preventDefault(); dialogTrigger?.focus(); }}>
+        <DialogContent onCloseAutoFocus={restoreFocus}>
           <DialogHeader>
             <DialogTitle>ลบช่วงเวลานี้?</DialogTitle>
             <DialogDescription className="grid gap-1">
@@ -1802,7 +1607,7 @@ export function TrainerWorkbench({ onIncompleteProfile }: { onIncompleteProfile?
         if (busy?.startsWith("booking-")) return;
         if (!open) setBookingToComplete(null);
       }}>
-        <DialogContent onCloseAutoFocus={(event) => { event.preventDefault(); dialogTrigger?.focus(); }}>
+        <DialogContent onCloseAutoFocus={restoreFocus}>
           <DialogHeader>
             <DialogTitle>บันทึกผลการฝึก?</DialogTitle>
             <DialogDescription className="grid gap-1">
@@ -1837,7 +1642,7 @@ export function TrainerWorkbench({ onIncompleteProfile }: { onIncompleteProfile?
         if (busy?.startsWith("booking-")) return;
         if (!open) setBookingToAccept(null);
       }}>
-        <DialogContent onCloseAutoFocus={(event) => { event.preventDefault(); dialogTrigger?.focus(); }}>
+        <DialogContent onCloseAutoFocus={restoreFocus}>
           <DialogHeader>
             <DialogTitle>ตอบรับคำขอจอง</DialogTitle>
             <DialogDescription className="grid gap-1">
@@ -1880,7 +1685,7 @@ export function TrainerWorkbench({ onIncompleteProfile }: { onIncompleteProfile?
           setDecisionReasonError("");
         }
       }}>
-        <DialogContent onCloseAutoFocus={(event) => { event.preventDefault(); dialogTrigger?.focus(); }}>
+        <DialogContent onCloseAutoFocus={restoreFocus}>
           <DialogHeader>
             <DialogTitle>{decisionCopy[decisionKind].title}</DialogTitle>
             <DialogDescription className="grid gap-1">
@@ -1926,7 +1731,7 @@ export function TrainerWorkbench({ onIncompleteProfile }: { onIncompleteProfile?
         if (busy?.startsWith("slot-")) return;
         if (!open) setSlotToEdit(null);
       }}>
-        <DialogContent onCloseAutoFocus={(event) => { event.preventDefault(); dialogTrigger?.focus(); }}>
+        <DialogContent onCloseAutoFocus={restoreFocus}>
           <DialogHeader>
             <DialogTitle>แก้ไขช่วงเวลาว่าง</DialogTitle>
             <DialogDescription className="grid gap-1">

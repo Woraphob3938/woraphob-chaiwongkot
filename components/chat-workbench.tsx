@@ -1,11 +1,5 @@
 "use client";
 
-/* Hallmark · pre-emit critique: P5 H5 E4 S5 R5 V4
- * Hallmark · component: live chat workbench · genre: utilitarian athletic · theme: FitConnect workbench
- * states: default · hover · focus · active · disabled · loading · error · success
- * contrast: uses locked FitConnect tokens
- */
-
 import Image from "next/image";
 import Link from "next/link";
 import { FormEvent, useCallback, useEffect, useMemo, useRef, useState } from "react";
@@ -43,19 +37,8 @@ import type { Booking, ChatMessage, UserRole } from "@/lib/types";
 
 const MAX_ATTACHMENT_SIZE = 5 * 1024 * 1024;
 const DESKTOP_FACTS_QUERY = "(min-width: 58.001rem)";
-const ACCEPTED_IMAGE_TYPES = new Set([
-  "image/jpeg",
-  "image/png",
-  "image/webp",
-  "image/gif",
-]);
-const ACCEPTED_FILE_TYPES = new Set([
-  "image/jpeg",
-  "image/png",
-  "image/webp",
-  "image/gif",
-  "application/pdf",
-]);
+const ACCEPTED_IMAGE_TYPES = new Set(["image/jpeg", "image/png", "image/webp", "image/gif"]);
+const ACCEPTED_FILE_TYPES = new Set([...ACCEPTED_IMAGE_TYPES, "application/pdf"]);
 
 function mergeMessages(current: ChatMessage[], incoming: ChatMessage[]): ChatMessage[] {
   const byId = new Map<number, ChatMessage>();
@@ -81,20 +64,6 @@ function readableMime(mime: string): string {
   return known[mime] ?? (mime || "ไฟล์");
 }
 
-/**
- * The message payload keeps the legacy `attachment` object and adds the split
- * `image*` / `attachment*` fields from the contract. Both are read defensively
- * until `lib/types.ts` carries them.
- */
-type MessageExtras = {
-  imageUrl?: string | null;
-  imageName?: string | null;
-  imageSize?: number | null;
-  attachmentUrl?: string | null;
-  attachmentName?: string | null;
-  attachmentSize?: number | null;
-};
-
 type MessageImageSlot = { url: string; name: string | null; size: number | null };
 type MessageFileSlot = { url: string; name: string; mime: string; size: number | null };
 
@@ -109,18 +78,19 @@ function mimeFromName(name: string): string {
 }
 
 function messageSlots(message: ChatMessage): { image: MessageImageSlot | null; file: MessageFileSlot | null } {
-  const extra = message as ChatMessage & MessageExtras;
-  const image: MessageImageSlot | null = extra.imageUrl
-    ? { url: extra.imageUrl, name: extra.imageName ?? null, size: extra.imageSize ?? null }
+  // The payload carries the split image/file fields and, for older rows, the
+  // single legacy `attachment` object.
+  const image: MessageImageSlot | null = message.imageUrl
+    ? { url: message.imageUrl, name: message.imageName ?? null, size: message.imageSize ?? null }
     : null;
-  if (extra.attachmentUrl) {
+  if (message.attachmentUrl) {
     return {
       image,
       file: {
-        url: extra.attachmentUrl,
-        name: extra.attachmentName ?? "ไฟล์แนบ",
-        mime: mimeFromName(extra.attachmentName ?? ""),
-        size: extra.attachmentSize ?? null,
+        url: message.attachmentUrl,
+        name: message.attachmentName ?? "ไฟล์แนบ",
+        mime: mimeFromName(message.attachmentName ?? ""),
+        size: message.attachmentSize ?? null,
       },
     };
   }
@@ -129,47 +99,23 @@ function messageSlots(message: ChatMessage): { image: MessageImageSlot | null; f
   // A payload that still mirrors the single image in `attachment` must not
   // render the same picture twice; with no separate file URL the legacy card is
   // the image itself.
-  const legacyIsImageMirror = image !== null && extra.imageName != null && legacy.name === extra.imageName;
+  const legacyIsImageMirror = image !== null && message.imageName != null && legacy.name === message.imageName;
   if (legacyIsImageMirror) return { image, file: null };
   return { image, file: { url: legacy.url, name: legacy.name, mime: legacy.mime, size: legacy.size } };
 }
 
+function isSameDay(a: string | Date, b: string | Date) {
+  return new Date(a).toDateString() === new Date(b).toDateString();
+}
+
 function formatDateDivider(value: string) {
+  const now = new Date();
+  if (isSameDay(value, now)) return "วันนี้";
+  if (isSameDay(value, new Date(now.getTime() - 24 * 60 * 60 * 1000))) return "เมื่อวานนี้";
   try {
-    const date = new Date(value);
-    const now = new Date();
-    const isToday =
-      date.getFullYear() === now.getFullYear() &&
-      date.getMonth() === now.getMonth() &&
-      date.getDate() === now.getDate();
-
-    const yesterday = new Date(now);
-    yesterday.setDate(yesterday.getDate() - 1);
-    const isYesterday =
-      date.getFullYear() === yesterday.getFullYear() &&
-      date.getMonth() === yesterday.getMonth() &&
-      date.getDate() === yesterday.getDate();
-
-    if (isToday) return "วันนี้";
-    if (isYesterday) return "เมื่อวานนี้";
-
     return formatShortDay(value);
   } catch {
     return value;
-  }
-}
-
-function isSameDay(a: string, b: string) {
-  try {
-    const d1 = new Date(a);
-    const d2 = new Date(b);
-    return (
-      d1.getFullYear() === d2.getFullYear() &&
-      d1.getMonth() === d2.getMonth() &&
-      d1.getDate() === d2.getDate()
-    );
-  } catch {
-    return false;
   }
 }
 
@@ -218,15 +164,7 @@ function chatPeer(booking: Booking, role: UserRole | null) {
   };
 }
 
-function ChatAvatar({
-  name,
-  imageUrl,
-  className,
-}: {
-  name: string;
-  imageUrl?: string | null;
-  className: string;
-}) {
+function ChatAvatar({ name, imageUrl, className }: { name: string; imageUrl?: string | null; className: string }) {
   const [failed, setFailed] = useState(false);
   const source = apiAssetUrl(imageUrl ?? null);
   return (
@@ -243,15 +181,7 @@ function ChatAvatar({
  * session token and shown from a blob URL instead of a bare `<img src>` that the
  * guard would reject.
  */
-function ChatMessageImage({
-  image,
-  opening,
-  onOpen,
-}: {
-  image: MessageImageSlot;
-  opening: boolean;
-  onOpen: () => void;
-}) {
+function ChatMessageImage({ image, opening, onOpen }: { image: MessageImageSlot; opening: boolean; onOpen: () => void }) {
   const [src, setSrc] = useState<string | null>(null);
   const target = apiAssetUrl(image.url);
   const [failed, setFailed] = useState(() => target === null);
@@ -309,13 +239,7 @@ function ChatMessageImage({
   );
 }
 
-function ChatPeerProfile({
-  bookingId,
-  peer,
-}: {
-  bookingId: string;
-  peer: ReturnType<typeof chatPeer>;
-}) {
+function ChatPeerProfile({ bookingId, peer }: { bookingId: string; peer: ReturnType<typeof chatPeer> }) {
   return (
     <Dialog>
       <DialogTrigger asChild>
@@ -366,11 +290,7 @@ function InquiryBadge() {
   return <span className="status-badge status-badge--inquiry">สอบถามก่อนจอง</span>;
 }
 
-type ChatWorkbenchProps = {
-  initialBookingId?: string;
-};
-
-export function ChatWorkbench({ initialBookingId }: ChatWorkbenchProps) {
+export function ChatWorkbench({ initialBookingId }: { initialBookingId?: string }) {
   const [rooms, setRooms] = useState<Booking[]>([]);
   const [roomQuery, setRoomQuery] = useState("");
   const [selectedBookingId, setSelectedBookingId] = useState("");
@@ -438,6 +358,9 @@ export function ChatWorkbench({ initialBookingId }: ChatWorkbenchProps) {
     selectedRoomRef.current?.scrollIntoView?.({ block: "nearest" });
   }, [selectedBookingId]);
 
+  /** Whether the room that started a request is still the one on screen. */
+  const isLive = useCallback((generation: number) => mountedRef.current && generationRef.current === generation, []);
+
   const loadRooms = useCallback(async () => {
     setRoomsLoading(true);
     setRoomsError("");
@@ -501,24 +424,12 @@ export function ChatWorkbench({ initialBookingId }: ChatWorkbenchProps) {
       if (messageRequestRef.current === request) setThreadError("");
       return true;
     } catch {
-      if (
-        mountedRef.current
-        && generationRef.current === generation
-        && messageRequestRef.current === request
-      ) {
-        setThreadError(failureMessage);
-      }
+      if (isLive(generation) && messageRequestRef.current === request) setThreadError(failureMessage);
       return false;
     } finally {
-      if (
-        mountedRef.current
-        && generationRef.current === generation
-        && messageRequestRef.current === request
-      ) {
-        setThreadLoading(false);
-      }
+      if (isLive(generation) && messageRequestRef.current === request) setThreadLoading(false);
     }
-  }, []);
+  }, [isLive]);
 
   useEffect(() => {
     if (selectedBooking?.chatRoomId === null || selectedBooking?.chatRoomId === undefined) {
@@ -569,60 +480,22 @@ export function ChatWorkbench({ initialBookingId }: ChatWorkbenchProps) {
     };
   }, [loadMessages, selectedBooking]);
 
-  function selectImage(file: File | null) {
+  /** Picks (or, with null, removes) the image or the file waiting to be sent. */
+  function pickAttachment(kind: "image" | "file", file: File | null) {
+    const isImage = kind === "image";
+    const input = isImage ? imageInputRef : fileInputRef;
+    const setAttachment = isImage ? setImageAttachment : setFileAttachment;
     setNotice("");
     setComposerError("");
-    if (!file) {
-      setImageAttachment(null);
-      return;
+    let problem = "";
+    if (file && !(isImage ? ACCEPTED_IMAGE_TYPES : ACCEPTED_FILE_TYPES).has(file.type)) {
+      problem = isImage ? "รองรับเฉพาะ JPEG, PNG, WebP หรือ GIF" : "รองรับเฉพาะ JPEG, PNG, WebP, GIF หรือ PDF";
+    } else if (file && file.size > MAX_ATTACHMENT_SIZE) {
+      problem = isImage ? "รูปภาพต้องมีขนาดไม่เกิน 5 MB" : "ไฟล์ต้องมีขนาดไม่เกิน 5 MB";
     }
-    if (!ACCEPTED_IMAGE_TYPES.has(file.type)) {
-      setImageAttachment(null);
-      setComposerError("รองรับเฉพาะ JPEG, PNG, WebP หรือ GIF");
-      if (imageInputRef.current) imageInputRef.current.value = "";
-      return;
-    }
-    if (file.size > MAX_ATTACHMENT_SIZE) {
-      setImageAttachment(null);
-      setComposerError("รูปภาพต้องมีขนาดไม่เกิน 5 MB");
-      if (imageInputRef.current) imageInputRef.current.value = "";
-      return;
-    }
-    setImageAttachment(file);
-  }
-
-  function selectFile(file: File | null) {
-    setNotice("");
-    setComposerError("");
-    if (!file) {
-      setFileAttachment(null);
-      return;
-    }
-    if (!ACCEPTED_FILE_TYPES.has(file.type)) {
-      setFileAttachment(null);
-      setComposerError("รองรับเฉพาะ JPEG, PNG, WebP, GIF หรือ PDF");
-      if (fileInputRef.current) fileInputRef.current.value = "";
-      return;
-    }
-    if (file.size > MAX_ATTACHMENT_SIZE) {
-      setFileAttachment(null);
-      setComposerError("ไฟล์ต้องมีขนาดไม่เกิน 5 MB");
-      if (fileInputRef.current) fileInputRef.current.value = "";
-      return;
-    }
-    setFileAttachment(file);
-  }
-
-  function removeImage() {
-    setImageAttachment(null);
-    setComposerError("");
-    if (imageInputRef.current) imageInputRef.current.value = "";
-  }
-
-  function removeFile() {
-    setFileAttachment(null);
-    setComposerError("");
-    if (fileInputRef.current) fileInputRef.current.value = "";
+    if (problem) setComposerError(problem);
+    if ((problem || !file) && input.current) input.current.value = "";
+    setAttachment(problem ? null : file);
   }
 
   async function sendMessage(event: FormEvent<HTMLFormElement>) {
@@ -661,11 +534,7 @@ export function ChatWorkbench({ initialBookingId }: ChatWorkbenchProps) {
         method: "POST",
         body,
       });
-      if (
-        !mountedRef.current
-        || generationRef.current !== generation
-        || sendOperationRef.current !== operation
-      ) return;
+      if (!isLive(generation) || sendOperationRef.current !== operation) return;
 
       followLatestRef.current = true;
       setMessages((current) => mergeMessages(current, [created]));
@@ -683,19 +552,11 @@ export function ChatWorkbench({ initialBookingId }: ChatWorkbenchProps) {
         generation,
         "ส่งข้อความแล้ว แต่โหลดข้อความล่าสุดไม่สำเร็จ",
       );
-      if (
-        mountedRef.current
-        && generationRef.current === generation
-        && sendOperationRef.current === operation
-      ) {
+      if (isLive(generation) && sendOperationRef.current === operation) {
         retryCursorRef.current = refreshed ? null : previousCursor;
       }
     } catch (error) {
-      if (
-        mountedRef.current
-        && generationRef.current === generation
-        && sendOperationRef.current === operation
-      ) {
+      if (isLive(generation) && sendOperationRef.current === operation) {
         setComposerError(error instanceof Error ? error.message : "ส่งข้อความไม่สำเร็จ กรุณาลองใหม่");
         if (error instanceof ApiError && error.code === "CHAT_READ_ONLY") void loadRooms();
       }
@@ -716,11 +577,7 @@ export function ChatWorkbench({ initialBookingId }: ChatWorkbenchProps) {
     setRetrying(true);
     setThreadLoading(true);
     const refreshed = await loadMessages(selectedBooking.chatRoomId, afterId, generation);
-    if (
-      mountedRef.current
-      && generationRef.current === generation
-      && retryOperationRef.current === operation
-    ) {
+    if (isLive(generation) && retryOperationRef.current === operation) {
       if (refreshed) retryCursorRef.current = null;
       setRetrying(false);
     }
@@ -736,21 +593,11 @@ export function ChatWorkbench({ initialBookingId }: ChatWorkbenchProps) {
     try {
       await openProtectedFile(target.url);
     } catch (error) {
-      if (
-        mountedRef.current
-        && generationRef.current === generation
-        && attachmentOperationRef.current === operation
-      ) {
+      if (isLive(generation) && attachmentOperationRef.current === operation) {
         setAttachmentError(error instanceof Error ? error.message : "เปิดไฟล์แนบไม่สำเร็จ");
       }
     } finally {
-      if (
-        mountedRef.current
-        && generationRef.current === generation
-        && attachmentOperationRef.current === operation
-      ) {
-        setOpeningAttachment(null);
-      }
+      if (isLive(generation) && attachmentOperationRef.current === operation) setOpeningAttachment(null);
     }
   }
 
@@ -943,11 +790,7 @@ export function ChatWorkbench({ initialBookingId }: ChatWorkbenchProps) {
             const previous = messages[index - 1];
             const stacked = previous?.sender.id === message.sender.id && isSameDay(previous.createdAt, message.createdAt);
             const showDateDivider = !previous || !isSameDay(previous.createdAt, message.createdAt);
-            const lastOwnMessageId = messages.reduce<number | null>(
-              (id, item) => (currentUserId !== null && item.sender.id === currentUserId ? item.id : id),
-              null,
-            );
-            const lastMine = mine && lastOwnMessageId === message.id;
+            const lastMine = mine && !messages.slice(index + 1).some((item) => item.sender.id === currentUserId);
             return (
               <div key={message.id} className="chat-message-group">
                 {showDateDivider && (
@@ -997,17 +840,9 @@ export function ChatWorkbench({ initialBookingId }: ChatWorkbenchProps) {
                         {formatDateTime(message.createdAt)}
                         {lastMine ? (
                           <span className="chat-read-receipt">
-                            {message.readAt ? (
-                              <>
-                                <CheckCheck aria-hidden="true" size={13} className="read-icon read-icon--read" />
-                                <span> · อ่านแล้ว</span>
-                              </>
-                            ) : (
-                              <>
-                                <Check aria-hidden="true" size={13} className="read-icon" />
-                                <span> · ยังไม่อ่าน</span>
-                              </>
-                            )}
+                            {message.readAt
+                              ? <><CheckCheck aria-hidden="true" size={13} className="read-icon read-icon--read" /><span> · อ่านแล้ว</span></>
+                              : <><Check aria-hidden="true" size={13} className="read-icon" /><span> · ยังไม่อ่าน</span></>}
                           </span>
                         ) : ""}
                       </small>
@@ -1095,7 +930,7 @@ export function ChatWorkbench({ initialBookingId }: ChatWorkbenchProps) {
               accept="image/png,image/jpeg,image/webp,image/gif"
               disabled={sending}
               aria-describedby="chat-image-guide chat-composer-feedback"
-              onChange={(event) => selectImage(event.target.files?.[0] ?? null)}
+              onChange={(event) => pickAttachment("image", event.target.files?.[0] ?? null)}
             />
             <small className="sr-only" id="chat-image-guide">รองรับ JPEG, PNG, WebP หรือ GIF ขนาดไม่เกิน 5 MB</small>
             <label className="sr-only" htmlFor="chat-attachment">ไฟล์แนบ</label>
@@ -1107,7 +942,7 @@ export function ChatWorkbench({ initialBookingId }: ChatWorkbenchProps) {
               accept="image/png,image/jpeg,image/webp,image/gif,application/pdf"
               disabled={sending}
               aria-describedby="chat-attachment-guide chat-composer-feedback"
-              onChange={(event) => selectFile(event.target.files?.[0] ?? null)}
+              onChange={(event) => pickAttachment("file", event.target.files?.[0] ?? null)}
             />
             <small className="sr-only" id="chat-attachment-guide">รองรับ JPEG, PNG, WebP, GIF หรือ PDF ขนาดไม่เกิน 5 MB</small>
 
@@ -1119,7 +954,7 @@ export function ChatWorkbench({ initialBookingId }: ChatWorkbenchProps) {
                     kind="image"
                     meta={`${readableMime(imageAttachment.type)} · ${readableSize(imageAttachment.size)}`}
                     disabled={sending}
-                    onRemove={removeImage}
+                    onRemove={() => pickAttachment("image", null)}
                   />
                 )}
                 {fileAttachment && (
@@ -1128,7 +963,7 @@ export function ChatWorkbench({ initialBookingId }: ChatWorkbenchProps) {
                     kind="file"
                     meta={`${readableMime(fileAttachment.type)} · ${readableSize(fileAttachment.size)}`}
                     disabled={sending}
-                    onRemove={removeFile}
+                    onRemove={() => pickAttachment("file", null)}
                   />
                 )}
               </div>

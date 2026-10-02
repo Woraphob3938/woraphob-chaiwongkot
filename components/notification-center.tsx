@@ -1,10 +1,5 @@
 "use client";
 
-/* Hallmark · Master Detail · inherits DESIGN.md Athlete Credential system
- * states: loading · ready · error · empty · unread · selected · disabled · success
- * contrast: inherited tokens · motion: one 180ms selection cue
- */
-
 import Link from "next/link";
 import { useCallback, useEffect, useRef, useState } from "react";
 import {
@@ -75,19 +70,6 @@ function formatRelativeTime(value: string) {
   }
 }
 
-function getCategoryIcon(category: NotificationItem["category"]) {
-  switch (category) {
-    case "payment":
-      return CreditCard;
-    case "appointment":
-      return CalendarCheck;
-    case "booking":
-      return CalendarClock;
-    default:
-      return Bell;
-  }
-}
-
 /** Booking states that can still ask someone to act. */
 const OPEN_BOOKING_STATUSES = new Set(["pending_trainer", "awaiting_payment", "payment_review"]);
 
@@ -99,15 +81,9 @@ export function isUrgentNotification(item: NotificationItem) {
   const text = `${item.title} ${item.message}`.toLowerCase();
   // A booking that already expired or was cancelled leaves nothing to do.
   if (text.includes("หมดเวลา") || text.includes("ถูกยกเลิก")) return false;
-  return (
-    text.includes("รอชำระเงิน") ||
-    text.includes("รอการชำระเงิน") ||
-    text.includes("ไม่ผ่าน") ||
-    text.includes("ปฏิเสธ") ||
-    text.includes("10 นาที") ||
-    item.type.includes("payment_rejected") ||
-    item.type.includes("deadline")
-  );
+  return ["รอชำระเงิน", "รอการชำระเงิน", "ไม่ผ่าน", "ปฏิเสธ", "10 นาที"].some((word) => text.includes(word))
+    || item.type.includes("payment_rejected")
+    || item.type.includes("deadline");
 }
 
 function categoryLabel(category: NotificationItem["category"]) {
@@ -275,13 +251,10 @@ export function NotificationCenter() {
   }, [appliedQuery, category, page, unreadOnly]);
 
   useEffect(() => {
-    let active = true;
     async function run() {
-      if (!active) return;
       await loadNotifications();
     }
     void run();
-    return () => { active = false; };
   }, [loadNotifications, reloadVersion]);
 
   useEffect(() => {
@@ -302,33 +275,33 @@ export function NotificationCenter() {
     return () => window.clearInterval(timer);
   }, []);
 
-  function updateCategory(nextCategory: NotificationCategory) {
+  /** A new filter closes the open detail and starts again at page one. */
+  function closeDetail() {
     selectionRequestRef.current += 1;
-    setCategory(nextCategory);
     setPage(0);
     setSelectedId(null);
     setDetail(null);
+    setDetailError(null);
+  }
+
+  function updateCategory(nextCategory: NotificationCategory) {
+    setCategory(nextCategory);
+    closeDetail();
     setLoadError(null);
   }
 
   function updateUnreadFilter() {
-    selectionRequestRef.current += 1;
     setUnreadOnly((current) => !current);
-    setPage(0);
-    setSelectedId(null);
-    setDetail(null);
+    closeDetail();
     setLoadError(null);
   }
 
   function resetFilters() {
-    selectionRequestRef.current += 1;
     setCategory("all");
     setUnreadOnly(false);
     setSearchQuery("");
     setAppliedQuery("");
-    setPage(0);
-    setSelectedId(null);
-    setDetail(null);
+    closeDetail();
     setLoadError(null);
   }
 
@@ -421,7 +394,6 @@ export function NotificationCenter() {
     }
   }
 
-  const filteredItems = response.items;
   // Nothing has ever arrived: one plain message instead of an empty inbox with
   // a search box, disabled buttons and a detail pane with nothing to show.
   const inboxEmpty = loadState === "ready" && !loadError && !listRefreshing
@@ -555,7 +527,7 @@ export function NotificationCenter() {
                 <Skeleton className="h-24 w-full" />
                 <Skeleton className="h-24 w-full" />
               </div>
-            ) : filteredItems.length === 0 ? (
+            ) : response.items.length === 0 ? (
               <div className="notification-empty">
                 <Bell aria-hidden="true" />
                 <strong>{appliedQuery ? "ไม่พบการแจ้งเตือนที่ตรงกับการค้นหา" : "ยังไม่มีการแจ้งเตือนในหมวดนี้"}</strong>
@@ -566,8 +538,8 @@ export function NotificationCenter() {
               </div>
             ) : (
               <ul className="notification-list" aria-label="รายการแจ้งเตือน">
-                {filteredItems.map((item) => {
-                  const Icon = getCategoryIcon(item.category);
+                {response.items.map((item) => {
+                  const Icon = categories.find((entry) => entry.key === item.category)?.icon ?? Bell;
                   const urgent = isUrgentNotification(item);
                   return (
                     <li key={item.id}>

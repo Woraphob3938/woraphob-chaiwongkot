@@ -124,25 +124,6 @@ final class WorkflowRules
         return $now >= $deadline;
     }
 
-    public static function paymentRejectionTransition(
-        int $priorRejectedCount,
-        DateTimeImmutable $now
-    ): array {
-        if ($priorRejectedCount === 0) {
-            return [
-                'bookingStatus' => 'awaiting_payment',
-                'slotState' => 'held',
-                'paymentDeadlineAt' => $now->modify('+10 minutes'),
-            ];
-        }
-
-        return [
-            'bookingStatus' => 'expired',
-            'slotState' => 'available',
-            'paymentDeadlineAt' => null,
-        ];
-    }
-
     public static function normalizeMoney(mixed $value, string $field): string
     {
         $raw = trim((string) $value);
@@ -192,20 +173,6 @@ final class WorkflowRules
         }
         if ($startsAt < $periodStart || $endsAt > $periodEnd) {
             throw new HttpException(422, 'เวลาฝึกต้องอยู่ภายใน 30 วัน', 'VALIDATION_FAILED', ['slotId' => 'เลือกช่วงเวลาภายใน 30 วันนับจากนัดแรก']);
-        }
-    }
-
-    public static function assertPaymentDecision(
-        string $paymentStatus,
-        string $bookingStatus,
-        string $decision,
-        string $note
-    ): void {
-        if ($paymentStatus !== 'reviewing' || $bookingStatus !== 'payment_review') {
-            throw new HttpException(409, 'หลักฐานนี้ได้รับการตัดสินแล้ว', 'PAYMENT_ALREADY_REVIEWED');
-        }
-        if ($decision === 'reject' && trim($note) === '') {
-            throw new HttpException(422, 'กรุณาระบุเหตุผลที่สลิปไม่ผ่าน', 'VALIDATION_FAILED', ['note' => 'จำเป็นต้องระบุเหตุผล']);
         }
     }
 

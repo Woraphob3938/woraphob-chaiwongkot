@@ -68,28 +68,6 @@ if (-not $SkipDatabaseImport) {
         $schemaSource = $schemaPath.Replace('\', '/')
         & $mysqlExe --host=127.0.0.1 --port=3306 --user=$DatabaseUser --default-character-set=utf8mb4 --execute="SOURCE $schemaSource"
         if ($LASTEXITCODE -ne 0) { throw 'นำเข้าโครงสร้างฐานข้อมูลไม่สำเร็จ' }
-        $migrationRoot = Join-Path $backendFull 'database\migrations'
-        if (Test-Path -LiteralPath $migrationRoot) {
-            foreach ($migration in Get-ChildItem -LiteralPath $migrationRoot -Filter '*.sql' -File | Sort-Object Name) {
-                $migrationSource = $migration.FullName.Replace('\', '/')
-                & $mysqlExe --host=127.0.0.1 --port=3306 --user=$DatabaseUser --default-character-set=utf8mb4 --execute="SOURCE $migrationSource"
-                if ($LASTEXITCODE -ne 0) { throw "นำเข้า migration ไม่สำเร็จ: $($migration.Name)" }
-            }
-        }
-        # The manual migrations carry the schema changes that schema.sql was
-        # never updated with (pending_trainer, the notifications booking_id
-        # relaxations, the message image columns, ...). They are written to be
-        # idempotent, so replaying them is a no-op on an up-to-date database.
-        # Filename order is the intended order: the 20260922 file re-adds
-        # pending_trainer after the 20260810 file retires it.
-        $manualMigrationRoot = Join-Path $backendFull 'database\manual-migrations'
-        if (Test-Path -LiteralPath $manualMigrationRoot) {
-            foreach ($migration in Get-ChildItem -LiteralPath $manualMigrationRoot -Filter '*.sql' -File | Sort-Object Name) {
-                $migrationSource = $migration.FullName.Replace('\', '/')
-                & $mysqlExe --host=127.0.0.1 --port=3306 --user=$DatabaseUser --default-character-set=utf8mb4 --execute="SOURCE $migrationSource"
-                if ($LASTEXITCODE -ne 0) { throw "นำเข้า manual migration ไม่สำเร็จ: $($migration.Name)" }
-            }
-        }
         $seedSource = $seedPath.Replace('\', '/')
         & $mysqlExe --host=127.0.0.1 --port=3306 --user=$DatabaseUser --default-character-set=utf8mb4 --execute="SOURCE $seedSource"
         if ($LASTEXITCODE -ne 0) { throw 'นำเข้าข้อมูลสาธิตไม่สำเร็จ' }
