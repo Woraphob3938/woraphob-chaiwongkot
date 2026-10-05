@@ -3,7 +3,7 @@
 PHP REST API แบบไม่พึ่ง Composer สำหรับ Apache + MySQL ใน XAMPP ใช้ PDO, prepared statements, bearer token และตรวจ MIME/ขนาดไฟล์ก่อนบันทึก
 
 - เส้นทางทั้งหมดอยู่ใน `index.php` (หนึ่งบรรทัดต่อหนึ่งเส้นทาง)
-- ตัวจัดการอยู่ใน `src/Handlers.php` กติกาอยู่ใน `src/*Rules.php`, `src/PaymentRouting.php` และ `src/StripePayments.php`
+- ตัวจัดการอยู่ใน `src/handlers/` แยกไฟล์ตามเรื่อง (เทรนเนอร์ บัญชี การจอง การชำระเงิน แชต แอดมิน) รวมเป็นคลาสเดียวใน `src/Handlers.php` กติกาอยู่ใน `src/*Rules.php`, `src/PaymentRouting.php` และ `src/StripePayments.php`
 - โครงสร้างฐานข้อมูลอยู่ใน `database/schema.sql` ข้อมูลสาธิตอยู่ใน `database/seed.sql`
 
 ## ติดตั้งกับ XAMPP

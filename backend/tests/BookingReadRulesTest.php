@@ -30,7 +30,7 @@ function assertFalse(bool $condition, string $message): void
     assertTrue(!$condition, $message);
 }
 
-$handlers = file_get_contents(__DIR__ . '/../src/Handlers.php');
+$handlers = implode("\n", array_map('file_get_contents', [__DIR__ . '/../src/Handlers.php', ...glob(__DIR__ . '/../src/handlers/*.php')]));
 $entry = file_get_contents(__DIR__ . '/../index.php');
 if ($handlers === false || $entry === false) {
     throw new RuntimeException('Could not read the API sources');

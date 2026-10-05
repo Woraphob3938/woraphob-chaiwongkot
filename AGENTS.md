@@ -17,7 +17,7 @@ Read `PRODUCT.md` for what the product must do and `DESIGN.md` for how it must l
 ## Layout
 
 - `app/`, `components/`, `lib/` — Next.js front end (TypeScript, Tailwind, `app/globals.css`, tokens in `tokens.css`).
-- `backend/` — plain PHP REST API. Routes in `backend/index.php`, handlers in `backend/src/Handlers.php`, business rules in `backend/src/*Rules.php` and `PaymentRouting.php`.
+- `backend/` — plain PHP REST API. Routes in `backend/index.php`, handlers in `backend/src/handlers/*.php` (one trait per area, all used by the `Handlers` class in `backend/src/Handlers.php`, which keeps the shared helpers), business rules in `backend/src/*Rules.php` and `PaymentRouting.php`.
 - `backend/database/` — `schema.sql` (the only source of the schema; change it together with the live database) and `seed.sql` (demo data).
 - `.kilo/worktrees/` — a stale copy of the project left by another tool. Never edit it, and keep it out of test runs.
 

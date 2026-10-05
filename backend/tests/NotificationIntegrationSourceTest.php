@@ -26,7 +26,7 @@ function assertSourceDoesNotContain(string $source, string $needle): void
     assertSameValue(false, str_contains($source, $needle));
 }
 
-$source = file_get_contents(__DIR__ . '/../src/Handlers.php');
+$source = implode("\n", array_map('file_get_contents', [__DIR__ . '/../src/Handlers.php', ...glob(__DIR__ . '/../src/handlers/*.php')]));
 if ($source === false) {
     throw new RuntimeException('Could not read Handlers.php');
 }
