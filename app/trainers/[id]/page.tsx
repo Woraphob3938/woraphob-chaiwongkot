@@ -14,7 +14,7 @@ export async function generateMetadata({ params }: Props) {
 export default async function TrainerPage({ params, searchParams }: Props) {
   const { id } = await params;
   const { returnTo } = await searchParams;
-  const backHref = typeof returnTo === "string" && (returnTo === "/trainers" || returnTo.startsWith("/trainers?")) ? returnTo : "/trainers";
+  const backHref = typeof returnTo === "string" && (returnTo === "/trainers" || returnTo.startsWith("/trainers?") || returnTo === "/profile") ? returnTo : "/trainers";
   const result = await getTrainer(id);
   if (result.error) {
     return (

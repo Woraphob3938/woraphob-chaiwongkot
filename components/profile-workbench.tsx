@@ -9,6 +9,7 @@ import { TrainerPhotosManager } from "@/components/trainer-photos-manager";
 import { TrainerApplyForm } from "@/components/trainer-apply-form";
 import { TrainerProfileSummary } from "@/components/trainer-profile-summary";
 import { PasswordForm } from "@/components/password-form";
+import { ProfileTrainersPanel } from "@/components/profile-trainers-panel";
 import { Input } from "@/components/ui/input";
 import {
   Dialog,
@@ -28,10 +29,11 @@ type ProfileState =
   | { status: "error"; message: string }
   | { status: "ready"; profile: AccountProfile };
 
-type ProfileTab = "personal" | "security" | "delete";
+type ProfileTab = "personal" | "trainers" | "security" | "delete";
 
-const tabs: { id: ProfileTab; label: string }[] = [
+const allTabs: { id: ProfileTab; label: string }[] = [
   { id: "personal", label: "ข้อมูลส่วนตัว" },
+  { id: "trainers", label: "เทรนเนอร์" },
   { id: "security", label: "รหัสผ่าน" },
   { id: "delete", label: "ลบบัญชี" },
 ];
@@ -112,6 +114,12 @@ export function ProfileWorkbench() {
     };
   }, [personalDirty, securityDirty]);
 
+  // Only members browse trainers from here; trainers manage their own profile.
+  function visibleTabs() {
+    const isMember = state.status === "ready" && state.profile.role === "member";
+    return allTabs.filter((tab) => tab.id !== "trainers" || isMember);
+  }
+
   function requestTab(next: ProfileTab) {
     if (next === activeTab) return;
     const leavingDirty = activeTab === "personal" ? personalDirty : activeTab === "security" ? securityDirty : false;
@@ -123,6 +131,7 @@ export function ProfileWorkbench() {
   }
 
   function onTabKeyDown(event: KeyboardEvent<HTMLButtonElement>, tab: ProfileTab) {
+    const tabs = visibleTabs();
     const index = tabs.findIndex((item) => item.id === tab);
     if (event.key === "ArrowRight" || event.key === "ArrowLeft") {
       event.preventDefault();
@@ -236,7 +245,7 @@ export function ProfileWorkbench() {
     <main className="page-shell account-profile">
       <ProfileIdentity profile={state.profile} onProfileChange={updateProfile} />
       <div className="profile-tabs" role="tablist" aria-label="ตั้งค่าโปรไฟล์">
-        {tabs.map((tab) => (
+        {visibleTabs().map((tab) => (
           <button
             key={tab.id}
             id={`profile-${tab.id}-tab`}
@@ -276,6 +285,16 @@ export function ProfileWorkbench() {
             </>
           )}
       </div>
+      {state.profile.role === "member" && (
+        <div
+          id="profile-trainers-panel"
+          role="tabpanel"
+          aria-labelledby="profile-trainers-tab"
+          hidden={activeTab !== "trainers"}
+        >
+          {activeTab === "trainers" && <ProfileTrainersPanel />}
+        </div>
+      )}
       <div
         id="profile-security-panel"
         role="tabpanel"
