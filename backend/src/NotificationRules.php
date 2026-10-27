@@ -31,6 +31,8 @@ final class NotificationRules
         $booking = (string) ($context['bookingPublicId'] ?? '');
         $memberId = (int) ($context['memberUserId'] ?? 0);
         $trainerId = (int) ($context['trainerUserId'] ?? 0);
+        // The same review decides a new application and an edit to a live profile.
+        $profileEdit = (bool) ($context['profileEdit'] ?? false);
 
         return match ($event) {
             self::BOOKING_CREATED => [self::definition(
@@ -139,8 +141,10 @@ final class NotificationRules
                 $trainerId,
                 'trainer_application_approved',
                 'booking',
-                'ใบสมัครเทรนเนอร์ได้รับการอนุมัติ',
-                'ใบสมัครเทรนเนอร์ได้รับการอนุมัติแล้ว พร้อมรับการจองจากสมาชิก',
+                $profileEdit ? 'การแก้ไขโปรไฟล์ได้รับการอนุมัติ' : 'ใบสมัครเทรนเนอร์ได้รับการอนุมัติ',
+                $profileEdit
+                    ? 'ข้อมูลโปรไฟล์ที่แก้ไขได้รับการอนุมัติแล้ว โปรไฟล์กลับมาแสดงและรับการจองได้ตามปกติ'
+                    : 'ใบสมัครเทรนเนอร์ได้รับการอนุมัติแล้ว พร้อมรับการจองจากสมาชิก',
                 self::TRAINER_WORKSPACE,
                 true
             )],
@@ -148,8 +152,8 @@ final class NotificationRules
                 $trainerId,
                 'trainer_application_rejected',
                 'booking',
-                'ใบสมัครเทรนเนอร์ไม่ผ่าน',
-                'ใบสมัครเทรนเนอร์ไม่ผ่านการอนุมัติ เหตุผล: ' . trim((string) ($context['reviewNote'] ?? '')),
+                $profileEdit ? 'การแก้ไขโปรไฟล์ไม่ผ่าน' : 'ใบสมัครเทรนเนอร์ไม่ผ่าน',
+                ($profileEdit ? 'การแก้ไขโปรไฟล์' : 'ใบสมัครเทรนเนอร์') . 'ไม่ผ่านการอนุมัติ เหตุผล: ' . trim((string) ($context['reviewNote'] ?? '')),
                 self::TRAINER_APPLY,
                 true
             )],

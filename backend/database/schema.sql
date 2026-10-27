@@ -89,6 +89,9 @@ CREATE TABLE IF NOT EXISTS trainer_profiles (
   approval_note VARCHAR(1000) NULL,
   reviewed_by_user_id BIGINT UNSIGNED NULL,
   reviewed_at DATETIME NULL,
+  -- Set on the first approval and never cleared: a later submission is an edit
+  -- to a profile that was already live, not a new application.
+  first_approved_at DATETIME NULL,
   is_demo TINYINT(1) NOT NULL DEFAULT 0,
   created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
   updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,

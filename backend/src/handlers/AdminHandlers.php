@@ -599,7 +599,7 @@ trait AdminHandlers
         $notificationIds = [];
         $result = $this->database->transaction(function (PDO $pdo) use ($trainerId, $decision, $input, $admin, &$notificationIds): array {
             $trainer = $this->database->fetchOne(
-                'SELECT id, user_id, approval_status FROM trainer_profiles WHERE id = ? FOR UPDATE',
+                'SELECT id, user_id, approval_status, first_approved_at FROM trainer_profiles WHERE id = ? FOR UPDATE',
                 [(int) $trainerId]
             );
             if (!$trainer) {
@@ -618,16 +618,17 @@ trait AdminHandlers
             $pdo->prepare(
                 'UPDATE trainer_profiles
                  SET approval_status = ?, approval_note = ?, reviewed_by_user_id = ?,
-                     reviewed_at = UTC_TIMESTAMP(), updated_at = UTC_TIMESTAMP()
+                     reviewed_at = UTC_TIMESTAMP(), updated_at = UTC_TIMESTAMP(),
+                     first_approved_at = IF(? = "approved", COALESCE(first_approved_at, UTC_TIMESTAMP()), first_approved_at)
                  WHERE id = ?'
-            )->execute([$status, $note, $admin['id'], (int) $trainer['id']]);
+            )->execute([$status, $note, $admin['id'], $status, (int) $trainer['id']]);
             $pdo->prepare(
                 'UPDATE trainer_certificates
                  SET status = ?, review_note = ?, reviewed_by_user_id = ?, reviewed_at = UTC_TIMESTAMP()
                  WHERE trainer_profile_id = ? AND status = "pending"'
             )->execute([$certificateStatus, $note, $admin['id'], (int) $trainer['id']]);
 
-            $this->notify($pdo, $notificationIds, $status === 'approved' ? NotificationRules::TRAINER_APPLICATION_APPROVED : NotificationRules::TRAINER_APPLICATION_REJECTED, ['trainerUserId' => (int) $trainer['user_id'], 'reviewNote' => $note]);
+            $this->notify($pdo, $notificationIds, $status === 'approved' ? NotificationRules::TRAINER_APPLICATION_APPROVED : NotificationRules::TRAINER_APPLICATION_REJECTED, ['trainerUserId' => (int) $trainer['user_id'], 'reviewNote' => $note, 'profileEdit' => $trainer['first_approved_at'] !== null]);
 
             return ['trainerId' => (int) $trainer['id'], 'status' => $status];
         });
@@ -642,7 +643,7 @@ trait AdminHandlers
         // applications only.
         $this->requireAdminPermission('review_trainers');
         $trainers = $this->database->fetchAll(
-            'SELECT tp.id, tp.slug, tp.created_at, tp.is_demo, u.display_name, COUNT(tc.id) AS certificate_count
+            'SELECT tp.id, tp.slug, tp.created_at, tp.updated_at, tp.first_approved_at, tp.is_demo, u.display_name, COUNT(tc.id) AS certificate_count
              FROM trainer_profiles tp
              JOIN users u ON u.id = tp.user_id
              LEFT JOIN trainer_certificates tc ON tc.trainer_profile_id = tp.id
@@ -679,7 +680,9 @@ trait AdminHandlers
                 'displayName' => $row['display_name'],
                 'certificateCount' => (int) $row['certificate_count'],
                 'certificates' => $certificatesByTrainer[(int) $row['id']] ?? [],
-                'submittedAt' => $this->iso($row['created_at']),
+                // A profile that was approved before is back for an edit, sent when it last changed.
+                'kind' => $row['first_approved_at'] === null ? 'application' : 'edit',
+                'submittedAt' => $this->iso($row['first_approved_at'] === null ? $row['created_at'] : $row['updated_at']),
                 'demo' => (bool) $row['is_demo'],
             ], $trainers),
         ]);

@@ -191,6 +191,8 @@ export type AdminQueue = {
     id: number;
     slug: string;
     displayName: string;
+    /** "edit" when the profile was approved before and is back with changes. */
+    kind?: "application" | "edit";
     submittedAt: string;
     certificates: AdminCertificate[];
     demo?: boolean;

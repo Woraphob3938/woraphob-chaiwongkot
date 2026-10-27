@@ -118,7 +118,11 @@ export function getTrainerNextAction(workspace: TrainerWorkspace | null, booking
 
 export function getAdminNextAction(queue: AdminQueue): DashboardAction {
   if (queue.trainers.length > 0) {
-    return { title: "มีใบสมัครรอตรวจ", description: "เปิดคิวเพื่อตัดสินใบสมัครเทรนเนอร์ที่รออยู่", href: "/admin#review-queue", cta: "เปิดคิวตรวจสอบ", state: "action" };
+    const edits = queue.trainers.filter((trainer) => trainer.kind === "edit").length;
+    if (edits === queue.trainers.length) {
+      return { title: "มีการแก้ไขโปรไฟล์รอตรวจ", description: "เปิดคิวเพื่อตัดสินการแก้ไขโปรไฟล์เทรนเนอร์ที่รออยู่", href: "/admin#review-queue", cta: "เปิดคิวตรวจสอบ", state: "action" };
+    }
+    return { title: "มีใบสมัครรอตรวจ", description: edits > 0 ? "เปิดคิวเพื่อตัดสินใบสมัครและการแก้ไขโปรไฟล์ที่รออยู่" : "เปิดคิวเพื่อตัดสินใบสมัครเทรนเนอร์ที่รออยู่", href: "/admin#review-queue", cta: "เปิดคิวตรวจสอบ", state: "action" };
   }
 
   return { title: "คิวตรวจสอบเป็นปัจจุบันแล้ว", description: "ไม่มีรายการรอตรวจ", href: "/admin#review-queue", cta: "ดูคิวตรวจสอบ", state: "complete" };

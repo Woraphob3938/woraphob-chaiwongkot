@@ -68,3 +68,5 @@ VALUES (1, 1, NULL, 'awaiting_payment', 1, 'ข้อมูลสาธิต'),
 INSERT IGNORE INTO chat_rooms (id, booking_id) VALUES (1, 1);
 INSERT IGNORE INTO messages (id, chat_room_id, sender_user_id, message_text)
 VALUES (1, 1, 2, 'ข้อความนี้เป็นข้อมูลสาธิตสำหรับตรวจรูปแบบห้องสนทนา');
+
+UPDATE trainer_profiles SET first_approved_at = reviewed_at WHERE approval_status = 'approved' AND first_approved_at IS NULL;

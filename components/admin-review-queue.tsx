@@ -100,7 +100,9 @@ export function AdminReviewQueue({ onQueueLoaded }: {
     const rowKey = `trainer-${trainerId}`;
     if (busyRows[rowKey]) return;
     const note = notes[trainerId]?.trim() ?? "";
-    const trainerName = queue?.trainers.find((trainer) => trainer.id === trainerId)?.displayName ?? `TR-${String(trainerId).padStart(6, "0")}`;
+    const trainer = queue?.trainers.find((entry) => entry.id === trainerId);
+    const trainerName = trainer?.displayName ?? `TR-${String(trainerId).padStart(6, "0")}`;
+    const subject = trainer?.kind === "edit" ? "การแก้ไขโปรไฟล์ของ" : "ใบสมัคร";
     if (decision === "reject" && !note) {
       setRowErrors((current) => ({ ...current, [rowKey]: "กรุณาระบุเหตุผลก่อนปฏิเสธ" }));
       return;
@@ -116,10 +118,10 @@ export function AdminReviewQueue({ onQueueLoaded }: {
       });
       const refreshResult = await loadQueue();
       if (refreshResult === "applied") {
-        setNotice(`${decision === "approve" ? "อนุมัติ" : "ปฏิเสธ"}ใบสมัคร${trainerName}แล้ว`);
+        setNotice(`${decision === "approve" ? "อนุมัติ" : "ปฏิเสธ"}${subject}${trainerName}แล้ว`);
       } else if (refreshResult === "failed") {
         setRowErrors((current) => ({ ...current, [rowKey]: "บันทึกผลแล้ว แต่ยังโหลดคิวล่าสุดไม่ได้" }));
-        setNotice(`บันทึกผลใบสมัคร${trainerName}แล้ว แต่ยังโหลดคิวล่าสุดไม่ได้`);
+        setNotice(`บันทึกผล${subject}${trainerName}แล้ว แต่ยังโหลดคิวล่าสุดไม่ได้`);
       }
     } catch (error) {
       if (leaveExpiredSession(error, navigate)) return;
@@ -165,6 +167,7 @@ export function AdminReviewQueue({ onQueueLoaded }: {
       code: `TR-${String(trainer.id).padStart(6, "0")}`,
       title: trainer.displayName,
       detail: `${trainer.certificates.length} เอกสาร`,
+      label: trainer.kind === "edit" ? "แก้ไขโปรไฟล์" : "ใบสมัครเทรนเนอร์",
       submittedAt: trainer.submittedAt,
     })),
   ];
@@ -188,7 +191,7 @@ export function AdminReviewQueue({ onQueueLoaded }: {
         <header className="admin-review-workbench__heading">
           <div>
             <h2 id="review-queue-title">ตรวจสอบและอนุมัติข้อมูลเทรนเนอร์</h2>
-            <p>เลือกใบสมัคร ตรวจเอกสารรับรอง แล้วบันทึกคำตัดสิน</p>
+            <p>เลือกใบสมัครหรือการแก้ไขโปรไฟล์ ตรวจเอกสารรับรอง แล้วบันทึกคำตัดสิน</p>
           </div>
           <span>{loading ? "กำลังอัปเดต" : "ข้อมูลจากระบบ"}</span>
         </header>
@@ -203,12 +206,12 @@ export function AdminReviewQueue({ onQueueLoaded }: {
                   <li key={item.key}>
                     <button
                       type="button"
-                      aria-label={`เลือกตรวจใบสมัคร ${item.title}`}
+                      aria-label={`เลือกตรวจ${item.label === "แก้ไขโปรไฟล์" ? "การแก้ไขโปรไฟล์" : "ใบสมัคร"} ${item.title}`}
                       aria-current={activeReviewKey === item.key ? "true" : undefined}
                       disabled={Boolean(busyRows[item.key])}
                       onClick={() => setSelectedReviewKey(item.key)}
                     >
-                      <span><strong>{item.code}</strong><small>ใบสมัครเทรนเนอร์</small></span>
+                      <span><strong>{item.code}</strong><small>{item.label}</small></span>
                       <span><strong>{item.title}</strong><small>{item.detail} · {formatDateTime(item.submittedAt)}</small></span>
                     </button>
                   </li>
@@ -227,7 +230,7 @@ export function AdminReviewQueue({ onQueueLoaded }: {
                       <StatusBadge status="pending" />
                     </header>
                     <dl className="admin-evidence-facts">
-                      <div><dt>ส่งใบสมัครเมื่อ</dt><dd>{formatDateTime(selectedTrainer.submittedAt)}</dd></div>
+                      <div><dt>{selectedTrainer.kind === "edit" ? "ส่งการแก้ไขเมื่อ" : "ส่งใบสมัครเมื่อ"}</dt><dd>{formatDateTime(selectedTrainer.submittedAt)}</dd></div>
                       <div><dt>เอกสารรับรอง</dt><dd>{selectedTrainer.certificates.length} รายการ</dd></div>
                     </dl>
                     <ul className="certificate-list" aria-label={`เอกสารของ${selectedTrainer.displayName}`}>

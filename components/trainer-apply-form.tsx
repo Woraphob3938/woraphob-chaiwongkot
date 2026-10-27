@@ -597,6 +597,7 @@ export function TrainerApplyForm({ embedded = false, onDirtyChange, onSaved, onC
           <dl className="apply-review" aria-label="สรุปข้อมูลก่อนส่ง">
             <div><dt>หน้าร้าน</dt><dd>{values.displayName || "—"}{selectedTypeNames.length > 0 && ` · ${selectedTypeNames.join(", ")}`}</dd><button type="button" onClick={() => goToStep(0)}>แก้ไข</button></div>
             <div><dt>บริการและราคา</dt><dd>{serviceLabel}{values.priceFrom && ` · ฿${values.priceFrom} ต่อครั้ง`}{packageOpen && values.monthlyPrice && ` · แพ็กเกจ ฿${values.monthlyPrice}`}</dd><button type="button" onClick={() => goToStep(1)}>แก้ไข</button></div>
+            <div><dt>ข้อมูลส่วนตัว</dt><dd>{values.legalName || "—"}{values.phone && ` · ${values.phone}`}</dd><button type="button" onClick={() => goToStep(2)}>แก้ไข</button></div>
           </dl>
           <p className="apply-note">ส่งแล้วโปรไฟล์จะเข้าคิวให้ผู้ดูแลระบบตรวจ และเปิดให้สมาชิกจองเมื่อผ่านการตรวจ</p>
         </section>

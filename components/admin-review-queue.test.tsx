@@ -115,4 +115,16 @@ describe("AdminReviewQueue", () => {
 
     expect(await screen.findByRole("heading", { name: "ตรวจสอบและอนุมัติข้อมูลเทรนเนอร์" })).toBeInTheDocument();
   });
+
+  it("labels a profile that was approved before as an edit, not an application", async () => {
+    vi.mocked(authenticatedRequest).mockResolvedValue({ trainers: [{ ...trainerQueue.trainers[0], kind: "edit" }] });
+
+    render(<AdminReviewQueue />);
+
+    const item = await screen.findByRole("button", { name: "เลือกตรวจการแก้ไขโปรไฟล์ ผู้สมัครทดสอบ" });
+    expect(item).toHaveTextContent("แก้ไขโปรไฟล์");
+    expect(item).not.toHaveTextContent("ใบสมัครเทรนเนอร์");
+    expect(screen.getByText("ส่งการแก้ไขเมื่อ")).toBeInTheDocument();
+    expect(screen.getByTestId("next-action")).toHaveTextContent("มีการแก้ไขโปรไฟล์รอตรวจ");
+  });
 });

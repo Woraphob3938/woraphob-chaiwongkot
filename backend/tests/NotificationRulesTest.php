@@ -135,6 +135,19 @@ test('routes application decisions to the trainer without any booking', function
     assertTrueValue(str_contains($rejected[0]['message'], 'ใบรับรองไม่ชัดเจน'), 'the rejection carries the reason');
 });
 
+test('names an edit to a live profile as an edit, not an application', function (): void {
+    $approved = NotificationRules::forEvent(NotificationRules::TRAINER_APPLICATION_APPROVED, ['trainerUserId' => 4, 'profileEdit' => true]);
+    assertSameValue('การแก้ไขโปรไฟล์ได้รับการอนุมัติ', $approved[0]['title']);
+    assertSameValue(false, str_contains($approved[0]['message'], 'ใบสมัคร'));
+
+    $rejected = NotificationRules::forEvent(NotificationRules::TRAINER_APPLICATION_REJECTED, ['trainerUserId' => 4, 'profileEdit' => true, 'reviewNote' => 'ราคาไม่ถูกต้อง']);
+    assertSameValue('การแก้ไขโปรไฟล์ไม่ผ่าน', $rejected[0]['title']);
+    assertSameValue(false, str_contains($rejected[0]['message'], 'ใบสมัคร'));
+
+    $first = NotificationRules::forEvent(NotificationRules::TRAINER_APPLICATION_APPROVED, ['trainerUserId' => 4]);
+    assertSameValue('ใบสมัครเทรนเนอร์ได้รับการอนุมัติ', $first[0]['title']);
+});
+
 test('booking events still demand the full booking context', function (): void {
     $thrown = false;
     try {
